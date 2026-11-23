@@ -1,0 +1,7 @@
+{
+  "checks": [[
+    "python3",
+    "-c",
+    "from pathlib import Path; assert Path('hello.txt').read_text() == 'hello\\n'"
+  ]]
+}

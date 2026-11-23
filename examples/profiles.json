@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "codex": { "kind": "codex", "billing": "ChatGPT" },
+    "claude": { "kind": "claude" },
+    "deepseek": { "kind": "hermes", "hermes_profile": "deepseek" },
+    "gemini": { "kind": "antigravity" }
+  }
+}

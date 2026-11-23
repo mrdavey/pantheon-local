@@ -1,0 +1,9 @@
+.codex/implementation-plans/
+bin/
+node_modules/
+internal/ui/dist/*
+!internal/ui/dist/.keep
+playwright-report/
+test-results/
+
+__pycache__/
