@@ -22,7 +22,7 @@ export function Inbox({ runs, act, open, busy }) {
 function InboxItem({ run, question, act, open, busy }) {
   const [answer, setAnswer] = useState("");
   return <article className="row">
-    <button className="link" onClick={() => open(run.id)}>{run.input.prompt}</button>
+    <button className="text-button" onClick={() => open(run.id)}>{run.input.prompt}</button>
     <h2>{question.text}</h2>
     {question.state === "open" ? <form onSubmit={(event) => {
       event.preventDefault();
@@ -46,12 +46,13 @@ function ScorePlot({ values, metric, xMetric, yLimit, xLimit }) {
   const [xmin, xmax] = range([...published.map((p) => p.x), ...(xLimit === undefined ? [] : [xLimit])]);
   const [ymin, ymax] = range([...published.flatMap((p) => [p.min ?? p.y, p.max ?? p.y]), ...(yLimit === undefined ? [] : [yLimit])]);
   const x = (value) => 15 + 75 * (xmax === xmin ? .5 : (value - xmin) / (xmax - xmin));
-  const y = (value) => 88 - 76 * (ymax === ymin ? .5 : (value - ymin) / (ymax - ymin));
+  const y = (value) => 12 + 76 * (ymax === ymin ? .5 : (value - ymin) / (ymax - ymin));
   const active = published[point];
   return <figure className="plot">
     <figcaption>{metric} {isTradeoff ? "by " + xMetric : "across rounds"}</figcaption>
     <div className="plot-area">
-      <span className="chart-high">{number(ymax)}</span><span className="chart-low">{number(ymin)}</span>
+      <span className="chart-high" style={{ bottom: y(ymax) + "%" }}>{number(ymax)}</span>
+      {ymin !== ymax && <span className="chart-low" style={{ bottom: y(ymin) + "%" }}>{number(ymin)}</span>}
       {yLimit !== undefined && <span className="limit horizontal" style={{ bottom: y(yLimit) + "%" }} title={`Limit ${number(yLimit)}`} />}
       {xLimit !== undefined && <span className="limit vertical" style={{ left: x(xLimit) + "%" }} title={`Limit ${number(xLimit)}`} />}
       {published.map((entry, j) => <React.Fragment key={entry.id}>
@@ -60,12 +61,15 @@ function ScorePlot({ values, metric, xMetric, yLimit, xLimit }) {
         <button type="button" className={`point ${entry.kind || ""}`}
           style={{ left: x(entry.x) + "%", bottom: y(entry.y) + "%" }}
           aria-label={`${entry.name}, ${number(entry.y)} ${metric}`}
+          aria-describedby={isTradeoff ? `point-${entry.id}-x` : undefined}
           onPointerEnter={() => setPoint(j)} onFocus={() => setPoint(j)} onClick={() => setPoint(j)} />
+        {isTradeoff && <span className="visually-hidden" id={`point-${entry.id}-x`}>{number(entry.x)} {xMetric}</span>}
       </React.Fragment>)}
-      <span className="axis-min">{number(xmin)}</span><span className="axis-max">{number(xmax)}</span>
+      <span className="axis-min" style={{ left: x(xmin) + "%" }}>{number(xmin)}</span>
+      {xmin !== xmax && <span className="axis-max" style={{ left: x(xmax) + "%" }}>{number(xmax)}</span>}
     </div>
-    {active && <p aria-live="polite">{active.name} · {number(active.y)}{active.n > 0 ? ` · ${active.n} samples` : ""}</p>}
-    {(xLimit !== undefined || yLimit !== undefined) && <p>Limits {xLimit !== undefined && `${xMetric} ${number(xLimit)} `}{yLimit !== undefined && `${metric} ${number(yLimit)}`}</p>}
+    <p className="plot-reading" aria-live="polite">{active && <>{active.name} · {number(active.y)}{xMetric && ` · ${number(active.x)} ${xMetric}`}{active.n > 0 && ` · ${active.n} samples`}</>}</p>
+    {(xLimit !== undefined || yLimit !== undefined) && <p className="plot-limit">Limits {xLimit !== undefined && `${xMetric} ${number(xLimit)} `}{yLimit !== undefined && `${metric} ${number(yLimit)}`}</p>}
   </figure>;
 }
 
@@ -77,18 +81,20 @@ function Charts({ run, candidates, rule, policy }) {
   const x = metrics.find((m) => m.name === second && m !== y) || metrics.find((m) => m !== y);
   if (!y) return null;
   const label = (m) => `${m.name} (${m.unit})`;
-  const history = (run.candidates || []).filter((c) => c.policy === policy);
-  return <>
-    <div className="actions">
+  const history = (run.candidates || []).filter((c) => (c.policy || 0) === policy);
+  const showHistory = !x || new Set(history.filter((c) => c.score?.[y.name]).map((c) => c.round)).size > 1;
+  return <section className="charts-card" aria-labelledby="metrics-heading">
+    <h3 id="metrics-heading">Measurements</h3>
+    <div className="actions chart-controls">
       <label>Metric<select value={y.name} onChange={(event) => setChosen(event.target.value)}>{metrics.map((m) => <option key={m.name} value={m.name}>{label(m)}</option>)}</select></label>
       {x && <label>Compare with<select value={x.name} onChange={(event) => setSecond(event.target.value)}>{metrics.filter((m) => m !== y).map((m) => <option key={m.name} value={m.name}>{label(m)}</option>)}</select></label>}
     </div>
     <div className="charts">
-      <ScorePlot metric={label(y)} values={history.map((c) => ({ id: c.id, name: title(c), x: c.round, y: c.score?.[y.name]?.value, kind: c.baseline ? "baseline" : c.id === run.selection?.candidate ? "winner" : "", ...c.score?.[y.name] }))} />
+      {showHistory && <ScorePlot metric={label(y)} values={history.map((c) => ({ id: c.id, name: title(c), x: c.round, y: c.score?.[y.name]?.value, kind: c.baseline ? "baseline" : c.id === run.selection?.candidate ? "winner" : "", ...c.score?.[y.name] }))} />}
       {x && <ScorePlot xMetric={label(x)} metric={label(y)} yLimit={rule.limits?.[y.name]} xLimit={rule.limits?.[x.name]}
         values={candidates.map((c) => ({ id: c.id, name: title(c), x: c.score?.[x.name]?.value, y: c.score?.[y.name]?.value, kind: c.baseline ? "baseline" : c.id === run.selection?.candidate ? "winner" : "", ...c.score?.[y.name] }))} />}
     </div>
-  </>;
+  </section>;
 }
 
 function Cases({ run, candidates, api, perform }) {
@@ -117,7 +123,7 @@ function Cases({ run, candidates, api, perform }) {
     return { name, cells, regressed, improved };
   });
   const filtered = rows.filter(({ regressed, improved }) => filter === "All cases" || (filter === "Regressions" ? regressed : improved));
-  return <section>
+  return <section className="form-card">
     <h3>Case results</h3>
     {failed > 0 && <div className="notice">
       <p role="status">Couldn’t load case results for {failed} {failed === 1 ? "implementation" : "implementations"}.</p>
@@ -140,7 +146,7 @@ function Cases({ run, candidates, api, perform }) {
   </section>;
 }
 
-export function Experiment({ run, act, perform, api, busy, openRun }) {
+export function Experiment({ active, run, act, perform, api, busy, openRun }) {
   const [base, setBase] = useState("");
   const [donors, setDonors] = useState([]);
   const [goal, setGoal] = useState("");
@@ -182,15 +188,22 @@ export function Experiment({ run, act, perform, api, busy, openRun }) {
     setHistory(before ? [...history, ...batch] : batch);
   });
   return <section className="experiment">
-    <h2>Experiment</h2>
-    {isCurrent && run.round_goal && <p>{run.round_goal}</p>}
-    {isCurrent && run.started && selected?.landed_at && <p>{run.interventions || 0} developer actions · {number((Date.parse(selected.landed_at) - Date.parse(run.started)) / 1000)} seconds to land</p>}
+    <h2 className="visually-hidden">Experiment</h2>
+    {isCurrent && run.round_goal && <p className="round-goal">{run.round_goal}</p>}
     {selected && <div className="outcome">
-      <strong>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
-        selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
-      {winner && <h3>{title(winner)}</h3>}
-      <p>{selected.reason}</p>
-      {winner?.commit && <p><code>{winner.commit}</code>{selected.landed_at && ` · ${branchName(run.repo.Target)} · ${when(selected.landed_at)}`}</p>}
+      <div className="outcome-copy">
+        <strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
+          selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
+        {winner && <h3>{title(winner)}</h3>}
+        <p>{selected.reason}</p>
+      </div>
+      {(winner?.commit || selected.landed_at) && <div className="outcome-meta">
+        {selected.landed_at && <span><strong>{branchName(run.repo.Target)}</strong> · {when(selected.landed_at)}</span>}
+        {winner?.commit && <code aria-label={active && isCurrent && run.state === "landed" && selected.state === "landed" ? "Landed commit" : undefined}>
+          {isCurrent && run.state === "landed" && selected.state === "landed" ? run.detail : winner.commit}
+        </code>}
+        {isCurrent && run.started && selected.landed_at && <span>{run.interventions || 0} developer actions · {number((Date.parse(selected.landed_at) - Date.parse(run.started)) / 1000)} seconds to land</span>}
+      </div>}
     </div>}
     {run.observer_error && <div role="status"><p>{run.observer_error}</p><button disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</button></div>}
     {run.combination && <div role="status"><p>Waiting for the coordinator to plan the combination.</p>
@@ -200,20 +213,26 @@ export function Experiment({ run, act, perform, api, busy, openRun }) {
       {policies.length > 1 ? <label>Suite revision<select value={latestPolicy} onChange={(event) => { setPolicy(Number(event.target.value)); setMode(""); }}>
         {policies.map((entry) => <option key={entry}>{entry}</option>)}</select></label> :
         run.policies?.length > 1 && <p>Suite revision {latestPolicy}</p>}
-      <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
-        <table><thead><tr><th scope="col">Implementation</th><th scope="col">Checks</th>{rule?.metrics.map((m) => <th scope="col" key={m.name}>{m.name} ({m.unit})</th>)}<th scope="col">Decision</th></tr></thead>
-          <tbody>{candidates.map((c) => <tr key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
-            <th scope="row">{title(c)}{c.parents?.length > 0 && <small>From {c.parents.map((id) => title(all.find((item) => item.id === id))).join(" + ")}</small>}</th><td>{c.state}{c.detail && <small>{c.detail}</small>}</td>
-            {rule?.metrics.map((m) => <td key={m.name}>{c.score?.[m.name] ? <>{number(c.score[m.name].value)}
-              <small>{number(c.score[m.name].min)}–{number(c.score[m.name].max)} · {c.score[m.name].n} samples</small></> : "—"}</td>)}
-            <td>
-              {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
-                c.id === selected?.recommended ? "Recommended" :
-                c.baseline ? "Baseline" : c.state === "passed" && c.eligible === false ? "Doesn’t qualify" : ""}
-              {canDecide && !c.baseline && c.state === "passed" && c.eligible !== false && c.id !== selected?.candidate &&
-                <button disabled={busy} onClick={() => act({ kind: "select", candidate: c.id })}>Select</button>}
-            </td>
-          </tr>)}</tbody></table>
+      <div className={rule?.metrics?.length ? "experiment-results with-charts" : "experiment-results"}>
+        <section className="comparison-card" aria-labelledby="comparison-heading">
+          <h3 id="comparison-heading">Implementations</h3>
+          <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
+            <table><thead><tr><th scope="col">Implementation</th><th scope="col">Checks</th>{rule?.metrics?.map((m) => <th scope="col" key={m.name}>{m.name} ({m.unit})</th>)}<th scope="col">Decision</th></tr></thead>
+              <tbody>{candidates.map((c) => <tr key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
+                <th scope="row">{title(c)}{c.parents?.length > 0 && <small>From {c.parents.map((id) => title(all.find((item) => item.id === id))).join(" + ")}</small>}</th><td><span className={`state ${c.state}`}>{c.state}</span>{c.detail && <small>{c.detail}</small>}</td>
+                {rule?.metrics?.map((m) => <td key={m.name}>{c.score?.[m.name] ? <>{number(c.score[m.name].value)}
+                  <small>{number(c.score[m.name].min)}–{number(c.score[m.name].max)} · {c.score[m.name].n} samples</small></> : "—"}</td>)}
+                <td>
+                  {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
+                    c.id === selected?.recommended ? "Recommended" :
+                    c.baseline ? "Baseline" : c.state === "passed" && c.eligible === false ? "Doesn’t qualify" : ""}
+                  {canDecide && !c.baseline && c.state === "passed" && c.eligible !== false && c.id !== selected?.candidate &&
+                    <button disabled={busy} onClick={() => act({ kind: "select", candidate: c.id })}>Select</button>}
+                </td>
+              </tr>)}</tbody></table>
+          </div>
+        </section>
+        <Charts {...{ run, candidates, rule }} policy={latestPolicy} />
       </div>
     </> : <p>Measurements appear as candidates finish.</p>}
     <div className="actions">
@@ -227,15 +246,15 @@ export function Experiment({ run, act, perform, api, busy, openRun }) {
       {run.state !== "landed" && run.input.delivery && run.input.delivery !== "review" &&
         <button disabled={busy || !!run.combination} onClick={() => act({ kind: run.held ? "unhold" : "hold" })}>{run.held ? "Resume auto-land" : "Hold auto-land"}</button>}
       {isCurrent && implemented.length > 1 && (canDecide || run.state === "landed") &&
-        <button disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>
+        <button className={run.state === "landed" ? "primary" : undefined} aria-expanded={mode === "combine"} disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>
           {run.state === "landed" ? "Improve this version" : "Combine aspects"}
         </button>}
       {canDecide && run.input.recipe.rubric && previewable.length > 1 &&
         <button onClick={() => { setBase(previewable[0].id); setDonors([previewable[1].id]); setMode("blind"); }}>Blind review</button>}
+      {isCurrent && (canDecide || run.state === "landed") &&
+        <button aria-expanded={mode === "next"} disabled={busy} onClick={() => { setMode(mode === "next" ? "" : "next"); setGoal(""); }}>Start another round</button>}
     </div>
     {canDecide && run.input.recipe.rubric && <p>Review criteria · {run.input.recipe.rubric}</p>}
-    {isCurrent && (canDecide || run.state === "landed") &&
-      <button disabled={busy} onClick={() => { setMode(mode === "next" ? "" : "next"); setGoal(""); }}>Start another round</button>}
     {mode === "next" && <form className="answer" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "new-round", text: goal }).then((ok) => { if (ok) setMode(""); });
     }}>
@@ -258,10 +277,8 @@ export function Experiment({ run, act, perform, api, busy, openRun }) {
       <button className="primary" disabled={busy || !base || !donors.length || mode === "combine" && !goal.trim()}>{mode === "combine" ? "Build combination" : "Start review"}</button>
       <button type="button" onClick={() => setMode("")}>Cancel</button>
     </form> : null}
-    {candidates.length > 0 && <>
-      <Cases key={candidates.map((c) => c.id + c.evidence).join(":")} {...{ run, candidates, api, perform }} />
-      <Charts {...{ run, candidates, rule }} policy={latestPolicy} />
-    </>}
+    {candidates.length > 0 &&
+      <div><Cases key={candidates.map((c) => c.id + c.evidence).join(":")} {...{ run, candidates, api, perform }} /></div>}
     {votes.length > 0 && <p>{votes.filter((p) => p.agreement).length} of {votes.length} blind preferences agreed with the measured recommendation.</p>}
     {(run.preferences || []).map((p) => <article className="row" key={p.id}>
       <h3>Blind review</h3><p>{p.rubric}</p>
@@ -293,7 +310,7 @@ export function Experiment({ run, act, perform, api, busy, openRun }) {
         onClick={() => openRun(entry.id)}>{entry.brief} · {entry.state}</button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <button onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
     </details>
-    <form onSubmit={(event) => {
+    <form className="form-card" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
         .then((ok) => { if (ok) setFeedback(""); });
     }}>

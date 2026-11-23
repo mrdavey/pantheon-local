@@ -14,8 +14,8 @@ export function Conversation({ run, act, busy }) {
   return <section className="conversation" aria-labelledby="conversation-title">
     <h2 id="conversation-title">Talk to the coordinator</h2>
     <div role="log" aria-label="Coordinator conversation">
-      {messages.length === 0 && <p>Ask about this run or request another milestone.</p>}
-      {messages.map((message) => <article className="row" key={message.id}>
+      {messages.length === 0 && <p className="empty-state">Ask about this run or request another milestone.</p>}
+      {messages.map((message) => <article className={`row message ${message.role === "user" ? "message-user" : ""}`} key={message.id}>
         <strong>{message.role === "user" ? "You" : "Coordinator"}</strong>
         <p className="message-text">{message.text}</p>
         {message.error && <p role="alert">{message.error}</p>}
@@ -33,7 +33,7 @@ export function Conversation({ run, act, busy }) {
     </div>
     {waiting && <p role="status">Waiting for the coordinator…</p>}
     {paused && <p>Resume the run to send a message.</p>}
-    <form onSubmit={send}>
+    <form className="form-card" onSubmit={send}>
       <label>Message<textarea rows={3} value={text} onChange={(event) => setText(event.target.value)} /></label>
       <button className="primary" type="submit" disabled={paused || waiting || busy || !text.trim()}>Send</button>
     </form>

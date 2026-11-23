@@ -38,6 +38,21 @@ const stateLabel = {
   superseded: "Superseded", abandoned: "Abandoned", stale: "Stale", queued: "Queued", received: "Finished",
 };
 
+const iconPaths = {
+  brand: "M3 19h18M5 16V9m5 7V5m5 11V5m4 11V9M3 9l9-6 9 6",
+  plus: "M12 5v14M5 12h14",
+  agents: "M8 8a4 4 0 1 0 8 0 4 4 0 0 0-8 0ZM4 21v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2",
+  inbox: "M5 5h14l3 9v5H2v-5l3-9Zm-3 9h6l2 2h4l2-2h6",
+  folder: "M3 7h7l2 2h9v10H3V7Z",
+};
+
+function Icon({ name }) {
+  return <svg className="icon" width="20" height="20" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={iconPaths[name]} />
+  </svg>;
+}
+
 function Status({ state }) {
   return <span className={"state " + state}>{stateLabel[state] || state}</span>;
 }
@@ -94,7 +109,7 @@ function Brief({ setup, agentChoice, onSetup, onCreate, perform, busy }) {
   };
   return <section className="panel brief">
     <h1 tabIndex={-1}>Start a run</h1>
-    <form onSubmit={create}>
+    <form className="form-card" onSubmit={create}>
       <label>Project folder<input required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => setPath(event.target.value)} placeholder="/path/to/project" /></label>
       <label>What do you want to build?<textarea required rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
       <div className="roles">
@@ -215,11 +230,15 @@ function RunView({ run, send, perform, busy, openRun, openInbox }) {
   const showExperiment = () => { setExperimentOpened(true); setTab("experiment"); };
   return <section className="panel">
     <header className="run-heading">
-      <div className="run-meta"><span>{run.repo.Root}</span>{run.repo.Target && <code>{branchName(run.repo.Target)}</code>}<Status state={run.state} /></div>
+      <div className="run-meta">
+        <span className="project-label" title={run.repo.Root}><Icon name="folder" />{run.repo.Root.split(/[\\/]/).filter(Boolean).at(-1) || run.repo.Root}</span>
+        {run.repo.Target && <code>{branchName(run.repo.Target)}</code>}
+        <Status state={run.state} />
+      </div>
       <h1 tabIndex={-1}>{run.input.prompt}</h1>
     </header>
     {run.detail && !landed && <p className="notice" role="status">{run.detail}</p>}
-    {landed && <div className="notice landed-receipt" role="status">
+    {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
       <strong>{winner ? title(winner) : "Implementation"} landed{run.repo.Target && ` on ${branchName(run.repo.Target)}`}</strong>
       <code aria-label="Landed commit">{run.detail}</code>
     </div>}
@@ -246,44 +265,56 @@ function RunView({ run, send, perform, busy, openRun, openInbox }) {
     </nav>
     <ReleaseList {...{ run, act, busy }} />
     <div hidden={view !== "conversation"}><Conversation {...{ run, act, busy }} /></div>
-    {experimentOpened && <div hidden={view !== "experiment"}><Experiment {...{ run, act, perform, api, busy, openRun }} /></div>}
+    {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun }} /></div>}
     <div hidden={view !== "work"}>
-    {run.state === "review" && run.input.compare && <div className="notice">
-      <button className="text-button" onClick={showExperiment}>Compare candidates in Experiment</button>
-    </div>}
-    {(run.candidates || []).length > 0 && <><h2>Candidates</h2>{run.candidates.map((candidate) => <Candidate key={candidate.id} {...{ candidate, run, act, perform, busy }} />)}</>}
-    <div className="actions run-controls">
-      <label>Coordinator<select disabled={busy || run.state === "landed"} value={run.input.coordinator} onChange={(event) => act({ kind: "coordinator", text: event.target.value })}>{Object.keys(run.profiles).map((name) => <option key={name}>{name}</option>)}</select></label>
-      {run.tokens > 0 && <span>{run.tokens.toLocaleString()} recorded tokens</span>}
-      {run.unknown_turns > 0 && <span>{run.unknown_turns} turns without usage</span>}
-    </div>
-    <h2>Milestones</h2>
-    {run.benchmark_note && <p>{run.benchmark_note}</p>}
-    {!(run.tasks || []).length && <p>Milestones appear after the coordinator proposes a plan.</p>}
-    {(run.tasks || []).map((task) => <article className="row" key={task.id}>
-      <header><strong>{task.id}</strong><Status state={task.state} /></header>
-      <p>{task.goal}</p><p className="muted">{task.worker}{task.variant && " · " + task.variant}{task.commit && " · " + task.commit.slice(0, 10)}{task.depends?.length > 0 && " · After " + task.depends.join(", ")}</p>
-      <RoutingEvidence route={task.route} />
-      {task.finding && <p>{task.finding}</p>}
-      {(task.notes || []).map((note, index) => <p key={index}>{note}</p>)}
-      {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
-      {(task.state === "blocked" || task.state === "interrupted") && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>}
-    </article>)}
-    {turns.length > 0 && <details><summary>Activity · {turns.length}</summary>
-      {[...turns].reverse().map((turn) => <div className="activity-entry" key={turn.id}>
-        <div className="activity"><span>{turnLabel[turn.role] || turn.role}{turn.task && " · " + turn.task}</span>
-          <Status state={turn.state} />
-          <button aria-expanded={log?.id === turn.id} disabled={busy} onClick={() => {
-            if (log?.id === turn.id) setLog(null);
-            else openLog(turn.id);
-          }}>{log?.id === turn.id ? "Hide log" : "View log"}</button>
-        </div>
-        {log?.id === turn.id && <>
-          <pre tabIndex={0} aria-label="Turn log">{log.text || "This turn has no log output yet."}</pre>
-          {turn.state === "running" && <button disabled={busy} onClick={() => openLog(turn.id)}>Refresh log</button>}
-        </>}
-      </div>)}
-    </details>}
+      {run.state === "review" && run.input.compare && <div className="notice">
+        <button className="text-button" onClick={showExperiment}>Compare candidates in Experiment</button>
+      </div>}
+      <div className="actions run-controls">
+        <label>Coordinator<select disabled={busy || run.state === "landed"} value={run.input.coordinator} onChange={(event) => act({ kind: "coordinator", text: event.target.value })}>{Object.keys(run.profiles).map((name) => <option key={name}>{name}</option>)}</select></label>
+        {run.tokens > 0 && <span>{run.tokens.toLocaleString()} recorded tokens</span>}
+        {run.unknown_turns > 0 && <span>{run.unknown_turns} turns without usage</span>}
+      </div>
+      <div className={run.candidates?.length ? "work-grid with-candidates" : "work-grid"}>
+        <section className="milestone-list" aria-labelledby="milestone-heading">
+          <h2 id="milestone-heading">Milestones</h2>
+          {run.benchmark_note && <p>{run.benchmark_note}</p>}
+          {!(run.tasks || []).length && <p>Milestones appear after the coordinator proposes a plan.</p>}
+          {(run.tasks || []).map((task) => <article className="row" key={task.id}>
+            <header><strong>{task.id}</strong><Status state={task.state} /></header>
+            <p>{task.goal}</p>
+            <div className="milestone-meta">
+              <span>{task.worker}{task.variant && " · " + task.variant}</span>
+              {task.commit && <code>{task.commit.slice(0, 10)}</code>}
+              {task.depends?.length > 0 && <span>After {task.depends.join(", ")}</span>}
+            </div>
+            <RoutingEvidence route={task.route} />
+            {task.finding && <p>{task.finding}</p>}
+            {(task.notes || []).map((note, index) => <p key={index}>{note}</p>)}
+            {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
+            {(task.state === "blocked" || task.state === "interrupted") && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>}
+          </article>)}
+        </section>
+        {run.candidates?.length > 0 && <section className="candidate-list" aria-labelledby="candidate-heading">
+          <h2 id="candidate-heading">Candidates</h2>
+          {run.candidates.map((candidate) => <Candidate key={candidate.id} {...{ candidate, run, act, perform, busy }} />)}
+        </section>}
+      </div>
+      {turns.length > 0 && <details className="activity-card"><summary>Activity · {turns.length}</summary>
+        {[...turns].reverse().map((turn) => <div className="activity-entry" key={turn.id}>
+          <div className="activity"><span>{turnLabel[turn.role] || turn.role}{turn.task && " · " + turn.task}</span>
+            <Status state={turn.state} />
+            <button aria-expanded={log?.id === turn.id} disabled={busy} onClick={() => {
+              if (log?.id === turn.id) setLog(null);
+              else openLog(turn.id);
+            }}>{log?.id === turn.id ? "Hide log" : "View log"}</button>
+          </div>
+          {log?.id === turn.id && <>
+            <pre tabIndex={0} aria-label="Turn log">{log.text || "This turn has no log output yet."}</pre>
+            {turn.state === "running" && <button disabled={busy} onClick={() => openLog(turn.id)}>Refresh log</button>}
+          </>}
+        </div>)}
+      </details>}
     </div>
   </section>;
 }
@@ -419,15 +450,18 @@ function App() {
   return <div className="app">
     <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); main.current.focus(); }}>Skip to content</a>
     <aside className="sidebar">
-      <div className="brand">Pantheon Local</div>
+      <div className="brand"><span className="brand-mark"><Icon name="brand" /></span>Pantheon Local</div>
       {setup && <>
         <nav className="workspace-nav" aria-label="Workspace">
-          <button {...navProps("")}>New run</button>
-          <button {...navProps("setup")}>Agent setup</button>
-          <button {...navProps("inbox")}>Needs you{outstanding > 0 && <span className="nav-count"> · {outstanding}</span>}</button>
+          <button {...navProps("")}><Icon name="plus" />New run</button>
+          <button {...navProps("setup")}><Icon name="agents" />Agent setup</button>
+          <button {...navProps("inbox")}><Icon name="inbox" />Needs you{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</button>
         </nav>
-        {runs.length > 0 && <nav className="run-nav" aria-label="Runs">{runs.map((run) =>
-          <button {...navProps(run.id)} key={run.id}><span title={run.input.prompt}>{run.input.prompt}</span><Status state={run.state} /></button>)}</nav>}
+        {runs.length > 0 && <div className="run-history">
+          <div className="nav-heading" aria-hidden="true">Runs</div>
+          <nav className="run-nav" aria-label="Runs">{runs.map((run) =>
+            <button {...navProps(run.id)} key={run.id}><span className="run-name" title={run.input.prompt}>{run.input.prompt}</span><Status state={run.state} /></button>)}</nav>
+        </div>}
       </>}
     </aside>
     <main ref={main} tabIndex={-1} id="main-content">

@@ -59,6 +59,21 @@ test.afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
+test("keeps agent setup readable in both color schemes", async ({ page }) => {
+  await page.goto(meta.url + "/#" + meta.token);
+  await expect(page.getByRole("heading", { name: "Connect an agent" })).toBeVisible();
+  const setup = page.getByRole("button", { name: "Agent setup" });
+  await expect(setup).toHaveAttribute("aria-current", "page");
+  const html = page.locator("html");
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await expect(html).toHaveCSS("color-scheme", colorScheme);
+    expect(await html.evaluate((element) => element.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+});
+
 test("select roles, review the brief, answer, preview, and land", async ({ page, context }) => {
   const project = join(dir, "quotes");
   mkdirSync(project);
@@ -256,12 +271,20 @@ test("compare, curate evidence and combine a landed winner", async ({ page }) =>
   await expect(page.locator(".outcome")).toContainText("Landed", { timeout: 20_000 });
   await expect(page.locator(".outcome")).toContainText("balanced");
   await expect(page.getByText("relevance (hits) by latency (ms)")).toBeVisible();
+  const landedCommit = page.getByLabel("Landed commit");
+  await expect(landedCommit).toHaveText(/^[a-f0-9]{40}$/);
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await expect(landedCommit).toHaveText(/^[a-f0-9]{40}$/);
+  await page.getByRole("button", { name: "Experiment", exact: true }).click();
   await page.getByText("Eval suite", { exact: true }).click();
   await expect(page.getByText("latency must be at most 5 ms")).toBeVisible();
   await page.getByText("Eval suite", { exact: true }).click();
   const plotPoint = page.getByRole("button", { name: "balanced, 7 relevance (hits)" }).first();
   await plotPoint.focus();
   await expect(plotPoint).toBeFocused();
+  await expect(plotPoint).toHaveAccessibleDescription("3.05 latency (ms)");
+  const baselinePoint = page.getByRole("button", { name: "Baseline, 3 relevance (hits)" });
+  expect((await plotPoint.boundingBox()).y).toBeLessThan((await baselinePoint.boundingBox()).y);
   await page.route("**/api/runs/*/evidence/*", (route) => route.fulfill({ status: 503, json: { error: "Evidence unavailable" } }), { times: 1 });
   await page.getByRole("button", { name: "Compare case results" }).click();
   await expect(page.getByRole("rowheader", { name: "search", exact: true })).toBeVisible();
