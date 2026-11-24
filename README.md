@@ -1,6 +1,8 @@
 # Pantheon Local
 
-Pantheon Local is a browser workbench for running command-line coding agents on your own Git projects. Describe the change you want. A coordinator splits it into milestones, and workers build independent pieces in separate checkouts. By default, you review the diff and check results before adding the tested commit to your local branch.
+Pantheon Local is a browser workbench for running command-line coding agents on your own Git projects. A coordinator breaks a goal into milestones, and workers commit their changes in separate checkouts.
+
+If Codex writes a patch and Claude reviews the diff, a direct CLI handoff is usually simpler. Pantheon Local is useful when you would otherwise be passing commits between dependent tasks, running the same checks on competing versions, or tracking which revision passed. It handles those steps and shows you the diff and results before you decide what to land.
 
 ## When to use it
 
