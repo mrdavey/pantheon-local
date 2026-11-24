@@ -1,5 +1,7 @@
 mod acp;
+mod codex_chat;
 pub mod hermes;
+pub mod models;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{
@@ -133,6 +135,7 @@ fn args(request: &Value) -> Vec<String> {
             args.push("acp")
         }
         "custom" => args.push("turn-v1"),
+        "codex" if role == "chat" => args.push("app-server"),
         "codex" => {
             args.push("exec");
             if !session.is_empty() {
@@ -152,7 +155,14 @@ fn args(request: &Value) -> Vec<String> {
                     },
                 ])
             }
-            if !model.is_empty() {
+            if role == "advisor" {
+                args.extend([
+                    "--model",
+                    "gpt-6-luna",
+                    "-c",
+                    r#"model_reasoning_effort="medium""#,
+                ]);
+            } else if !model.is_empty() {
                 args.extend(["--model", model])
             }
             if !session.is_empty() {
@@ -162,10 +172,15 @@ fn args(request: &Value) -> Vec<String> {
         }
         _ => {
             args.extend(["-p", "--verbose", "--output-format", "stream-json"]);
+            if role == "chat" {
+                args.push("--include-partial-messages");
+            }
             if role != "worker" {
                 args.extend(["--tools", ""])
             }
-            if !model.is_empty() {
+            if role == "advisor" {
+                args.extend(["--model", "haiku", "--effort", "medium"]);
+            } else if !model.is_empty() {
                 args.extend(["--model", model])
             }
             if !session.is_empty() {
@@ -234,18 +249,21 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
             }
         });
         let acp = matches!(field(p, "kind"), "hermes" | "antigravity");
-        let result = if acp {
+        let codex_chat = field(p, "kind") == "codex" && field(r, "role") == "chat";
+        let result = if codex_chat {
+            codex_chat::exchange(r, stdin, stdout, emit)
+        } else if acp {
             acp::exchange(r, stdin, stdout, emit)
         } else {
             stream(r, stdin, stdout, emit)
         };
-        if acp || result.is_err() {
+        if acp || codex_chat || result.is_err() {
             let _ = child.kill();
         }
         let status = child.wait()?;
         let result = result?;
         ensure!(
-            acp || status.success() || !field(&result, "error").is_empty(),
+            acp || codex_chat || status.success() || !field(&result, "error").is_empty(),
             "agent exited with {status}"
         );
         ensure!(
@@ -364,6 +382,24 @@ mod tests {
     use super::*;
     use crate::test_examples::native_fixture;
     #[test]
+    fn brief_uses_a_fast_model_with_medium_reasoning_only_for_advice() {
+        for (kind, fast, effort) in [
+            ("codex", "gpt-6-luna", r#"model_reasoning_effort="medium""#),
+            ("claude", "haiku", "medium"),
+        ] {
+            let profile = json!({"kind":kind,"model":"coordinator-model"});
+            let advice = args(&json!({"profile":profile,"role":"advisor"}));
+            assert!(advice.windows(2).any(|p| p == ["--model", fast]));
+            assert!(advice.contains(&effort.to_owned()));
+            let plan = args(&json!({"profile":profile,"role":"plan"}));
+            assert!(
+                plan.windows(2)
+                    .any(|p| p == ["--model", "coordinator-model"])
+            );
+            assert!(!plan.contains(&effort.to_owned()));
+        }
+    }
+    #[test]
     fn native_adapters_decode_events_and_usage() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let request = json!({"profile":{"kind":"codex","executable":native_fixture(temp.path(),"mock-codex")?},"session":"abc","prompt":"hello\n","dir":temp.path()});
@@ -378,6 +414,25 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn codex_chat_streams_and_resumes_only_assistant_messages() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let executable = native_fixture(dir.path(), "mock-codex-chat")?;
+        for session in ["", "native-chat"] {
+            let events = std::sync::Mutex::new(Vec::new());
+            let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":session,"role":"chat","prompt":"hello","dir":dir.path()});
+            let result = run(&request, None, |event| events.lock().unwrap().push(event));
+            assert_eq!(
+                result,
+                json!({"session":"native-chat","text":r#"{"reply":"Good answer"}"#,"tokens":17})
+            );
+            let events = events.into_inner().unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[1]["type"], "agent_message_chunk");
+            assert_eq!(events[2]["text"], r#" answer"}"#);
+        }
+        Ok(())
+    }
+    #[test]
     fn acp_loads_existing_session_and_refuses_permissions() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let request = json!({"profile":{"kind":"hermes","executable":native_fixture(temp.path(),"mock-acp")?},"session":"abc","dir":temp.path()});
@@ -388,11 +443,12 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn desktop_profile_starts_coordinator_and_worker_in_the_assigned_checkout() -> Result<()> {
+    fn desktop_profile_starts_each_role_with_settings_for_its_session() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let profile = json!({"kind":"hermes","hermes_profile":"desktop-work","executable":native_fixture(temp.path(),"mock-desktop-acp")?});
-        for role in ["coordinator", "worker"] {
-            let dir = temp.path().join(role);
+        for role_dir in ["coordinator", "worker", "advisor", "advisor-options"] {
+            let role = role_dir.strip_suffix("-options").unwrap_or(role_dir);
+            let dir = temp.path().join(role_dir);
             fs::create_dir(&dir)?;
             let request =
                 json!({"profile":profile,"role":role,"dir":dir.canonicalize()?,"prompt":"fixture"});
@@ -421,6 +477,16 @@ mod tests {
             let profile = json!({"kind":kind,"executable":native_fixture(temp.path(),name)?});
             assert_eq!(availability(&profile), json!({"state":state}));
         }
+        Ok(())
+    }
+    #[test]
+    fn hung_login_probe_releases_setup() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let profile =
+            json!({"kind":"codex","executable":native_fixture(temp.path(), "mock-hanging-login")?});
+        let started = std::time::Instant::now();
+        assert_eq!(availability(&profile)["state"], "sign-in-unknown");
+        assert!(started.elapsed() < Duration::from_secs(10));
         Ok(())
     }
     #[test]

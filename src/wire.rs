@@ -15,7 +15,7 @@ macro_rules! request {
 }
 request!(Start{
     compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,
-    coordinator:String,workers:Vec<String>,initial_files:Vec<String>,skip_init:bool,target:String,token_target:i64,recipe:Recipe
+    attachments:Vec<crate::attachments::Upload>,coordinator:String,workers:Vec<String>,initial_files:Vec<String>,skip_init:bool,target:String,token_target:i64,recipe:Recipe
 });
 request!(Command{id:String,expected_revision:i64,donors:Vec<String>,kind:String,task:String,text:String,candidate:String,tokens:i64,recipe:Recipe});
 request!(Model {
@@ -25,7 +25,9 @@ request!(Model {
     benchmark_agent: String,
     benchmark_effort: String
 });
+request!(InitialFiles { path: String });
 request!(Advice {
+    attachments: Vec<crate::attachments::Upload>,
     profile: String,
     prompt: String
 });
@@ -121,6 +123,9 @@ pub fn validate(value: &Value, schema: &str) -> Result<()> {
         }
         "model" => {
             Model::deserialize(value)?;
+        }
+        "initial-files" => {
+            InitialFiles::deserialize(value)?;
         }
         "advice" => {
             Advice::deserialize(value)?;

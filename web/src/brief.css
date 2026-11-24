@@ -1,0 +1,33 @@
+.new-run-form { max-width: 52rem; display: grid; gap: 1.4rem; }
+.goal-composer { min-width: 0; display: grid; gap: .75rem; padding: clamp(1rem, 2.5vw, 1.5rem); border: 1px solid var(--input-line); border-radius: 1.1rem; background: var(--paper); }
+.goal-composer:focus-within { border-color: var(--clay); }
+.goal-composer.dragging { outline: 3px dashed var(--clay); outline-offset: 3px; background: var(--clay-wash); }
+.goal-composer > label { font-size: 1.1rem; }
+.goal-composer > textarea { width: 100%; min-height: 7rem; padding: .45rem .15rem; border: 0; border-radius: .2rem; background: transparent; resize: vertical; }
+.goal-composer > textarea:focus-visible { outline-offset: 3px; }
+.composer-tools, .brief-files, .run-preferences { display: flex; gap: .65rem .9rem; flex-wrap: wrap; align-items: center; }
+.composer-tools { border-top: 1px solid var(--line); padding-top: .9rem; }
+.attach-button { display: inline-flex; gap: .4rem; align-items: center; }
+.start-run { margin-inline-start: auto; }
+.brief-files { list-style: none; margin: 0; padding: 0; }
+.brief-files li { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: .6rem; padding-inline-start: .65rem; background: var(--wash); }
+.brief-files li > span { overflow-wrap: anywhere; }
+.brief-files button { padding: .3rem .55rem; min-height: 2rem; border: 0; background: transparent; }
+.new-run-form .project-picker { margin: 0; }
+.team-control { display: grid; gap: .2rem; text-align: start; padding: .65rem 1rem; min-width: 0; }
+.team-control > span { color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.workbench-dialog .roles { grid-template-columns: 1fr; gap: 1.2rem; }
+.workbench-dialog .roles select { text-overflow: ellipsis; }
+.workbench-dialog .model-link { margin-block-start: .55rem; }
+.workbench-dialog fieldset { padding: .6rem 1rem 1rem; gap: .5rem 1rem; }
+.workbench-dialog .options { gap: 1.15rem; }
+.workbench-dialog .file-field { grid-column: 1 / -1; justify-items: start; gap: .65rem; }
+@media(max-width: 500px) {
+  .composer-tools { gap: .5rem; }
+  .composer-tools button { font-size: .86rem; }
+  .team-control { flex: 1 1 8rem; }
+}
+
+.advanced-sheet[open] { display: flex; flex-direction: column; overflow: hidden; }
+.advanced-sheet .brief-options { overflow: auto; align-content: start; min-height: 0; padding: .3rem .25rem; }
+.advanced-sheet .dialog-footer { border-top: 1px solid var(--line); padding-top: .8rem; flex: none; }

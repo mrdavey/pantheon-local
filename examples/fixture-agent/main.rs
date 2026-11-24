@@ -181,6 +181,45 @@ fn main() -> Result<()> {
     }
     let response = match role {
         "observer" => observer::respond(prompt, &ctx)?,
+        "chat" if prompt.ends_with("Stream this answer") => {
+            let gate = env::var("SWARM_TEST_CHAT_GATE")?;
+            let fragment = r#"{"reply":"The live answer"#;
+            println!(
+                "{}",
+                json!({"event":{"type":"agent_message_chunk","text":fragment}})
+            );
+            io::stdout().flush()?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !Path::new(&gate).is_file() {
+                ensure!(
+                    std::time::Instant::now() < deadline,
+                    "browser did not receive the reply fragment"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            println!(
+                "{}",
+                json!({"event":{"type":"agent_message_chunk","text":" is complete.\"}"}})
+            );
+            json!({"reply":"The live answer is complete."})
+        }
+        "chat" if prompt.ends_with("Explain this milestone.") => {
+            ensure!(
+                prompt.contains("Selected milestone evidence")
+                    && prompt.contains("Write the `open quotes` export."),
+                "missing selected milestone"
+            );
+            json!({"reply":"This milestone writes the open quotes export."})
+        }
+        "chat" if prompt.ends_with("Explain this implementation.") => {
+            ensure!(
+                prompt.contains("Selected implementation evidence")
+                    && prompt.contains("diff --git")
+                    && prompt.contains("export.txt"),
+                "missing implementation diff"
+            );
+            json!({"reply":"This implementation adds the checked export file."})
+        }
         "chat" if prompt.contains("Add a timing milestone") => {
             json!({"reply":"We can record timings after the export is ready.",
             "tasks":[task("timing","Record export timing.","writer",json!({"depends":["export"],"class":"testing"}))],

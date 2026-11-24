@@ -81,6 +81,7 @@ pub fn setup(dir: &Path) -> Result<Value> {
             &settings,
         );
     }
+    adapter::models::discover(profiles, dir);
     if let Some(roles) = fs::read(dir.join("roles.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -101,6 +102,11 @@ pub fn setup(dir: &Path) -> Result<Value> {
         }
         cfg["workers"] = workers;
     }
+    cfg["cwd"] = json!(
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.into_os_string().into_string().ok())
+    );
     Ok(cfg)
 }
 fn write_local(path: &Path, value: &Value) -> Result<()> {
@@ -120,7 +126,7 @@ struct Local {
     engine: Engine,
     writes: Mutex<()>,
     profiles: Mutex<()>,
-    previews: Mutex<Vec<Child>>,
+    previews: Mutex<Vec<(String, Child)>>,
     shutdown: AtomicBool,
 }
 impl Local {
@@ -185,9 +191,16 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
         previews: Mutex::new(vec![]),
         shutdown: AtomicBool::new(false),
     });
+    for deleted in state.engine.store.deleted_runs()? {
+        if let Some(id) = deleted["id"].as_str()
+            && let Err(error) = state.remove_checkout(id)
+        {
+            eprintln!("could not clean up deleted run {id}: {error}");
+        }
+    }
     let meta = Metadata(dir.join("service.json"));
     write_local(&meta.0, &json!({"url":origin,"token":token}))?;
-    let link = format!("{origin}/#{token}");
+    let link = crate::cli::workbench_link(&origin, &token);
     println!("{link}");
     if browser {
         thread::spawn(move || crate::cli::open_browser(&link));
@@ -226,7 +239,7 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
         .join()
         .map_err(|_| anyhow::anyhow!("scheduler thread terminated unexpectedly"))?;
     if let Ok(mut children) = state.previews.lock() {
-        for child in children.iter_mut() {
+        for (_, child) in children.iter_mut() {
             stop_preview(child)
         }
     }
@@ -270,9 +283,15 @@ async fn handle(State(state): State<Arc<Local>>, req: Request) -> Response {
         } else if path == "/api/session" && method == Method::GET {
             StatusCode::NO_CONTENT.into_response()
         } else {
+            let limit =
+                if method == Method::POST && matches!(path.as_str(), "/api/runs" | "/api/advice") {
+                    crate::attachments::REQUEST_LIMIT
+                } else {
+                    1024 * 1024
+                };
             let body = match tokio::time::timeout(
                 Duration::from_secs(25),
-                to_bytes(req.into_body(), 1024 * 1024),
+                to_bytes(req.into_body(), limit),
             )
             .await
             {
@@ -354,6 +373,19 @@ impl Local {
             ("POST", ["project-folder"]) => {
                 Ok(json!(crate::folder_picker::choose(&self.shutdown)?))
             }
+            ("POST", ["pick-initial-files"]) => {
+                let input = decode(body, "initial-files")?;
+                Ok(json!(crate::folder_picker::choose_initial(
+                    input["path"].as_str().context("Select a project folder")?,
+                    &self.shutdown
+                )?))
+            }
+            ("POST", ["initial-files"]) => {
+                let input = decode(body, "initial-files")?;
+                crate::project::initial_choices(
+                    input["path"].as_str().context("Choose a project folder.")?,
+                )
+            }
             ("GET", ["setup"]) => setup(&self.dir),
             ("GET", ["setup", "status"]) => {
                 let cfg = setup(&self.dir)?;
@@ -380,7 +412,9 @@ impl Local {
                     "benchmark_agent",
                     "benchmark_effort",
                 ] {
-                    let value = input[key].as_str().unwrap_or("");
+                    let Some(value) = input[key].as_str() else {
+                        continue;
+                    };
                     ensure!(
                         value.len() <= 150 && !value.contains(['\r', '\n', '\0']),
                         "model settings must be one line and at most 150 bytes"
@@ -392,12 +426,21 @@ impl Local {
                 let mut config = configured_profiles(&self.dir)?;
                 let name = input["profile"].as_str().context("missing profile name")?;
                 if config["profiles"].get(name).is_some() {
-                    config["profiles"][name] = p.clone();
+                    for key in [
+                        "model",
+                        "benchmark_model",
+                        "benchmark_agent",
+                        "benchmark_effort",
+                    ] {
+                        if let Some(value) = p.get(key) {
+                            config["profiles"][name][key] = value.clone();
+                        }
+                    }
                 } else {
                     config["hermes_models"][name] = json!({"benchmark_model":p["benchmark_model"],"benchmark_agent":p["benchmark_agent"],"benchmark_effort":p["benchmark_effort"]});
                 }
                 write_local(&self.dir.join("profiles.json"), &config)?;
-                Ok(cfg)
+                setup(&self.dir)
             }
             ("GET", ["destinations"]) => Ok(json!(release::destinations(&self.dir)?)),
             ("GET", ["snapshot"]) => {
@@ -434,17 +477,42 @@ impl Local {
                 }
                 Ok(experiment::public(run))
             }
+            ("POST", ["runs", id, "delete"]) => {
+                let input: Value = serde_json::from_slice(body)?;
+                let revision = input["expected_revision"]
+                    .as_i64()
+                    .context("missing run revision")?;
+                self.mutate(|engine| {
+                    ensure_run_id(id)?;
+                    let mut previews = self
+                        .previews
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
+                    let deleted = engine.store.delete(id, revision)?;
+                    previews.retain_mut(|(owner, child)| {
+                        if owner == id {
+                            stop_preview(child);
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    self.remove_checkout(id)?;
+                    Ok(deleted)
+                })
+            }
             ("POST", ["runs", id]) => Ok(experiment::public(
                 self.mutate(|e| e.command(id, decode(body, "command")?))?,
             )),
             ("POST", ["advice"]) => {
-                let v = decode(body, "advice")?;
+                let mut v = decode(body, "advice")?;
+                let files = crate::attachments::unpack(&mut v)?;
                 let cfg = setup(&self.dir)?;
                 let profile = cfg["profiles"]
                     .get(v["profile"].as_str().unwrap_or(""))
                     .context("select an advisor profile")?;
                 Ok(self
-                    .advice(profile, v["prompt"].as_str().unwrap_or(""))?
+                    .advice(profile, v["prompt"].as_str().unwrap_or(""), files)?
                     .into())
             }
             (m, ["runs", id, rest @ ..]) => {
@@ -453,6 +521,40 @@ impl Local {
                 let root = e.root(&run);
                 let project = run["project"].as_str().unwrap_or("");
                 match (m, rest) {
+                    ("POST", ["open-folder"]) => {
+                        #[derive(serde::Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct FolderRequest {
+                            candidate: Option<String>,
+                        }
+                        let request: FolderRequest = serde_json::from_slice(body)?;
+                        let folder = output_folder(&run, &root, request.candidate.as_deref())?;
+                        let opener = if cfg!(target_os = "macos") {
+                            "/usr/bin/open"
+                        } else {
+                            "xdg-open"
+                        };
+                        use wait_timeout::ChildExt;
+                        let mut child = std::process::Command::new(opener)
+                            .arg(&folder)
+                            .spawn()
+                            .with_context(|| {
+                                format!("open {} in your file manager", folder.display())
+                            })?;
+                        // Some Linux launchers stay attached until the folder window closes.
+                        if let Some(status) = child.wait_timeout(Duration::from_millis(500))? {
+                            ensure!(
+                                status.success(),
+                                "could not open {} in your file manager",
+                                folder.display()
+                            );
+                        } else {
+                            thread::spawn(move || {
+                                let _ = child.wait();
+                            });
+                        }
+                        Ok(json!({"opened":true}))
+                    }
                     ("GET", ["history"]) => {
                         Ok(e.store.project_history(project, cursor("before"))?.into())
                     }
@@ -471,6 +573,11 @@ impl Local {
                         Ok(list.into())
                     }
                     ("GET", ["evidence", cid]) => comparison::evidence(&run, cid, &root),
+                    ("GET", ["turns", tid, "reply"]) => {
+                        let turn = find(&run, "turns", tid)?;
+                        ensure!(turn["role"] == "chat", "this turn has no chat reply");
+                        Ok(crate::chat_stream::preview(&root.join("turns").join(tid))?.into())
+                    }
                     ("GET", ["turns", tid]) => {
                         find(&run, "turns", tid)?;
                         let path = root.join("turns").join(tid).join("events.log");
@@ -499,8 +606,22 @@ impl Local {
             _ => bail!("unknown endpoint"),
         }
     }
+    fn remove_checkout(&self, id: &str) -> Result<()> {
+        ensure_run_id(id)?;
+        match fs::remove_dir_all(self.dir.join("runs").join(id)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            result => Ok(result?),
+        }
+    }
+
     fn preview(&self, r: &Value, root: &Path, id: &str) -> Result<Value> {
         use std::os::unix::process::CommandExt;
+        let owner = r["id"].as_str().context("missing run ID")?;
+        let mut previews = self
+            .previews
+            .lock()
+            .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
+        self.engine.store.get(owner)?;
         let c = find(r, "candidates", id)?;
         let sha = c["commit"]
             .as_str()
@@ -525,7 +646,7 @@ impl Local {
         let addr = TcpListener::bind("127.0.0.1:0")?.local_addr()?;
         let data = tempfile::Builder::new()
             .prefix("preview-")
-            .tempdir_in(&self.dir)?
+            .tempdir_in(root.join("previews"))?
             .keep();
         let cwd = source.join(r["repo"]["Subdir"].as_str().unwrap_or("."));
         let mut cmd = eval::command(
@@ -552,12 +673,8 @@ impl Local {
                 )
             }
             if TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok() {
-                let mut previews = self
-                    .previews
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
-                previews.retain_mut(|p| matches!(p.try_wait(), Ok(None)));
-                previews.push(child);
+                previews.retain_mut(|(_, p)| matches!(p.try_wait(), Ok(None)));
+                previews.push((owner.to_owned(), child));
                 return Ok(json!({"url":format!("http://{addr}")}));
             }
             if self.shutdown.load(Ordering::Acquire) || now.elapsed() > Duration::from_secs(12) {
@@ -571,6 +688,43 @@ impl Local {
         }
     }
 }
+fn ensure_run_id(id: &str) -> Result<()> {
+    ensure!(
+        !id.is_empty()
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        "invalid run or candidate ID"
+    );
+    Ok(())
+}
+
+fn output_folder(run: &Value, root: &Path, candidate: Option<&str>) -> Result<PathBuf> {
+    let base = if let Some(id) = candidate {
+        find(run, "candidates", id)?;
+        ensure_run_id(id)?;
+        root.join("candidates").join(id).join("source")
+    } else {
+        PathBuf::from(
+            run["repo"]["Root"]
+                .as_str()
+                .context("missing project folder")?,
+        )
+    };
+    let base = base
+        .canonicalize()
+        .context("output folder is unavailable")?;
+    let folder = base
+        .join(run["repo"]["Subdir"].as_str().unwrap_or("."))
+        .canonicalize()
+        .context("project folder is unavailable")?;
+    ensure!(
+        folder.starts_with(base) && folder.is_dir(),
+        "invalid output folder"
+    );
+    Ok(folder)
+}
+
 fn find<'a>(run: &'a Value, key: &str, id: &str) -> Result<&'a Value> {
     run[key]
         .as_array()
@@ -585,13 +739,27 @@ fn decode(body: &[u8], schema: &str) -> Result<Value> {
 }
 
 impl Local {
-    fn advice(&self, profile: &Value, prompt: &str) -> Result<String> {
+    fn advice(
+        &self,
+        profile: &Value,
+        prompt: &str,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<String> {
         let job = tempfile::Builder::new()
             .prefix("advice-")
             .tempdir_in(&self.dir)?;
         let work = job.path().join("work");
         fs::create_dir(&work)?;
-        let spec = json!({"request":{"role":"advisor","dir":work,"profile":profile,"prompt":format!("Suggest a concise editable developer brief. Identify the highest-impact missing decision, if any. Preserve the developer's goal and distinguish assumptions from requirements. Respond in plain text.\n\n{prompt}")}});
+        let references = if files.is_empty() {
+            String::new()
+        } else {
+            let files = crate::attachments::save(&work, files)?;
+            format!(
+                "\n\nBrief attachments: {}",
+                crate::attachments::context(&work, &files)?
+            )
+        };
+        let spec = json!({"request":{"role":"advisor","dir":work,"profile":profile,"prompt":format!("Suggest a concise editable developer brief. Identify the highest-impact missing decision, if any. Preserve the developer's goal and distinguish assumptions from requirements. Respond in plain text.\n\n{prompt}{references}")}});
         write_local(&job.path().join("job.json"), &spec)?;
         crate::supervisor::spawn_with_state(job.path(), &self.dir)?;
         let start = Instant::now();
@@ -612,5 +780,34 @@ impl Local {
             }
             thread::sleep(Duration::from_millis(100));
         }
+    }
+}
+
+#[cfg(test)]
+mod output_folder_tests {
+    use super::*;
+
+    #[test]
+    fn opens_only_the_recorded_project_or_candidate_subdirectory() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let project = dir.path().join("project");
+        let root = dir.path().join("run");
+        let candidate = root.join("candidates/v1/source");
+        for base in [&project, &candidate] {
+            fs::create_dir_all(base.join("app"))?;
+        }
+        let mut run = json!({"repo":{"Root":project,"Subdir":"app"},"candidates":[{"id":"v1"}]});
+        assert_eq!(
+            output_folder(&run, &root, None)?,
+            project.join("app").canonicalize()?
+        );
+        assert_eq!(
+            output_folder(&run, &root, Some("v1"))?,
+            candidate.join("app").canonicalize()?
+        );
+        assert!(output_folder(&run, &root, Some("../other")).is_err());
+        run["repo"]["Subdir"] = json!("..");
+        assert!(output_folder(&run, &root, None).is_err());
+        Ok(())
     }
 }

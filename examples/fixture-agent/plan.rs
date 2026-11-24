@@ -149,7 +149,7 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         return build(
             vec![milestone(
                 "export",
-                "Write the open quotes export.",
+                "Write the `open quotes` export.",
                 json!({"class":"implementation"}),
             )],
             &["export.txt", "open quotes"],

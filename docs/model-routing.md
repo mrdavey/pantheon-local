@@ -10,15 +10,17 @@ A worker can ask the coordinator or send a finding to a peer. If you already cho
 
 ## Talk to the coordinator
 
-Use **Conversation** to ask about a decision or request more work. While a run is working or ready for review, **Add milestones** accepts a proposal and its extra checks. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. After landing, use **Start another round** in **Experiment**.
+Open **Coordinator chat** to ask about a decision or request more work. **Explain this** in milestone or implementation details asks about that item and its available changes. Replies appear as the coordinator writes. Enter sends your message. Shift+Enter starts a new line. While a run is working or ready for review, **Add milestones** accepts a proposal and its extra checks. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. After landing, use **Start another round** in **Experiment**.
 
 From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, then `swarm status <run-id>`. Accept a proposal with `swarm accept-proposal --task <proposal-id> <run-id>`.
 
 ## Choose how to assign workers
 
-The coordinator assigns workers by default. For benchmark-based assignments, select a profile in **Agent setup** and open **Model and benchmark** and match each profile to its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes runtime model in its Desktop profile or CLI. Choose the Antigravity model in its CLI.
+The coordinator assigns workers by default. In **Agent setup → Settings**, Pantheon reads your local Codex, Claude Code, Hermes or Antigravity preferences and prefills the model, agent and reasoning fields it can identify. Antigravity reports a model label. Codex can also supply a display name and default effort from its local model catalog. Account-selected defaults may be unknown.
 
-Select at least two worker profiles, then choose **Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
+A match names the local or cached benchmark suite. You can override any benchmark field or set the runtime **Model ID** for Codex and Claude Code. **Use detected settings** and save to follow the native defaults again. Hermes and Antigravity runtime choices stay in the native agent.
+
+Select at least two worker profiles, then choose **Advanced settings → Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
 
 | Routing setting | Selection |
 | --- | --- |

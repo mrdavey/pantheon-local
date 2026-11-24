@@ -1,6 +1,6 @@
 # Run a product experiment
 
-Use a comparison when you can describe what would make one implementation better. In **Run options**, select **Compare approaches against a baseline**. The starting Git revision is the baseline. Pantheon Local runs the approved checks against it and the alternatives.
+Use a comparison when you can describe what would make one implementation better. In **Advanced settings**, select **Compare approaches against a baseline**. The starting Git revision is the baseline. Pantheon Local runs the approved checks against it and the alternatives.
 
 For example, the search fixture rewards relevant hits and sets a 5 ms latency limit. One implementation finds 10 hits but exceeds the limit. Another finds 7, stays within the limit and improves on the baseline’s 3. The second qualifies under that rule. [Comparison fixture](../tests/experiments.rs)
 
@@ -22,11 +22,11 @@ When you spot a missed edge case, send feedback in **Experiment**. The coordinat
 
 ## Choose and refine
 
-Open the **Experiment** view to see the recommendation and which implementation landed. **Select** lets you choose another eligible candidate. **Keep current version** records a decision to retain the target. To borrow a strong feature from another candidate, choose **Combine aspects**, select the starting implementation and donors, and describe what should carry over. The resulting commit has its own checks and measurements.
+Open the **Experiment** view to see the recommendation and which implementation landed. Choose an implementation for its milestones and measurements, or **View decision details** for the selection rationale. **Explain this** asks the coordinator about that implementation. Expand superseded implementations to inspect earlier attempts. **Select** lets you choose another eligible candidate. **Keep current version** records a decision to retain the target. To borrow a strong feature from another candidate, choose **Combine aspects**, select the starting implementation and donors, and describe what should carry over. The resulting commit has its own checks and measurements.
 
-After automatic landing, use **Improve this version** to create a follow-up on the latest target and reuse alternatives from earlier rounds. **Start another round** sends a new hypothesis or goal through the coordinator. Repairs and requested changes apply to the current round. Earlier rounds keep their results and decisions. After keeping the baseline, you can select an eligible implementation if you change your mind. The **Work** view retains the milestone logs, diffs and preview controls.
+After automatic landing, use **Improve this version** to create a follow-up on the latest target and reuse alternatives from earlier rounds. **Start another round** sends a new hypothesis or goal through the coordinator. Repairs and requested changes apply to the current round. Earlier rounds keep their results and decisions. After keeping the baseline, you can select an eligible implementation if you change your mind. In **Work**, milestones are numbered in the order they were added. New assignments also show their local date and time. Choose a milestone to see its assignment and result, or ask the coordinator to explain it. Use **View activity** for individual turn logs, **View diff** to inspect changes by file, or **Open output folder** to inspect a specific implementation on disk.
 
-Set **Delivery** to **Auto-land** to let the approved rule or a single passing implementation advance a clean target. Use **Hold auto-land** before landing or **Require review** to lower authority for the current run. An unresolved conflict stays in a private checkout. If the target moves, Pantheon Local rebuilds and checks against the new revision.
+New workbench runs default to **Auto-land**. The approved rule or a single passing implementation can advance a clean target. Use **Hold auto-land** before landing or **Require review** to lower authority for the current run. An unresolved conflict stays in a private checkout. If the target moves, Pantheon Local rebuilds and checks against the new revision.
 
 ## Deploy through a project adapter
 

@@ -16,6 +16,12 @@ impl<F: Fn(Value)> Client<'_, F> {
         self.writer.flush()?;
         Ok(())
     }
+    fn set_choice(&mut self, setting: &Value, choice: &str) -> Result<Value> {
+        self.call(
+            "session/set_config_option",
+            json!({"sessionId":self.session, "configId":setting["id"], "type":"select", "value":choice}),
+        )
+    }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.id += 1;
         self.send(json!({"jsonrpc":"2.0","id":self.id,"method":method,"params":params}))?;
@@ -74,6 +80,82 @@ impl<F: Fn(Value)> Client<'_, F> {
         bail!("ACP connection closed during {method}")
     }
 }
+/// Only choose a named compact model within the current provider and model family.
+fn fast_model<'a>(current: &str, mut available: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let split = current.rfind([':', '/'])? + 1;
+    let (provider, model) = current.split_at(split);
+    let family = ["gpt-", "claude-", "gemini-"]
+        .into_iter()
+        .find(|family| model.starts_with(family))?;
+    let compact = |name: &str| match family {
+        "gpt-" => matches!(name, "gpt-6-luna" | "gpt-5.4-mini"),
+        "claude-" => name.starts_with("claude-haiku-") || name.starts_with("claude-3-5-haiku"),
+        _ => matches!(
+            name,
+            "gemini-2.5-flash" | "gemini-3-flash" | "gemini-3-flash-preview"
+        ),
+    };
+    if compact(model) {
+        return None;
+    }
+    available.find(|id| id.strip_prefix(provider).is_some_and(compact))
+}
+
+fn options(setting: &Value) -> impl Iterator<Item = &str> {
+    setting["options"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|item| {
+            item["value"].as_str().into_iter().chain(
+                item["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|opt| opt["value"].as_str()),
+            )
+        })
+}
+
+fn apply_advisor_settings<F: Fn(Value)>(c: &mut Client<F>, info: &Value) {
+    let mut settings = info["configOptions"].clone();
+    let category = |settings: &Value, key: &str| {
+        settings
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|s| s["category"] == key && s["type"] == "select")
+            .cloned()
+    };
+    if let Some(setting) = category(&settings, "model") {
+        if let Some(fast) = fast_model(field(&setting, "currentValue"), options(&setting))
+            && let Ok(changed) = c.set_choice(&setting, fast)
+            && changed["configOptions"].is_array()
+        {
+            settings = changed["configOptions"].clone();
+        }
+    } else {
+        let models = &info["models"];
+        let ids = models["availableModels"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m["modelId"].as_str());
+        if let Some(fast) = fast_model(field(models, "currentModelId"), ids) {
+            let _ = c.call(
+                "session/set_model",
+                json!({"sessionId":c.session,"modelId":fast}),
+            );
+        }
+    }
+    if let Some(setting) = category(&settings, "thought_level")
+        && setting["currentValue"] != "medium"
+        && options(&setting).any(|effort| effort == "medium")
+    {
+        let _ = c.set_choice(&setting, "medium");
+    }
+}
+
 /// Hermes can summarize its work before the receipt, replay it or append a verifier report.
 /// Only fold an identical receipt. Leave ambiguous responses to strict decoding.
 fn worker_receipt(text: &str) -> Option<Value> {
@@ -146,6 +228,9 @@ pub(super) fn exchange(
     };
     ensure!(!c.session.is_empty(), "ACP returned no session ID");
     emit(json!({"type":"session","session":c.session}));
+    if r["role"] == "advisor" {
+        apply_advisor_settings(&mut c, &session_info);
+    }
     let modes = &session_info["modes"];
     if r["role"] == "worker"
         && r["profile"]["kind"] == "hermes"
@@ -186,6 +271,21 @@ pub(super) fn exchange(
 mod tests {
     use super::*;
 
+    #[test]
+    fn advisor_preserves_provider_identity_and_native_fallbacks() {
+        let ids = [
+            "custom:other/gpt-6-luna",
+            "custom:mine/claude-haiku-4-5",
+            "custom:mine/gpt-6-luna",
+        ];
+        assert_eq!(
+            fast_model("custom:mine/gpt-6-astra", ids.into_iter()),
+            Some(ids[2])
+        );
+        assert_eq!(fast_model("custom:mine/gpt-6-luna", ids.into_iter()), None);
+        assert_eq!(fast_model("custom:mine/unknown", ids.into_iter()), None);
+        assert_eq!(fast_model("gpt-6-astra", ids.into_iter()), None);
+    }
     #[test]
     fn merges_replayed_worker_receipts_and_keeps_native_warnings() -> Result<()> {
         let original = r#"{"status":"committed","commit":"abc","message":"Storage tested"}"#;

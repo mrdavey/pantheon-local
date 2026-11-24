@@ -39,18 +39,7 @@ fn norm(v: &str) -> String {
         .flat_map(char::to_lowercase)
         .collect()
 }
-fn matches_profile(p: &Value, row: &Value) -> bool {
-    let model = match field(p, "benchmark_model") {
-        "" => field(p, "model"),
-        m => m,
-    };
-    if model.is_empty() || norm(model) != norm(field(row, "model")) {
-        return false;
-    }
-    let effort = field(p, "benchmark_effort");
-    if !effort.is_empty() && norm(effort) != norm(field(row, "effort")) {
-        return false;
-    }
+fn agent_matches(p: &Value, row: &Value) -> bool {
     let agent = norm(field(row, "agent"));
     match field(p, "benchmark_agent") {
         "" => matches!(
@@ -62,6 +51,94 @@ fn matches_profile(p: &Value, row: &Value) -> bool {
         ),
         v => norm(v) == agent,
     }
+}
+
+fn model_matches(p: &Value, detected: &Value, row: &Value) -> bool {
+    let target = norm(field(row, "model"));
+    if target.is_empty() {
+        return false;
+    }
+    if let Some(model) = p["benchmark_model"].as_str().filter(|s| !s.is_empty()) {
+        return norm(model) == target;
+    }
+    if detected["alias"] == true {
+        return false;
+    }
+    let id = p["model"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| field(detected, "model"));
+    [field(detected, "label"), id]
+        .into_iter()
+        .any(|model| !model.is_empty() && norm(model) == target)
+}
+
+fn matches_profile(p: &Value, detected: &Value, row: &Value) -> bool {
+    let effort = p["benchmark_effort"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| field(detected, "effort"));
+    let row_effort = field(row, "effort");
+    let manual_model =
+        !field(p, "benchmark_model").is_empty() || field(detected, "label").is_empty();
+    model_matches(p, detected, row)
+        && agent_matches(p, row)
+        && (norm(effort) == norm(row_effort) || effort.is_empty() && manual_model)
+}
+
+/// Opening setup only uses evidence already on disk. Benchmark-routed runs
+/// still refresh and verify their own evidence snapshot through read().
+pub fn local_rows(dir: &Path) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let now = Utc::now();
+    for name in ["benchmark-cache.json", "benchmarks.json"] {
+        let Some(data) = File::open(dir.join(name))
+            .ok()
+            .and_then(|f| bounded_json(f).ok())
+        else {
+            continue;
+        };
+        if name == "benchmark-cache.json"
+            && !field(&data, "fetched")
+                .parse::<DateTime<Utc>>()
+                .ok()
+                .is_some_and(|at| {
+                    (chrono::Duration::zero()..chrono::Duration::days(7)).contains(&(now - at))
+                })
+        {
+            continue;
+        }
+        if let Some(entries) = data["rows"].as_array() {
+            rows.extend(entries.iter().filter(|r| valid(r, now)).cloned());
+        }
+    }
+    rows
+}
+
+/// Labels from verified rows take precedence over native display labels. Keep
+/// missing values unknown instead of inventing an effort or a benchmark score.
+pub fn suggest(p: &Value, detected: &mut Value, rows: &[Value]) {
+    let matched = rows.iter().find(|row| matches_profile(p, detected, row));
+    let automatic = json!({"kind": p["kind"], "model": p["model"]});
+    let suggested = rows
+        .iter()
+        .find(|row| matches_profile(&automatic, detected, row));
+    let default_agent = match field(p, "kind") {
+        "codex" => "Codex",
+        "claude" => "Claude Code",
+        "hermes" => "Hermes",
+        "antigravity" => "Antigravity",
+        _ => "",
+    };
+    let name = suggested
+        .map(|r| field(r, "model"))
+        .or_else(|| detected["label"].as_str())
+        .unwrap_or("");
+    let agent = suggested
+        .map(|r| field(r, "agent"))
+        .unwrap_or(default_agent);
+    detected["routing"] = json!({"model":name,"agent":agent,
+        "source":matched.and_then(|r| r["suite"].as_str()), "effort":detected["effort"]});
 }
 pub fn choose(
     mode: &str,
@@ -98,7 +175,7 @@ pub fn choose(
             .entry((field(row, "suite"), field(row, "source"), category))
             .or_default();
         for name in workers {
-            if matches_profile(&profiles[name], row)
+            if matches_profile(&profiles[name], &profiles[name]["detected"], row)
                 && options.get(name.as_str()).is_none_or(|old| {
                     field(row, "date") > field(old, "date")
                         || (field(row, "date") == field(old, "date") && score(row) > score(old))
@@ -320,6 +397,26 @@ mod tests {
     use super::*;
     fn row(model: &str, agent: &str, score: f64, cost: Option<f64>) -> Value {
         json!({"model":model,"agent":agent,"score":score,"cost_per_trial":cost,"suite":"T","source":"https://example.invalid/t","class":"terminal","date":"2026-11-22"})
+    }
+    #[test]
+    fn native_matches_require_the_same_model_agent_and_known_effort() {
+        let mut p = json!({"kind":"codex"});
+        let mut detected = json!({"model":"demo-one","label":"Demo 1","effort":"medium"});
+        let mut benchmark = row("Demo 1", "Codex CLI", 95., None);
+        benchmark["effort"] = json!("medium");
+        assert!(matches_profile(&p, &detected, &benchmark));
+        benchmark["effort"] = json!("high");
+        assert!(!matches_profile(&p, &detected, &benchmark));
+        detected["effort"] = Value::Null;
+        assert!(!matches_profile(&p, &detected, &benchmark));
+        p["benchmark_effort"] = json!("high");
+        assert!(matches_profile(&p, &detected, &benchmark));
+        detected["alias"] = json!(true);
+        assert!(!matches_profile(&p, &detected, &benchmark));
+        p["benchmark_model"] = json!("Demo 1");
+        assert!(matches_profile(&p, &detected, &benchmark));
+        benchmark["agent"] = json!("Another harness");
+        assert!(!matches_profile(&p, &detected, &benchmark));
     }
     #[test]
     fn rank_only_comparable_evidence() {

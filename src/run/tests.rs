@@ -305,3 +305,28 @@ fn incomplete_handoffs_resume_the_session_and_stop_after_two_retries() -> Result
     assert!(s(&run["tasks"][0], "finding").contains("readable milestone receipt"));
     Ok(())
 }
+
+#[test]
+fn inbox_dismissal_preserves_decisions_and_retries_surface_new_blockers() -> Result<()> {
+    let (_dir, e) = fixture()?;
+    let mut run = json!({"id":"issues","state":"working","inbox":[{"id":"q","state":"open","blocking":true}],"tasks":[{"id":"fix","state":"blocked"}]});
+    e.save(&mut run, "seed")?;
+    for (item, id) in [("question", "q"), ("milestone", "fix")] {
+        let dismiss = json!({"kind":"dismiss-issue","text":item,"task":id});
+        e.command("issues", dismiss.clone())?;
+        e.command(
+            "issues",
+            json!({"kind":"restore-issue","text":item,"task":id}),
+        )?;
+        e.command("issues", dismiss)?;
+    }
+    let run = e.store.get("issues")?;
+    assert_eq!(run["inbox"][0]["state"], "open");
+    assert_eq!(run["inbox"][0]["blocking"], true);
+    assert_eq!(run["inbox"][0]["inbox_dismissed"], true);
+    assert_eq!(run["tasks"][0]["state"], "blocked");
+    let resumed = e.command("issues", json!({"kind":"resume","task":"fix"}))?;
+    assert_eq!(resumed["tasks"][0]["inbox_dismissed"], false);
+    assert_eq!(resumed["tasks"][0]["state"], "pending");
+    Ok(())
+}

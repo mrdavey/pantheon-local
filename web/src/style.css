@@ -191,7 +191,7 @@ pre { overflow: auto; max-height: 360px; color: var(--ink); background: var(--wa
 .error { display: flex; justify-content: space-between; align-items: center; gap: .75rem; background: var(--red-wash); color: var(--red); }
 .feedback { position: sticky; top: .5rem; z-index: 2; }
 .empty-state { padding: .65rem 0; }
-.brief, .conversation, .setup { max-width: 900px; }
+.brief, .setup { max-width: 900px; }
 
 label { display: grid; gap: .38rem; font-size: .91rem; font-weight: 600; }
 input:not([type="checkbox"], [type="radio"]), select, textarea {
@@ -225,28 +225,14 @@ summary { cursor: pointer; min-height: 44px; padding: .7rem 0; font-weight: 550;
 
 .setup { max-width: 46rem; }
 .setup > .page-heading { margin-bottom: 1rem; }
-.agent-choice fieldset { display: block; padding: 0; border: 0; margin: 0 0 1rem; }
-.agent-choice legend { padding: 0; margin-bottom: .5rem; }
-.agent-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .7rem .8rem; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.agent-option + .agent-option { margin-top: .35rem; }
-.agent-option:has(:checked) { border-color: var(--green); background: var(--green-wash); }
-.agent-option span, .setup-step { overflow-wrap: anywhere; }
-.agent-option input { accent-color: var(--green); }
-.agent-choice > details { margin: 1rem 0 0; border-top: 1px solid var(--line); }
+.setup-step { overflow-wrap: anywhere; }
 .setup-list { list-style: none; margin: 0; padding: 0; }
 .setup-step { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem 1rem; padding: .7rem 0; border-top: 1px solid var(--line); }
 .setup-step .setup-command { flex-basis: 100%; }
-.setup-more { margin-top: 1rem; }
 .setup-command { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; margin: .5rem 0; }
 .setup-command code { user-select: all; background: var(--wash); border-radius: 6px; padding: .45rem .65rem; }
 .setup-command span { font-size: .82rem; color: var(--muted); }
 
-.message { max-width: 90%; }
-.message-user { margin-inline-start: auto; background: var(--green-wash); }
-.message-text { color: var(--ink); white-space: pre-wrap; }
-.proposal-list { padding-inline-start: 1.35rem; }
-.proposal-list li { margin-bottom: .5rem; overflow-wrap: anywhere; }
-.proposal-list small { display: block; }
 .routing-evidence { margin: 0; }
 .routing-evidence summary { color: var(--clay); font-size: .87rem; }
 
@@ -341,7 +327,6 @@ summary { cursor: pointer; min-height: 44px; padding: .7rem 0; font-weight: 550;
   .run-nav button { flex: 0 0 min(65vw, 12rem); }
   .roles, .options { grid-template-columns: 1fr; }
   .run-tabs button { padding-inline: .61rem; }
-  .message { max-width: 100%; }
 }
 @media (max-width: 365px) {
   .workspace-nav .icon { display: none; }

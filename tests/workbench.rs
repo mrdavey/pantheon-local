@@ -34,6 +34,7 @@ impl Harness {
             ("HERMES_HOME".into(), hermes_home),
             ("SWARM_TEST_SIGNED_IN".into(), dir.path().join("signed-in")),
             ("SWARM_TEST_LIVE".into(), dir.path().join("live.json")),
+            ("SWARM_TEST_CHAT_GATE".into(), dir.path().join("chat-gate")),
         ]);
         let svc = Service::with_profiles(dir.path(), env, &profiles)?;
         let now = chrono::Utc::now();
@@ -188,7 +189,7 @@ fn failures(h: &Harness) -> Result<()> {
         h.button("Check again").focused()?;
     }
     h.click("Use first")?;
-    h.b.text("Run options").click()?;
+    h.click("Advanced settings")?;
     h.proxy.inject(Once::DestinationsFailure);
     h.b.role("combobox", "Delivery").select("deploy")?;
     h.b.role("alert", "")
@@ -202,19 +203,64 @@ fn failures(h: &Harness) -> Result<()> {
 }
 fn desktop_profile_roles(h: &Harness) -> Result<()> {
     h.goto()?;
-    let profile = h.b.role("radio", "Hermes · desktop-work");
+    let profile = h.button("Use Hermes · desktop-work");
     if h.mobile {
         profile.tap()?;
     } else {
         profile.focus()?;
-        h.b.key(" ")?;
+        h.b.key("\u{e007}")?;
     }
-    h.click("Use Hermes · desktop-work")?;
+    h.click("Team")?;
     h.b.label("Coordinator").value("hermes-desktop-work")?;
     let worker = h.b.role("checkbox", "Hermes · desktop-work");
     ensure!(worker.property("checked")? == true);
     h.b.label("Coordinator").select("first")?;
     ensure!(worker.property("checked")? == true);
+    h.no_overflow()
+}
+
+fn run_form(h: &Harness) -> Result<()> {
+    let folder = h.dir.path().join("new #project");
+    fs::create_dir(&folder)?;
+    fs::write(folder.join("example.txt"), "hello")?;
+    let encoded = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("cwd", folder.to_str().context("fixture path")?)
+        .finish();
+    h.b.goto(&format!(
+        "{}/#{}&{encoded}",
+        h.proxy.url,
+        h.svc.info["token"].as_str().unwrap()
+    ))?;
+    h.click("New run")?;
+    h.b.label("Project folder")
+        .value(folder.to_str().unwrap())?;
+    h.click("Team")?;
+    h.b.role("checkbox", "first").visible()?;
+    h.b.role("checkbox", "Codex").absent()?;
+    h.b.role("checkbox", "Claude Code").absent()?;
+    h.b.xpath("//select[@aria-label='Coordinator']/option[@value='claude' or @value='codex']")
+        .absent()?;
+    h.b.label("Coordinator").select("hermes-desktop-work")?;
+    h.click("Agent default · Model settings")?;
+    h.b.text("Choose the model and reasoning level in your Hermes profile.")
+        .visible()?;
+    h.b.key("\u{e00c}")?;
+    h.click("Done")?;
+    h.click("Advanced settings")?;
+    h.b.label("Delivery").value("auto")?;
+    h.b.label("Worker routing").value("manual")?;
+    h.proxy.inject(Once::InitialSelection);
+    h.click("Choose files…")?;
+    h.button("Remove example.txt").visible()?;
+    h.proxy.inject(Once::MoreInitialFiles);
+    h.click("Add more files…")?;
+    h.button("Remove nested/notes.md").visible()?;
+    h.click("Remove example.txt")?;
+    h.button("Remove example.txt").absent()?;
+    h.click("Done")?;
+    h.b.label("Project folder").fill("/tmp/another-project")?;
+    h.click("Advanced settings")?;
+    h.button("Choose files…").visible()?;
     h.no_overflow()
 }
 
@@ -224,25 +270,29 @@ fn export(h: &Harness) -> Result<()> {
     let b = &h.b;
     h.goto()?;
     b.role("heading", "Agent setup").visible()?;
-    b.text("Set up another agent (2)").click()?;
+    b.role("heading", "Your configured agents").visible()?;
+    h.click("Set up new agent")?;
     b.text("Sign in required").visible()?;
     b.role("link", "Install Claude Code").visible()?;
     fs::write(h.dir.path().join("signed-in"), "")?;
     h.click("Check again")?;
+    b.role("link", "Install Claude Code").visible()?;
+    h.click("Done")?;
     b.text("Signed in").visible()?;
-    b.role("radio", "second").click()?;
-    b.text("Model and benchmark").click()?;
+    h.click("Settings for second")?;
     b.label("Benchmark effort").fill("high")?;
     h.click("Save model settings")?;
     b.text("Saved for new runs.").visible()?;
-    b.role("radio", "first").click()?;
+    h.click("Close dialog")?;
     h.click("Use first")?;
     b.role("heading", "Start a run").focused()?;
+    h.click("Team")?;
     b.label("Coordinator").value("first")?;
     ensure!(b.role("checkbox", "first").property("checked")? == true);
+    h.click("Done")?;
     h.button("Needs you").focus()?;
     b.key("\u{e004}")?;
-    b.label("Project folder").focused()?;
+    b.label("What do you want to build?").focused()?;
     h.proxy.inject(Once::FolderSelected);
     h.click("Browse…")?;
     b.label("Project folder")
@@ -260,13 +310,19 @@ fn export(h: &Harness) -> Result<()> {
     b.label("Project folder").value(p)?;
     b.label("What do you want to build?")
         .value("Add quote export")?;
+    h.click("Team")?;
     b.label("Coordinator").select("first")?;
     for (role, checked) in [("first", false), ("writer", true), ("second", true)] {
         b.role("checkbox", role).checked(checked)?;
     }
+    h.click("Done")?;
+    h.click("Advanced settings")?;
+    b.label("Delivery").value("auto")?;
+    b.label("Delivery").select("review")?;
     let routing = b.xpath("//label[contains(.,'Worker routing')]/select");
     routing.value("manual")?;
     routing.select("balanced")?;
+    h.click("Done")?;
     h.click("Improve brief")?;
     until("advice", || {
         Ok(b.label("Suggested brief")
@@ -277,22 +333,41 @@ fn export(h: &Harness) -> Result<()> {
             .then_some(()))
     })?;
     h.click("Use suggestion")?;
+    b.eval(r#"const dt=new DataTransfer(); dt.items.add(new File(["brief evidence"],"scope.md",{type:"text/plain"}));
+        document.querySelector('.goal-composer').dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true}));"#, vec![])?;
+    h.click("Remove scope.md")?;
+    b.eval(r#"const dt=new DataTransfer(); dt.items.add(new File(["brief evidence"],"scope.md",{type:"text/plain"}));
+        const input=document.querySelector('input[type=file]'); input.files=dt.files; input.dispatchEvent(new Event('change',{bubbles:true}));"#, vec![])?;
+    h.button("Remove scope.md").visible()?;
     b.text("Original brief").click()?;
     h.click("Restore original")?;
     h.click("Start run")?;
     b.role("heading", "Quote export").visible()?;
+    let saved = h.svc.get("/runs")?[0].clone();
+    ensure!(saved["input"]["attachments"][0]["name"] == "scope.md");
+    let job = h
+        .svc
+        .state
+        .join("runs")
+        .join(saved["id"].as_str().unwrap())
+        .join("turns")
+        .join(saved["turns"][0]["id"].as_str().unwrap())
+        .join("job.json");
+    ensure!(fs::read_to_string(job)?.contains("brief evidence"));
+    ensure!(!project.join("scope.md").exists());
     b.text("Full brief").focus()?;
     b.key("\u{e007}")?;
-    b.xpath("//details[@open]/p[.='Add quote export']")
+    b.xpath("//details[@open]//p[.='Add quote export']")
         .visible()?;
     b.key("\u{e007}")?;
-    h.click("Conversation")?;
+    h.button("Coordinator chat").visible()?;
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
     b.role("heading", "Review acceptance checks").visible()?;
     let fixture = example("fixture-agent")?;
     let check = json!([fixture, "check", "export.txt", "open quotes"]);
-    b.text(&check.to_string()).visible()?;
+    b.xpath(r#"//code[contains(., "export.txt 'open quotes'")]"#)
+        .visible()?;
     b.text("View or edit JSON").click()?;
     b.label("Acceptance recipe").fill("")?;
     h.click("Approve checks")?;
@@ -303,13 +378,37 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Approve checks")?;
     h.click("Work")?;
     h.button("Land on main").visible()?;
+    b.xpath("//section[header[contains(@class,'run-heading')]]//select[@aria-label='Coordinator' or parent::label[contains(.,'Coordinator')]]").absent()?;
+    h.button("Open project folder").visible()?;
+    let milestone = b.xpath("//button[@data-task='export']");
+    milestone
+        .xpath(".//strong[.='Write the open quotes export.']")
+        .visible()?;
+    milestone.click()?;
+    b.xpath("//dialog[@open]//code[.='open quotes']")
+        .visible()?;
     b.text("Why this model?").click()?;
     b.xpath("//*[contains(text(),'Efficient model') and contains(.,'88.0%')]")
         .visible()?;
-    h.click("Conversation")?;
-    b.label("Message")
-        .fill("Why did the coordinator split the work?")?;
+    h.click("Close dialog")?;
+    let launcher = h.button("Coordinator chat");
+    if h.mobile {
+        launcher.tap()?;
+    } else {
+        launcher.focus()?;
+        b.key("\u{e007}")?;
+        b.label("Message").focused()?;
+    }
+    b.role("dialog", "Coordinator chat").visible()?;
+    h.no_overflow()?;
+    let question = "Why did the coordinator split the **work**?";
+    b.label("Message").fill(question)?;
+    b.key("\u{e00c}")?;
+    launcher.focused()?;
+    h.click("Coordinator chat")?;
+    b.label("Message").value(question)?;
     h.click("Send")?;
+    b.xpath("//article//strong[.='work']").visible()?;
     b.text("The export milestone owns the generated CSV.")
         .visible()?;
     b.label("Message").fill("Add a timing milestone")?;
@@ -317,8 +416,22 @@ fn export(h: &Harness) -> Result<()> {
     b.role("heading", "Proposed milestones").visible()?;
     h.click("Add milestones")?;
     b.text("Milestones added").visible()?;
+    h.click("Minimize chat")?;
     h.click("Work")?;
     h.button("Land on main").visible()?;
+    b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 2']")
+        .visible()?;
+    let past = b.xpath("//details[contains(@class,'superseded-work')]");
+    ensure!(past.property("open")? == false);
+    past.xpath(".//summary").click()?;
+    past.xpath(".//article//span[.='Superseded']").visible()?;
+    past.xpath(".//summary").click()?;
+    h.click("Experiment")?;
+    b.role("combobox", "Suite revision").select("1")?;
+    h.click("Show superseded implementations (1)")?;
+    b.xpath("//tbody//td/span[.='superseded']").visible()?;
+    h.click("Hide superseded implementations (1)")?;
+    h.click("Work")?;
     h.proxy.inject(Once::SnapshotRace);
     b.reload()?;
     until("events poll after snapshot cursor", || {
@@ -327,15 +440,26 @@ fn export(h: &Harness) -> Result<()> {
         Ok(v.map(|_| ()))
     })?;
     h.run_button("Quote export").click()?;
-    h.click("Conversation")?;
+    h.click("Coordinator chat")?;
     b.text("Milestones added").visible()?;
     b.text("Explain the result after reopening.").visible()?;
+    h.click("Minimize chat")?;
     h.click("Work")?;
     let candidate = b.xpath("//article[.//button[normalize-space(.)='Land on main']]");
     candidate.xpath(".//button[.='View diff']").click()?;
     b.label("Candidate diff").contains("timing.txt")?;
+    b.label("Changed file").select("1")?;
+    b.label("Changes to timing.txt").contains("+")?;
+    h.no_overflow()?;
+    b.key("\u{e00c}")?;
     candidate.xpath(".//button[.='View checks']").click()?;
     b.label("Acceptance checks").contains("open quotes")?;
+    b.xpath("//dialog[@open]//code[contains(@class,'shell-command')]")
+        .visible()?;
+    h.click("Close dialog")?;
+    candidate
+        .xpath(".//button[.='Open output folder']")
+        .visible()?;
     candidate.xpath(".//button[.='Start preview']").click()?;
     h.preview(b.xpath("//a[contains(.,'Open preview')]"), "export.txt")?;
     h.click("Land on main")?;
@@ -364,6 +488,20 @@ fn compare(h: &Harness) -> Result<()> {
     let outcome = b.xpath("//*[contains(concat(' ',@class,' '),' outcome ')]");
     outcome.contains("Landed")?;
     outcome.contains("balanced")?;
+    h.click("View decision details")?;
+    b.role("heading", "Why this decision?").visible()?;
+    b.role("heading", "Included milestones").visible()?;
+    h.button("Explain this").visible()?;
+    h.click("Close dialog")?;
+    h.click("View details for balanced")?;
+    b.xpath("//dialog[@open]//dt[contains(.,'relevance')]")
+        .visible()?;
+    h.no_overflow()?;
+    h.click("Close dialog")?;
+    h.click("Help with experiment actions")?;
+    b.xpath("//dialog[@open]//dt[.='Feedback']").visible()?;
+    b.key("\u{e00c}")?;
+    h.button("Help with experiment actions").focused()?;
     b.text("relevance (hits) by latency (ms)").visible()?;
     valid_commit(b)?;
     h.click("Work")?;
@@ -371,7 +509,7 @@ fn compare(h: &Harness) -> Result<()> {
     h.click("Experiment")?;
     b.text("Eval suite").click()?;
     b.text("latency must be at most 5 ms").visible()?;
-    b.text("Eval suite").click()?;
+    h.click("Close dialog")?;
     let balanced = h.button("balanced, 7 relevance (hits)");
     balanced.focus()?;
     balanced.focused()?;
@@ -403,12 +541,19 @@ fn compare(h: &Harness) -> Result<()> {
         .click()?;
     b.role("heading", "Should this behavior be required?")
         .visible()?;
+    h.click("Dismiss")?;
+    b.text("No open questions or blockers in your inbox.")
+        .visible()?;
+    h.click("Show history")?;
+    h.click("Restore to inbox")?;
     h.click("Yes")?;
     h.click("Send answer")?;
-    b.text("No open questions.").visible()?;
+    b.text("No open questions or blockers in your inbox.")
+        .visible()?;
     h.run_button("Measure approaches").click()?;
     b.text("Project eval cases").click()?;
     b.text("Exact title lookup should survive.").visible()?;
+    h.click("Close dialog")?;
     h.click("Improve this version")?;
     b.role("checkbox", "fast").checked(true)?;
     b.label("What should carry over?")
@@ -417,7 +562,12 @@ fn compare(h: &Harness) -> Result<()> {
     h.click("Build combination")?;
     let round = b.role("combobox", "Round");
     round.value("2")?;
-    b.text("From balanced + fast").visible()?;
+    let combination = b.xpath("//section[contains(@class,'comparison-card')]//tr[th//button[normalize-space(.)!='Baseline']]");
+    combination.xpath(".//th/button").click()?;
+    b.role("heading", "Based on").visible()?;
+    b.xpath("//dialog[@open]//li[.='balanced']").visible()?;
+    b.xpath("//dialog[@open]//li[.='fast']").visible()?;
+    h.click("Close dialog")?;
     h.button("Resume auto-land").visible()?;
     round.select("1")?;
     outcome.contains("Landed")?;
@@ -429,8 +579,7 @@ fn compare(h: &Harness) -> Result<()> {
     outcome.contains("Keeping the baseline")?;
     outcome.contains("Baseline")?;
     h.button("Land selected on main").absent()?;
-    b.xpath("//tr[contains(.,'From balanced + fast')]//button[.='Select']")
-        .click()?;
+    combination.xpath(".//button[.='Select']").click()?;
     outcome.contains("Selected")?;
     h.button("Land selected on main").visible()
 }
@@ -498,6 +647,11 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
         .click()?;
     h.b.role("heading", "recover-export").visible()?;
     h.b.text("Cannot write Git metadata.").visible()?;
+    h.click("Dismiss")?;
+    h.b.text("No open questions or blockers in your inbox.")
+        .visible()?;
+    h.click("Show history")?;
+    h.click("Restore to inbox")?;
     let state = h.svc.get(&path)?;
     let workspace = std::path::Path::new(
         state["tasks"][0]["workspace"]
@@ -510,6 +664,7 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     h.run_button("Recover the fixture milestone").click()?;
     h.b.role("heading", "Recover the fixture milestone")
         .visible()?;
+    h.b.xpath("//button[@data-task='recover-export']").click()?;
     h.b.text("Recovered the verified commit from the worker checkout.")
         .visible()?;
     h.no_overflow()
@@ -519,6 +674,243 @@ scenario!(
     mobile_blocked_milestone,
     blocked_milestone
 );
+fn turn_activity(h: &Harness) -> Result<()> {
+    let folder = h.repo("formatted-activity")?.join("packages/cli");
+    fs::create_dir_all(&folder)?;
+    fs::write(folder.join("README.md"), "Expense CLI")?;
+    git(&folder, &["add", "README.md"])?;
+    git(&folder, &["commit", "-m", "Create the nested project"])?;
+    let run = h.svc.post(
+        "/runs",
+        &json!({
+            "path":folder, "prompt":"Add quote export",
+            "coordinator":"first", "workers":["writer"]
+        }),
+    )?;
+    let path = common::run_path(&run)?;
+    let saved = h.svc.wait_state(&path, "question")?;
+    let turn = saved["turns"][0]["id"].as_str().context("plan turn")?;
+    let log = h
+        .svc
+        .state
+        .join("runs")
+        .join(saved["id"].as_str().unwrap())
+        .join("turns")
+        .join(turn)
+        .join("events.log");
+    // The native adapters save JSON lines. The browser must read both contracts.
+    let events = [
+        json!({"type":"agent_thought_chunk","text":"private-fixture"}),
+        json!({"type":"system","raw":{"subtype":"init","session_id":"private-fixture"}}),
+        json!({"type":"item.completed","raw":{"item":{"type":"reasoning","text":"private-fixture"}}}),
+        json!({"type":"assistant","raw":{"message":{"content":[{"type":"thinking","thinking":"private-fixture"},
+            {"type":"redacted_thinking","data":"private-fixture"},{"type":"text","text":"Public response."}]}}}),
+        json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"reply"}},"text":"Review **"}),
+        json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"reply"}},"text":"storage**."}),
+        json!({"type":"item.completed","raw":{"item":{"type":"command_execution",
+            "command":"cargo test --locked","aggregated_output":"test restart ... ok","exit_code":0}}}),
+        json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"receipt"}},"text":"{\"status\":\"ready\",\"files\":[\"src/main.rs\"]}"}),
+    ];
+    fs::write(
+        log,
+        events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    let folder_button = h.button("Open project folder");
+    folder_button.contains("cli")?;
+    ensure!(
+        folder_button.attr("title")?.as_str() == Some(folder.canonicalize()?.to_str().unwrap())
+    );
+    h.b.xpath("//button[starts-with(.,'View activity')]")
+        .click()?;
+    h.click("View log for Planning")?;
+    let log = h.b.label("Turn log");
+    log.xpath(".//strong[.='storage']").visible()?;
+    log.xpath(".//code[.='cargo test --locked']").visible()?;
+    log.xpath(".//pre[.='test restart ... ok']").visible()?;
+    log.xpath(".//dt[.='Files']").visible()?;
+    log.contains("src/main.rs")?;
+    log.contains("Public response.")?;
+    ensure!(!log.text_content()?.contains("private-fixture"));
+    h.no_overflow()?;
+    h.click("Back to activity")?;
+    h.click("Close dialog")?;
+    h.b.xpath("//button[starts-with(.,'View activity')]")
+        .focused()
+}
+scenario!(desktop_turn_activity, mobile_turn_activity, turn_activity);
+fn chat_history(h: &Harness) -> Result<()> {
+    let b = &h.b;
+    let run = h.svc.post(
+        "/runs",
+        &json!({
+            "path": h.repo("history")?, "prompt": "Add quote export",
+            "coordinator": "first", "workers": ["writer"]
+        }),
+    )?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    let mut message = String::from("Review the `total` command.\n\n");
+    for n in 1..=45 {
+        message.push_str(&format!("- Check row {n}\n"));
+    }
+    message.push_str("\n![Screenshot](https://example.invalid/private-image)\n");
+    h.svc.post(&path, &json!({"kind":"chat","text":message}))?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.click("Coordinator chat")?;
+    let history = b.role("log", "Coordinator conversation");
+    history.contains("The export milestone owns the generated CSV.")?;
+    history.xpath(".//code[.='total']").visible()?;
+    history.xpath(".//img").absent()?;
+    history.xpath(".//li[.='Check row 45']").visible()?;
+    history.focus()?;
+    b.key("\u{e011}")?; // Home
+    h.button("Latest messages ↓").visible()?;
+    b.label("Message").fill("Keep this draft")?;
+    h.click("Minimize chat")?;
+    h.click("Agent setup")?;
+    h.run_button("Quote export").click()?;
+    h.click("Coordinator chat")?;
+    b.label("Message").value("Keep this draft")?;
+    h.click("Latest messages ↓")?;
+    h.button("Latest messages ↓").absent()?;
+    b.label("Message")
+        .fill("Line one\u{e008}\u{e007}\u{e000}Line two")?;
+    b.label("Message").value("Line one\nLine two")?;
+    ensure!(b.eval(r#"const event = new KeyboardEvent("keydown", {key:"Enter",isComposing:true,bubbles:true,cancelable:true});
+        return document.activeElement.dispatchEvent(event)"#, vec![])? == true);
+    b.label("Message").fill("Stream this answer\u{e007}")?;
+    history.contains("The live answer")?;
+    b.text("Writing…").visible()?;
+    ensure!(
+        h.svc.get(&path)?["conversation"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["state"]
+            == "running"
+    );
+    fs::write(h.dir.path().join("chat-gate"), "")?;
+    history.contains("The live answer is complete.")?;
+    b.label("Message").value("")?;
+    h.svc.post(&path, &json!({"kind":"stop"}))?;
+    b.text("Resume the run to send a message.").visible()?;
+    h.button("Send").enabled(false)?;
+    h.no_overflow()
+}
+fn explain_context(h: &Harness) -> Result<()> {
+    let b = &h.b;
+    let run = h.svc.post(
+        "/runs",
+        &json!({
+            "path":h.repo("explain")?, "prompt":"Add quote export", "coordinator":"first",
+            "workers":["writer"], "delivery":"review"
+        }),
+    )?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    h.svc
+        .post(&path, &json!({"kind":"answer","text":"private"}))?;
+    let checks = h.svc.wait_state(&path, "checks")?;
+    h.svc.post(
+        &path,
+        &json!({"kind":"approve","recipe":checks["proposed_recipe"]}),
+    )?;
+    h.svc.wait_state(&path, "review")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.click("Coordinator chat")?;
+    b.label("Message").fill("An unfinished follow-up")?;
+    h.click("Minimize chat")?;
+    b.xpath("//button[@data-task='export']").click()?;
+    h.click("Explain this")?;
+    b.role("log", "Coordinator conversation")
+        .contains("This milestone writes the open quotes export.")?;
+    b.label("Message").value("An unfinished follow-up")?;
+    h.click("Minimize chat")?;
+    h.click("View details")?;
+    h.click("Explain this")?;
+    b.role("log", "Coordinator conversation")
+        .contains("This implementation adds the checked export file.")?;
+    b.label("Message").value("An unfinished follow-up")?;
+    let state = h.svc.get(&path)?;
+    let messages = common::rows(&state["conversation"]);
+    ensure!(messages.len() == 4);
+    ensure!(
+        messages[0]["text"] == "Explain this milestone."
+            && messages[0]["context"]["id"] == "export"
+    );
+    ensure!(
+        messages[2]["text"] == "Explain this implementation."
+            && messages[2]["context"]["kind"] == "implementation"
+    );
+    ensure!(
+        h.svc
+            .post(
+                &path,
+                &json!({"kind":"chat","text":"Explain","task":"missing"})
+            )
+            .is_err()
+    );
+    Ok(())
+}
+scenario!(
+    desktop_explain_context,
+    mobile_explain_context,
+    explain_context
+);
+scenario!(desktop_chat_history, mobile_chat_history, chat_history);
+fn discovered_model(h: &Harness) -> Result<()> {
+    let config = h
+        .dir
+        .path()
+        .join("hermes-home/profiles/desktop-work/config.yaml");
+    fs::write(
+        &config,
+        "model:\n  default: local/writer-one\nagent:\n  reasoning_effort: medium\n",
+    )?;
+    h.goto()?;
+    h.click("Settings for Hermes · desktop-work")?;
+    h.b.label("Model ID").value("local/writer-one")?;
+    h.b.label("Model name on the benchmark")
+        .value("local/writer-one")?;
+    h.b.label("Agent name on the benchmark").value("Hermes")?;
+    h.b.label("Benchmark effort").value("medium")?;
+    h.click("Save model settings")?;
+    h.b.text("Saved for new runs.").visible()?;
+    h.click("Close dialog")?;
+    fs::write(
+        &config,
+        "model: 'local/writer-two'\nagent:\n  reasoning_effort: high\n",
+    )?;
+    h.click("Check again")?;
+    h.button("Use Hermes · desktop-work").enabled(true)?;
+    h.click("Settings for Hermes · desktop-work")?;
+    h.b.label("Model name on the benchmark")
+        .value("local/writer-two")?;
+    h.b.label("Benchmark effort").value("high")?;
+    h.b.label("Model name on the benchmark")
+        .fill("Explicit match")?;
+    h.click("Save model settings")?;
+    h.b.text("Saved for new runs.").visible()?;
+    h.click("Use detected settings")?;
+    h.b.label("Model name on the benchmark")
+        .value("local/writer-two")?;
+    h.no_overflow()
+}
+scenario!(
+    desktop_detected_models,
+    mobile_detected_models,
+    discovered_model
+);
+
+scenario!(desktop_run_form, mobile_run_form, run_form);
 scenario!(desktop_export, mobile_export, export);
 scenario!(
     desktop_hermes_roles,
@@ -528,7 +920,7 @@ scenario!(
 scenario!(desktop_comparison, mobile_comparison, compare);
 scenario!(desktop_blind_review, mobile_blind_review, blind);
 
-// Opening twice must reuse the service and send the same session link to the OS.
+// Reopening keeps the session and uses the current launcher’s directory.
 #[test]
 fn open_reuses_the_listening_service() -> Result<()> {
     use nix::{
@@ -569,20 +961,31 @@ fn open_reuses_the_listening_service() -> Result<()> {
                 .filter(|s| !s.trim().is_empty()))
         })?;
         let info: Value = serde_json::from_slice(&fs::read(state.join("service.json"))?)?;
-        let expected = format!(
-            "{}/#{}\n",
-            info["url"].as_str().context("URL")?,
-            info["token"].as_str().context("token")?
+        let expected = |cwd: &std::path::Path| -> Result<String> {
+            let path = fs::canonicalize(cwd)?;
+            let query = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("cwd", path.to_str().context("cwd")?)
+                .finish();
+            Ok(format!(
+                "{}/#{}&{query}\n",
+                info["url"].as_str().context("URL")?,
+                info["token"].as_str().context("token")?
+            ))
+        };
+        ensure!(
+            url == expected(&env::current_dir()?)?,
+            "incorrect workbench link"
         );
-        ensure!(url == expected, "incorrect workbench link");
-        let mut second = launch().spawn()?;
+        let second_cwd = base.path().join("new project #2&tests");
+        fs::create_dir(&second_cwd)?;
+        let mut second = launch().current_dir(&second_cwd).spawn()?;
         let Some(status) = second.wait_timeout(Duration::from_secs(5))? else {
             second.kill()?;
             second.wait()?;
             anyhow::bail!("second open failed to reuse service")
         };
         ensure!(
-            status.success() && fs::read_to_string(&opener)? == expected.repeat(2),
+            status.success() && fs::read_to_string(&opener)? == url + &expected(&second_cwd)?,
             "incorrect reopened link"
         );
         Ok(())
@@ -594,3 +997,39 @@ fn open_reuses_the_listening_service() -> Result<()> {
     }
     check
 }
+
+fn delete_from_settings(h: &Harness) -> Result<()> {
+    let repo = h.repo("delete")?;
+    let run = h.svc.post("/runs", &json!({"path":repo,"prompt":"Add quote export","coordinator":"first","workers":["writer"]}))?;
+    let path = common::run_path(&run)?;
+    let waiting = h.svc.wait_state(&path, "question")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.click("Run settings")?;
+    h.b.role("heading", "Run settings").visible()?;
+    h.click("Pause run")?;
+    h.click("Delete run")?;
+    h.click("Cancel")?;
+    h.b.key("\u{e00c}")?;
+    h.button("Run settings").focused()?;
+    h.click("Settings for Quote export")?;
+    h.click("Delete run")?;
+    h.click("Delete permanently")?;
+    h.b.role("heading", "Start a run").visible()?;
+    h.run_button("Quote export").absent()?;
+    ensure!(h.svc.get(&path).is_err());
+    ensure!(repo.join(".git").is_dir());
+    ensure!(
+        !h.svc
+            .state
+            .join("runs")
+            .join(waiting["id"].as_str().unwrap())
+            .exists()
+    );
+    h.no_overflow()
+}
+scenario!(
+    desktop_run_settings,
+    mobile_run_settings,
+    delete_from_settings
+);

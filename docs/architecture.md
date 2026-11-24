@@ -1,6 +1,6 @@
 # Architecture
 
-One Rust executable contains the CLI, loopback service, turn supervisor and compiled React workbench. The browser and CLI use the same authenticated HTTP API for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand. Git operations and agent commands run outside the async HTTP executor. A single writer serializes run changes while the UI reads committed state.
+One Rust executable contains the CLI, loopback service, turn supervisor and compiled React workbench. The browser and CLI use the same authenticated HTTP API for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand. Git operations and agent commands run outside the async HTTP executor. A single writer serializes run changes while the UI reads committed state. Deleting a stopped or landed run replaces its event history with a deletion notice for connected clients. Startup retries cleanup of its private files.
 
 ## Process and Git lifetimes
 
@@ -26,7 +26,11 @@ To add an adapter, create an executable that accepts `--version` and `turn-v1`. 
 {"result":{"session":"session-id","text":"{\"status\":\"committed\",\"commit\":\"actual-git-sha\"}","tokens":1024}}
 ```
 
+On chat turns, a custom adapter can stream the JSON response in `agent_message_chunk` events with a `text` delta. Keep the final typed result. The workbench displays only the answer in the top-level `reply` field. Codex chat uses its local app-server, Claude uses partial messages, and Hermes streams ACP message updates.
+
 Omit usage when a harness has no reliable receipt. Return a failed turn in the result’s `error` field. The supervisor cancels a turn by stopping its process group.
+
+The service saves brief attachments under the private run directory, alongside its other inputs. Agents receive the paths and text excerpts with their run context. Initial imports are separate and become part of the project’s first commit.
 
 ## Worker routing and conversation
 

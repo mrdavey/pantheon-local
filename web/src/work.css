@@ -1,0 +1,70 @@
+.work-view { display: grid; gap: 1.5rem; }
+.work-section-heading, .work-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.work-section-heading { margin-bottom: .6rem; }
+.work-section-heading h2, .work-result header :is(h2, h3) { margin: 0; }
+.work-section-heading > span, .work-footer, .usage-note, .work-result > p { color: var(--muted); font-size: .9rem; }
+.work-result { margin-bottom: .5rem; }
+.work-result .result-tools { border-top: 1px solid var(--line); padding-top: .7rem; }
+.milestones { margin: 0; padding: 0; list-style: none; border-block: 1px solid var(--line); }
+.milestones:empty { display: none; }
+.milestone + .milestone { border-top: 1px solid var(--line); }
+.milestone-link { width: 100%; display: grid; grid-template-columns: 2rem minmax(0, 1fr) minmax(5rem, .4fr) auto; align-items: center; gap: .45rem 1rem; text-align: start; padding: .9rem .6rem; border: 0; background: transparent; }
+.milestone-link .milestone-title { display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
+.milestone-order { font-size: .9rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+.milestone-link strong::first-letter, .milestone-meta + h2::first-letter { text-transform: uppercase; }
+.milestone-link time, .milestone-link .milestone-owner { font-size: .88rem; color: var(--muted); font-weight: 500; }
+.milestone-link:hover { background: var(--wash); }
+.milestone > button + button, .milestone .answer { margin-bottom: .6rem; }
+.work-footer { padding-block: .5rem; justify-content: start; gap: .5rem 1.2rem; }
+.run-meta .project-label { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; overflow-wrap: anywhere; }
+.run-brief .markdown { font-size: .9rem; }
+.experiment-tools { margin-block: 1rem; }
+.evidence-dialog { width: min(54rem, calc(100% - 1rem)); }
+.diff-toolbar { display: flex; align-items: end; gap: .8rem; margin-bottom: .7rem; }
+.diff-toolbar label { flex: 1; min-width: 0; }
+.diff-toolbar > span { color: var(--red); white-space: nowrap; margin-bottom: .6rem; }
+.diff-toolbar b { color: var(--green); }
+.diff-lines { max-height: 55dvh; overflow: auto; border: 1px solid var(--line); border-radius: 7px; font: .82rem/1.6 ui-monospace, monospace; }
+.diff-line { display: grid; grid-template-columns: 4ch 4ch 1fr; gap: .45rem; min-width: max-content; }
+.diff-line span { color: var(--muted); text-align: end; user-select: none; }
+.diff-line code { white-space: pre; padding-inline: .25rem .6rem; }
+.diff-line.addition { color: var(--green); background: var(--green-wash); }
+.diff-line.deletion { color: var(--red); background: var(--red-wash); }
+.diff-line.hunk, .diff-line.meta { background: var(--wash); color: var(--muted); }
+.log-event + .log-event { margin-top: .85rem; }
+.log-event h4 { font-size: .8rem; color: var(--muted); margin: .6rem 0 .15rem; }
+.log-event p, .log-event pre { margin: 0; }
+.log-event pre { white-space: pre; max-height: 48dvh; }
+.log-command .shell-command { display: block; padding: .65rem; background: var(--wash); border-inline-start: 3px solid var(--clay); }
+.shell-command { white-space: pre-wrap; overflow-wrap: anywhere; }
+.event-fields { margin: .2rem 0; }
+.event-fields > div { display: grid; grid-template-columns: minmax(5rem, .35fr) minmax(0, 1fr); gap: .5rem; border-top: 1px solid var(--line); padding-block: .28rem; }
+.event-fields dt { color: var(--muted); }
+.event-fields dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.event-list { margin: 0; padding-inline-start: 1.15rem; }
+@media (max-width: 600px) {
+  .milestone-link { grid-template-columns: minmax(0, 1fr) auto; gap: .2rem .5rem; }
+  .milestone-link time, .milestone-link .milestone-owner { grid-column: 1; }
+  .milestone-link .state { grid-row: 1 / 3; grid-column: 2; }
+  .event-fields > div { display: block; }
+  .work-footer { flex-direction: column; align-items: start; }
+}
+
+.work-detail-dialog .work-details { display: grid; gap: 1.3rem; }
+.work-detail-dialog .work-details section { min-width: 0; }
+.work-detail-dialog .work-details h3 { font: 650 1rem/1.4 system-ui, sans-serif; letter-spacing: normal; margin: 0 0 .45rem; }
+.work-detail-dialog .work-details .markdown + .markdown { margin-top: .7rem; }
+.work-detail-dialog .milestone-meta { margin: 0; }
+.work-detail-dialog .explain-context { margin-top: .45rem; }
+.included-milestones { padding-inline-start: 1.25rem; margin-block: .4rem; }
+.included-milestones li + li { margin-top: .85rem; }
+.included-milestones strong { display: block; margin-bottom: .18rem; }
+.metric-details, .experiment-glossary { display: grid; gap: 1rem; margin: 0; }
+.metric-details dt, .experiment-glossary dt { font-weight: 650; }
+.metric-details dd, .experiment-glossary dd { margin: .2rem 0 0; }
+.superseded-work { margin-top: 1rem; }
+.superseded-work > summary, .comparison-card .superseded-toggle { font-size: .9rem; color: var(--muted); }
+.superseded-work[open] > summary { margin-bottom: .65rem; }
+.comparison-card .implementation-title { max-width: min(38ch, 100%); text-align: start; overflow-wrap: anywhere; white-space: normal; }
+.implementation-help { display: flex; justify-content: end; margin-top: .55rem; }
+.implementation-help .help-icon { width: 2.5rem; height: 2.5rem; min-height: 2.5rem; padding: 0; border-radius: 50%; font-weight: 700; }

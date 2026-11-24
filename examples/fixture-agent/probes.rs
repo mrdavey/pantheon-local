@@ -31,6 +31,72 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 println!("{event}")
             }
         }
+        "mock-codex-chat" => {
+            ensure!(args == ["app-server"], "chat needs the streaming transport");
+            let init = next(&mut input)?;
+            ensure!(init["method"] == "initialize", "missing initialize");
+            println!("{}", json!({"id":init["id"],"result":{}}));
+            ensure!(
+                next(&mut input)?["method"] == "initialized",
+                "missing initialized"
+            );
+            let session = next(&mut input)?;
+            ensure!(
+                matches!(
+                    session["method"].as_str(),
+                    Some("thread/start" | "thread/resume")
+                ),
+                "missing thread"
+            );
+            ensure!(
+                session["params"]["sandbox"] == "read-only"
+                    && session["params"]["approvalPolicy"] == "never",
+                "wrong chat permissions"
+            );
+            ensure!(
+                session["params"]["model"] == "configured-model",
+                "wrong model"
+            );
+            if session["method"] == "thread/resume" {
+                ensure!(
+                    session["params"]["threadId"] == "native-chat",
+                    "wrong resumed session"
+                );
+            }
+            println!(
+                "{}",
+                json!({"id":session["id"],"result":{"thread":{"id":"native-chat"}}})
+            );
+            let start = next(&mut input)?;
+            ensure!(
+                start["method"] == "turn/start" && start["params"]["input"][0]["text"] == "hello",
+                "missing prompt"
+            );
+            println!("{}", json!({"id":start["id"],"result":{"turn":{"id":"t"}}}));
+            let note = |method, params| println!("{}", json!({"method":method,"params":params}));
+            note(
+                "item/reasoning/textDelta",
+                json!({"threadId":"native-chat","turnId":"t","delta":"private"}),
+            );
+            for delta in [r#"{"reply":"Good"#, r#" answer"}"#] {
+                note(
+                    "item/agentMessage/delta",
+                    json!({"threadId":"native-chat","turnId":"t","itemId":"m","delta":delta}),
+                );
+            }
+            note(
+                "item/completed",
+                json!({"threadId":"native-chat","turnId":"t","item":{"type":"agentMessage","id":"m","text":r#"{"reply":"Good answer"}"#}}),
+            );
+            note(
+                "thread/tokenUsage/updated",
+                json!({"threadId":"native-chat","turnId":"t","tokenUsage":{"last":{"totalTokens":17}}}),
+            );
+            note(
+                "turn/completed",
+                json!({"threadId":"native-chat","turn":{"id":"t","status":"completed"}}),
+            );
+        }
         "mock-claude" => {
             println!("{}", json!({"type":"system","session_id":"abc"}));
             println!(
@@ -62,10 +128,23 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                         && request["params"]["cwd"] == json!(std::env::current_dir()?),
                     "wrong new session workspace"
                 );
-                println!(
-                    "{}",
-                    json!({"id":2,"result":{"sessionId":"desktop-session","modes":{"currentModeId":"default","availableModes":[{"id":"accept_edits"}]}}})
-                );
+                let cwd = std::env::current_dir()?;
+                let mut session = json!({
+                    "sessionId": "desktop-session",
+                    "modes": {"currentModeId":"default","availableModes":[{"id":"accept_edits"}]},
+                    "models": {
+                        "currentModelId":"service:gpt-6-astra",
+                        "availableModels":[{"modelId":"other:gpt-6-luna"},{"modelId":"service:gpt-6-luna"}]
+                    },
+                    "configOptions":[{"id":"thinking","category":"thought_level","type":"select","currentValue":"high","options":[{"value":"high"},{"value":"medium"}]}]
+                });
+                if cwd.ends_with("advisor-options") {
+                    session["configOptions"] = json!([{
+                        "id":"model","category":"model","type":"select","currentValue":"service:gpt-6-astra",
+                        "options":[{"group":"Service","options":[{"value":"service:gpt-6-luna"}]}]
+                    }]);
+                }
+                println!("{}", json!({"id":2,"result":session}));
             } else {
                 ensure!(
                     request["method"] == "session/load" && request["params"]["sessionId"] == "abc",
@@ -81,6 +160,40 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                     "missing worker mode"
                 );
                 println!("{}", json!({"id":mode["id"],"result":{}}));
+            }
+            let cwd = std::env::current_dir()?;
+            if fresh && (cwd.ends_with("advisor") || cwd.ends_with("advisor-options")) {
+                let model = next(&mut input)?;
+                if cwd.ends_with("advisor-options") {
+                    ensure!(
+                        model["method"] == "session/set_config_option"
+                            && model["params"]["configId"] == "model"
+                            && model["params"]["value"] == "service:gpt-6-luna",
+                        "expected advertised model option"
+                    );
+                    println!(
+                        "{}",
+                        json!({"id":model["id"], "result":{"configOptions":[{"id":"thinking","category":"thought_level","type":"select","currentValue":"low","options":[{"value":"medium"}]}]}})
+                    );
+                } else {
+                    ensure!(
+                        model["method"] == "session/set_model"
+                            && model["params"]["modelId"] == "service:gpt-6-luna",
+                        "expected advertised Hermes model"
+                    );
+                    println!("{}", json!({"id":model["id"],"result":{}}));
+                }
+                let effort = next(&mut input)?;
+                ensure!(
+                    effort["method"] == "session/set_config_option"
+                        && effort["params"]["value"] == "medium"
+                        && effort["params"]["configId"] == "thinking",
+                    "expected advertised medium reasoning"
+                );
+                println!(
+                    "{}",
+                    json!({"id":effort["id"],"result":{"configOptions":[]}})
+                );
             }
             let prompt = next(&mut input)?;
             ensure!(prompt["method"] == "session/prompt", "expected ACP prompt");
@@ -140,6 +253,7 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
             json!({"loggedIn":true,"email":"private@example.invalid"})
         ),
         "mock-unknown" => println!("{{}}"),
+        "mock-hanging-login" => std::thread::sleep(Duration::from_secs(30)),
         "mock-installed" => bail!("unused command"),
         "mock-resistant" => {
             signal_hook::flag::register(

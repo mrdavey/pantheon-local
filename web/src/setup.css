@@ -1,0 +1,26 @@
+.configured { margin-top: 1.3rem; }
+.configured h2 { margin: 0 0 .65rem; }
+.configured .setup-list { margin-bottom: 1rem; }
+.configured-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .55rem; padding: .8rem 0; border-top: 1px solid var(--line); }
+.configured-row > div:first-child { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; overflow-wrap: anywhere; }
+.brief-settings, .agent-actions, .brief-footer, .dialog-footer, .brief-advice { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.dialog-footer { margin-top: 1rem; justify-content: flex-end; }
+.brief-footer { justify-content: space-between; border-top: 1px solid var(--line); padding-top: 1rem; }
+.brief-advice { margin: -.6rem 0 1.25rem; }
+.brief .roles select { width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.brief .model-link { max-width: 100%; overflow-wrap: anywhere; font-size: .82rem; }
+.brief .checkbox, .import-files { overflow-wrap: anywhere; }
+.file-field { display: grid; align-content: start; gap: .38rem; font-size: .91rem; font-weight: 600; }
+.brief-options .destination-field, .brief-options > .checkbox { grid-column: 1 / -1; }
+.import-files { margin-block: .75rem; max-height: 45dvh; overflow: auto; }
+.original-brief { white-space: pre-wrap; }
+@media (max-width: 40rem) {
+  .configured-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .configured-row > div:first-child { display: grid; justify-items: start; gap: .2rem; }
+  .brief-settings { display: grid; gap: .2rem; }
+}
+
+.model-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .65rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.model-identity h3 { margin: 0; }
+.model-identity span { font-size: .82rem; color: var(--muted); }
+.model-provenance { margin: 0 0 .75rem; }

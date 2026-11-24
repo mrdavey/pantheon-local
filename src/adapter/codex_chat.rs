@@ -1,0 +1,144 @@
+//! Codex exec reports completed messages. The native app-server also emits text deltas.
+use super::*;
+
+fn send(input: &mut ChildStdin, request: Value) -> Result<()> {
+    serde_json::to_writer(&mut *input, &request)?;
+    input.write_all(b"\n")?;
+    input.flush()?;
+    Ok(())
+}
+
+pub(super) fn exchange(
+    request: &Value,
+    mut input: ChildStdin,
+    output: ChildStdout,
+    emit: &impl Fn(Value),
+) -> Result<Value> {
+    send(
+        &mut input,
+        json!({"id":1,"method":"initialize","params":{
+            "clientInfo":{"name":"pantheon_local","version":env!("CARGO_PKG_VERSION")},
+            "capabilities":{}
+        }}),
+    )?;
+    let mut output = BufReader::new(output);
+    let mut bytes = Vec::new();
+    let mut session = String::new();
+    let mut turn = String::new();
+    let mut item = String::new();
+    let mut answer = String::new();
+    let mut tokens = None;
+    while line(&mut output, &mut bytes)? {
+        let event: Value = serde_json::from_slice(&bytes)?;
+        let params = &event["params"];
+        if let Some(method) = event["method"].as_str() {
+            if !event["id"].is_null() {
+                send(
+                    &mut input,
+                    json!({"id":event["id"],"error":{"code":-32601,"message":"Host capability unavailable"}}),
+                )?;
+                continue;
+            }
+            if session.is_empty()
+                || params["threadId"] != session
+                || (!turn.is_empty() && params["turnId"].is_string() && params["turnId"] != turn)
+            {
+                continue;
+            }
+            match method {
+                "item/agentMessage/delta" => {
+                    let id = field(params, "itemId");
+                    if id != item {
+                        item = id.into();
+                        answer.clear();
+                    }
+                    let delta = field(params, "delta");
+                    ensure!(
+                        answer.len().saturating_add(delta.len()) <= MAX_LINE,
+                        "Codex chat message exceeds 8 MiB"
+                    );
+                    answer.push_str(delta);
+                    emit(
+                        json!({"type":"agent_message_chunk","messageId":id,"session":session,"text":delta}),
+                    );
+                }
+                "item/completed" if params["item"]["type"] == "agentMessage" => {
+                    answer = field(&params["item"], "text").into();
+                }
+                "thread/tokenUsage/updated" => {
+                    tokens = params["tokenUsage"]["last"]["totalTokens"].as_i64();
+                }
+                "turn/completed" if turn.is_empty() || params["turn"]["id"] == turn => {
+                    let completed = &params["turn"];
+                    if completed["status"] != "completed" {
+                        let detail = completed["error"]["message"]
+                            .as_str()
+                            .unwrap_or("Codex chat was interrupted");
+                        return Ok(json!({"error":detail,"session":session}));
+                    }
+                    let mut result = json!({"text":answer,"session":session});
+                    if let Some(tokens) = tokens {
+                        result["tokens"] = tokens.into();
+                    }
+                    return Ok(result);
+                }
+                _ => (),
+            }
+            continue;
+        }
+        if let Some(error) = event["error"].as_object() {
+            bail!(
+                "Codex chat: {}",
+                error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("request failed")
+            );
+        }
+        match event["id"].as_u64() {
+            Some(1) => {
+                send(&mut input, json!({"method":"initialized"}))?;
+                let mut settings =
+                    json!({"cwd":request["dir"],"sandbox":"read-only","approvalPolicy":"never"});
+                if let Some(model) = request["profile"]["model"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                {
+                    settings["model"] = model.into();
+                }
+                let previous = field(request, "session");
+                let method = if previous.is_empty() {
+                    "thread/start"
+                } else {
+                    settings["threadId"] = previous.into();
+                    "thread/resume"
+                };
+                send(
+                    &mut input,
+                    json!({"id":2,"method":method,"params":settings}),
+                )?;
+            }
+            Some(2) => {
+                session = event["result"]["thread"]["id"]
+                    .as_str()
+                    .context("Codex returned no chat session")?
+                    .into();
+                emit(json!({"type":"session","session":session}));
+                send(
+                    &mut input,
+                    json!({"id":3,"method":"turn/start","params":{
+                        "threadId":session,"input":[{"type":"text","text":request["prompt"]}]
+                    }}),
+                )?;
+            }
+            Some(3) => {
+                turn = event["result"]["turn"]["id"]
+                    .as_str()
+                    .context("Codex returned no turn ID")?
+                    .into();
+            }
+            _ => (),
+        }
+    }
+    bail!("Codex closed the chat before completing its reply")
+}

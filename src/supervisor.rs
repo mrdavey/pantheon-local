@@ -109,12 +109,18 @@ fn execute(dir: &Path) -> Result<Value> {
         crate::eval::supervise(dir, &spec, &mut log)?;
         json!({})
     } else {
-        let logger = Mutex::new((BufWriter::new(&mut log), None::<io::Error>));
+        let chat = (spec["request"]["role"] == "chat")
+            .then(|| crate::chat_stream::Writer::create(dir))
+            .transpose()?;
+        let logger = Mutex::new((BufWriter::new(&mut log), None::<io::Error>, chat));
         let result = crate::adapter::run(&spec["request"], None, |event| {
             if let Ok(mut guard) = logger.lock() {
-                let (writer, error) = &mut *guard;
+                let (writer, error, chat) = &mut *guard;
                 if error.is_none() {
                     *error = (|| -> io::Result<()> {
+                        if let Some(chat) = chat {
+                            chat.event(&event)?;
+                        }
                         serde_json::to_writer(&mut *writer, &event)?;
                         writer.write_all(b"\n")?;
                         writer.flush()
@@ -123,7 +129,7 @@ fn execute(dir: &Path) -> Result<Value> {
                 }
             }
         });
-        let (mut writer, error) = logger
+        let (mut writer, error, _) = logger
             .into_inner()
             .map_err(|_| anyhow::anyhow!("event writer failed"))?;
         writer.flush()?;

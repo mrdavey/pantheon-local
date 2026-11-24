@@ -1,43 +1,241 @@
-import React, { useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Command } from "./evidence.jsx";
+import { Markdown } from "./markdown.jsx";
+import { shortSummary } from "./run-summary.js";
+import "./conversation.css";
 
-export function Conversation({ run, act, busy }) {
-  const [text, setText] = useState("");
-  const messages = run.conversation || [];
-  const waiting = messages.some(({ state }) => state === "queued" || state === "running");
-  const canAdd = ["working", "review"].includes(run.state);
-  const paused = run.state === "stopped" || (run.input.token_target > 0 && run.tokens >= run.input.token_target);
-  async function send(event) {
-    event.preventDefault();
-    if (await act({ kind: "chat", text })) setText("");
+// Keep unsent drafts and reading positions scoped to the run and this open page.
+const drafts = new Map();
+const readingPositions = new Map();
+
+function ChatIcon({ minimize = false }) {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={minimize ? "m6 9 6 6 6-6" : "M20 11a8 8 0 0 1-8 8H8l-5 3 1.5-6A8.5 8.5 0 1 1 20 11Z"} />
+  </svg>;
+}
+
+function Proposal({ message, run, act, busy }) {
+  const [failed, setFailed] = useState(false);
+  const canAdd = ["working", "review"].includes(run.state) && !run.landing;
+  async function decide(kind) {
+    setFailed(false);
+    setFailed(!await act({ kind, task: message.id }));
   }
 
-  return <section className="conversation" aria-labelledby="conversation-title">
-    <h2 id="conversation-title">Talk to the coordinator</h2>
-    <div role="log" aria-label="Coordinator conversation">
-      {messages.length === 0 && <p className="empty-state">Ask about this run or request another milestone.</p>}
-      {messages.map((message) => <article className={`row message ${message.role === "user" ? "message-user" : ""}`} key={message.id}>
-        <strong>{message.role === "user" ? "You" : "Coordinator"}</strong>
-        <p className="message-text">{message.text}</p>
-        {message.error && <p role="alert">{message.error}</p>}
-        {message.tasks?.length > 0 && <>
-          <h3>Proposed milestones</h3>
-          <ul className="proposal-list">{message.tasks.map((task) => <li key={task.id}><strong>{task.id}</strong> {task.goal}{task.depends?.length > 0 && <small>After {task.depends.join(", ")}</small>}</li>)}</ul>
-          {message.checks?.length > 0 && <details><summary>Additional checks</summary><pre>{JSON.stringify(message.checks, null, 2)}</pre></details>}
-          {message.proposal_state === "pending" ? <div className="actions">
-            <button className="primary" disabled={busy || !canAdd} onClick={() => act({ kind: "accept-proposal", task: message.id })}>Add milestones</button>
-            <button disabled={busy} onClick={() => act({ kind: "dismiss-proposal", task: message.id })}>Dismiss proposal</button>
-          </div> : <p>{message.proposal_state === "added" ? "Milestones added" : "Proposal dismissed"}</p>}
-          {message.proposal_state === "pending" && !canAdd && <p>{run.state === "landed" ? "Open Experiment to start another round." : "You can add these milestones when work resumes or the candidate is ready for review."}</p>}
-        </>}
-      </article>)}
-    </div>
-    {waiting && <p role="status">Waiting for the coordinator…</p>}
-    {paused && <p>Resume the run to send a message.</p>}
-    <form className="form-card" onSubmit={send}>
-      <label>Message<textarea rows={3} value={text} onChange={(event) => setText(event.target.value)} /></label>
-      <button className="primary" type="submit" disabled={paused || waiting || busy || !text.trim()}>Send</button>
-    </form>
+  return <section className="chat-proposal">
+    <h3>Proposed milestones</h3>
+    <ul>{message.tasks.map((task) => <li key={task.id}>
+      <Markdown>{task.goal}</Markdown>
+      {task.depends?.length > 0 && <small>After {task.depends.join(", ")}</small>}
+    </li>)}</ul>
+    {message.checks?.length > 0 && <>
+      <h4>Additional checks</h4>
+      <ul className="chat-checks">{message.checks.map((argv, index) => <li key={index}><Command argv={argv} /></li>)}</ul>
+    </>}
+    {message.proposal_state === "pending" ? <>
+      <div className="chat-proposal-actions">
+        <button type="button" className="primary" disabled={busy || !canAdd} onClick={() => decide("accept-proposal")}>Add milestones</button>
+        <button type="button" disabled={busy} onClick={() => decide("dismiss-proposal")}>Dismiss proposal</button>
+      </div>
+      {!canAdd && <p>{run.state === "landed" ? "Open Experiment to start another round." : "You can add milestones when the run is working or ready for review."}</p>}
+      {failed && <p role="alert">Couldn’t update the proposal. Try again.</p>}
+    </> : <p className="proposal-outcome">{message.proposal_state === "added" ? "Milestones added" : "Proposal dismissed"}</p>}
   </section>;
+}
+
+function referenceLabel(run, reference) {
+  const item = (reference.kind === "milestone" ? run.tasks : run.candidates)?.find((row) => row.id === reference.id);
+  return shortSummary(item?.goal || item?.name || reference.id, 60);
+}
+
+function useLiveReply(api, runId, turnId, open) {
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    if (!open || !turnId) return;
+    const controller = new AbortController();
+    let timer;
+    async function read() {
+      try {
+        const text = await api(`/runs/${runId}/turns/${turnId}/reply`, undefined, controller.signal);
+        if (!controller.signal.aborted) setPreview((current) => current?.turnId === turnId && current.text === text ? current : { turnId, text });
+      } catch {
+        // A later poll can recover; the run update carries the final answer or error.
+      }
+      if (!controller.signal.aborted) timer = setTimeout(read, 300);
+    }
+    read();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [api, runId, turnId, open]);
+  return turnId && preview?.turnId === turnId ? preview.text : "";
+}
+
+export function Conversation({ run, act, busy, api, chatRequest }) {
+  const panelId = useId();
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(() => drafts.get(run.id) || "");
+  const [sendError, setSendError] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState(null);
+  const explained = useRef(null);
+  const [atLatest, setAtLatest] = useState(() => !readingPositions.has(run.id));
+  const launcher = useRef(null);
+  const minimize = useRef(null);
+  const restoreFocus = useRef(false);
+  const composer = useRef(null);
+  const history = useRef(null);
+  const messages = run.conversation || [];
+  const lastReply = messages.filter(({ role }) => role === "coordinator").at(-1)?.id;
+  const [seenReply, setSeenReply] = useState(lastReply);
+  const unread = lastReply && lastReply !== seenReply;
+  const pending = messages.find(({ state }) => state === "queued" || state === "running");
+  const waiting = !!pending;
+  const activeTurn = pending && run.turns?.findLast((turn) => turn.role === "chat" && turn.task === pending.id && turn.state === "running");
+  const liveReply = useLiveReply(api, run.id, activeTurn?.id, open);
+  const paused = run.state === "stopped" || (run.input.token_target > 0 && run.tokens >= run.input.token_target);
+  const overLimit = new TextEncoder().encode(text.trim()).length > 6000;
+  const full = messages.length >= 200;
+  const available = !paused && !waiting && !busy && !sending && !full;
+  const canSend = available && !overLimit && !!text.trim() && !attachment;
+
+  useEffect(() => {
+    if (!chatRequest) return;
+    readingPositions.delete(run.id);
+    setAtLatest(true);
+    setOpen(true);
+    setAttachment(chatRequest);
+    setSendError(false);
+  }, [run.id, chatRequest]);
+
+  async function askAbout(reference) {
+    explained.current = reference.key;
+    setSending(true);
+    setSendError(false);
+    const key = reference.kind === "milestone" ? "task" : "candidate";
+    const ok = await act({ kind: "chat", text: `Explain this ${reference.kind}.`, [key]: reference.id });
+    setSending(false);
+    if (ok) setAttachment((current) => current?.key === reference.key ? null : current);
+    else setSendError(true);
+  }
+
+  useEffect(() => {
+    if (attachment && available && explained.current !== attachment.key) askAbout(attachment);
+  }, [attachment, available]);
+
+  useEffect(() => {
+    if (open && atLatest) setSeenReply(lastReply);
+  }, [open, atLatest, lastReply]);
+
+  // Restore the reader's position on open. Follow replies only while at the bottom.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const log = history.current;
+    log.scrollTop = readingPositions.get(run.id) ?? log.scrollHeight;
+  }, [open, run.id, messages.length, waiting, liveReply, chatRequest]);
+
+  function trackPosition() {
+    const log = history.current;
+    const nearEnd = log.scrollHeight - log.clientHeight - log.scrollTop < 24;
+    if (nearEnd) readingPositions.delete(run.id);
+    else readingPositions.set(run.id, log.scrollTop);
+    setAtLatest(nearEnd);
+  }
+
+  useLayoutEffect(() => {
+    if (open) {
+      const target = window.matchMedia("(pointer: coarse)").matches ? minimize : composer;
+      target.current.focus({ preventScroll: true });
+    } else if (restoreFocus.current) {
+      launcher.current.focus({ preventScroll: true });
+      restoreFocus.current = false;
+    }
+  }, [open]);
+
+  function close() {
+    restoreFocus.current = true;
+    setOpen(false);
+  }
+
+  function edit(value) {
+    if (value) drafts.set(run.id, value);
+    else drafts.delete(run.id);
+    setText(value);
+    setSendError(false);
+  }
+
+  async function send(event) {
+    event.preventDefault();
+    if (!canSend) return;
+    setSending(true);
+    const ok = await act({ kind: "chat", text });
+    setSending(false);
+    if (!ok) {
+      setSendError(true);
+      return;
+    }
+    if (drafts.get(run.id) === text) edit("");
+    composer.current?.focus({ preventScroll: true });
+  }
+
+  return <div className="coordinator-chat">
+    <button ref={launcher} type="button" className="chat-launcher" aria-label="Coordinator chat"
+      aria-description={unread ? "New reply" : undefined} aria-expanded={open} aria-controls={panelId}
+      aria-haspopup="dialog" hidden={open} onClick={() => setOpen(true)}>
+      <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
+    </button>
+    <div id={panelId}>{open && <section role="dialog" aria-labelledby={titleId} className="chat-panel"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") { event.stopPropagation(); close(); }
+      }}>
+      <header className="chat-header"><div><h2 id={titleId}>Coordinator chat</h2>
+        <span>{run.input.coordinator}</span></div>
+        <button ref={minimize} type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><ChatIcon minimize /></button>
+      </header>
+      <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
+        onScroll={trackPosition}>
+        {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
+        {messages.map((message) => <article className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={message.id}>
+          <strong className="chat-author">{message.role === "user" ? "You" : "Coordinator"}</strong>
+          {message.context && <small className="chat-context">{referenceLabel(run, message.context)}</small>}
+          <Markdown>{message.text}</Markdown>
+          {message.error && <p className="chat-error" role="alert">{message.error}</p>}
+          {message.tasks?.length > 0 && <Proposal {...{ message, run, act, busy }} />}
+        </article>)}
+        {waiting && <article className="chat-message chat-live" aria-live="off">
+          <strong className="chat-author">Coordinator</strong>
+          {liveReply && <Markdown>{liveReply}</Markdown>}
+          <span className="chat-progress" role="status"><i aria-hidden="true" />{liveReply ? "Writing…" : "Waiting for the coordinator…"}</span>
+        </article>}
+      </div>
+      {!atLatest && <button className="chat-latest" type="button" onClick={() => {
+        history.current.scrollTop = history.current.scrollHeight;
+        trackPosition();
+      }}>Latest messages ↓</button>}
+      <form className="chat-composer" onSubmit={send}>
+        {attachment && <div className="chat-attachment">
+          <span>Explain {attachment.kind} · {referenceLabel(run, attachment)}</span>
+          {sendError && <button type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</button>}
+          {!sending && <button type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</button>}
+        </div>}
+        {sending && <p role="status">Sending…</p>}
+        {paused && <p>Resume the run to send a message.</p>}
+        {full && <p>This conversation is full.</p>}
+        {overLimit && <p role="alert">Shorten your message to 6,000 bytes.</p>}
+        {sendError && <p className="chat-error" role="alert">Your message wasn’t sent. Try again.</p>}
+        <div>
+          <textarea ref={composer} aria-label="Message" placeholder="Message the coordinator…" rows={2}
+            value={text} onChange={(event) => edit(event.target.value)} onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                event.preventDefault();
+                event.currentTarget.form.requestSubmit();
+              }
+            }} />
+          <button type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</button>
+        </div>
+      </form>
+    </section>}</div>
+  </div>;
 }
 
 export function RoutingEvidence({ route }) {

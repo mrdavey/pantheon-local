@@ -120,6 +120,70 @@ impl Store {
             [],
         )
     }
+    pub fn deleted_runs(&self) -> Result<Vec<Value>> {
+        read_values(
+            &self.lock()?.conn,
+            "SELECT body FROM events WHERE kind='run-deleted'",
+            [],
+        )
+    }
+
+    pub fn delete(&self, id: &str, expected: i64) -> Result<Value> {
+        let mut db = self.lock()?;
+        let tx = db.conn.transaction()?;
+        let run = read_values(&tx, "SELECT body FROM runs WHERE id=?", [id])?.pop();
+        let Some(run) = run else {
+            return read_values(
+                &tx,
+                "SELECT body FROM events WHERE run_id=? AND kind='run-deleted'",
+                [id],
+            )?
+            .pop()
+            .context("run not found");
+        };
+        ensure!(
+            run["revision"] == expected,
+            "the run changed; review its current state and retry"
+        );
+        ensure!(
+            matches!(run["state"].as_str(), Some("landed" | "stopped")),
+            "pause the run before deleting it"
+        );
+        ensure!(
+            !run["turns"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|t| t["state"] == "running")
+                && run["landing"].as_str().is_none_or(str::is_empty),
+            "wait for active work to finish before deleting this run"
+        );
+        ensure!(
+            run["releases"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|r| matches!(
+                    r["state"].as_str(),
+                    Some("deployed" | "rolled-back" | "failed" | "superseded")
+                )),
+            "finish or reconcile the release before deleting this run"
+        );
+        let deleted = json!({"id":id,"deleted":true});
+        tx.execute(
+            "INSERT INTO events(run_id,kind,body) VALUES (?,'run-deleted',?)",
+            params![id, serde_json::to_vec(&deleted)?],
+        )?;
+        tx.execute(
+            "DELETE FROM events WHERE run_id=? AND number<>?",
+            params![id, tx.last_insert_rowid()],
+        )?;
+        tx.execute("DELETE FROM runs WHERE id=?", [id])?;
+        tx.commit()?;
+        db.scheduled.remove(id);
+        Ok(deleted)
+    }
+
     pub fn scheduled_runs(&self) -> Result<Vec<Value>> {
         let db = self.lock()?;
         if db.scheduled.is_empty() {
@@ -247,6 +311,38 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delete_purges_one_runs_history_and_preserves_the_event_cursor() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db = Store::open(dir.path())?;
+        let mut run = json!({"id":"first","state":"working","input":{"prompt":"private brief"}});
+        let mut other = json!({"id":"other","state":"working"});
+        db.save(&mut run, "started", &[])?;
+        db.save(&mut other, "started", &[])?;
+        assert!(db.delete("first", 1).is_err());
+        run["state"] = json!("stopped");
+        run["turns"] = json!([{"state":"running"}]);
+        db.save(&mut run, "stopping", &[])?;
+        assert!(db.delete("first", 2).is_err());
+        run["turns"] = json!([]);
+        run["releases"] = json!([{"state":"uncertain"}]);
+        db.save(&mut run, "held", &[])?;
+        assert!(db.delete("first", 3).is_err());
+        run["releases"] = json!([]);
+        db.save(&mut run, "finished", &[])?;
+        assert!(db.delete("first", 3).is_err());
+        let cursor = db.snapshot()?["cursor"].as_i64().unwrap();
+        let deleted = db.delete("first", 4)?;
+        assert_eq!(db.delete("first", 4)?, deleted);
+        assert_eq!(db.list()?, vec![other.clone()]);
+        assert_eq!(db.scheduled_runs()?, vec![other]);
+        assert_eq!(db.events(cursor)?[0]["run"], deleted);
+        assert!(!serde_json::to_string(&db.events(0)?)?.contains("private brief"));
+        drop(db);
+        assert_eq!(Store::open(dir.path())?.deleted_runs()?, vec![deleted]);
+        Ok(())
+    }
+
     #[test]
     fn save_rolls_back_event_and_run_on_case_conflict() -> Result<()> {
         let dir = tempfile::tempdir()?;

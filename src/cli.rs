@@ -165,8 +165,22 @@ impl Session {
             .bearer_auth(&session.token)
             .send()
             .ok()?;
-        (response.status() == 204).then(|| format!("{}/#{}", session.url, session.token))
+        (response.status() == 204).then(|| workbench_link(&session.url, &session.token))
     }
+}
+/// Keep the launch folder and token in the fragment, local to this browser tab.
+pub fn workbench_link(origin: &str, token: &str) -> String {
+    let mut link = format!("{origin}/#{token}");
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(path) = cwd.to_str()
+    {
+        let encoded = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("cwd", path)
+            .finish();
+        link.push('&');
+        link.push_str(&encoded);
+    }
+    link
 }
 pub fn open_browser(link: &str) {
     use wait_timeout::ChildExt;

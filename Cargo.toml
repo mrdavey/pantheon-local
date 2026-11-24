@@ -10,6 +10,7 @@ name = "swarm"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.22"
 anyhow = "1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
@@ -21,17 +22,16 @@ rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 signal-hook = "0.3"
 subtle = "2"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+toml = { version = "1.2", default-features = false, features = ["std", "serde", "parse"] }
 url = "2"
 wait-timeout = "0.2"
-
-[dev-dependencies]
-base64 = "0.22"
 
 [profile.release]
 lto = "thin"

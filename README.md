@@ -26,9 +26,9 @@ If you have a Pantheon Local archive for your platform, extract it and run `./sw
 
 ### Start a run
 
-1. Configure your agent in its CLI or Hermes Desktop. In **Agent setup**, select a profile. On the run form, choose a coordinator and workers. One CLI can fill both roles.
-2. Browse to a project folder and enter a goal, then select **Start run**.
-3. Answer any planning questions, approve the checks, and review the passing candidate before landing it on your branch. [First run and troubleshooting](docs/getting-started.md)
+1. Configure your agent in its CLI or Hermes Desktop. Open **New run**, describe the goal, and attach any reference files. Choose a coordinator and workers under **Team**. One agent can fill both roles.
+2. Confirm the project folder (it defaults to the folder where you ran `swarm open`), then select **Start run**.
+3. Answer any planning questions, then approve the checks. Passing work auto-lands on your clean target branch unless you choose **Review before landing** in **Advanced settings**. [First run and troubleshooting](docs/getting-started.md)
 
 ## What runs where
 
