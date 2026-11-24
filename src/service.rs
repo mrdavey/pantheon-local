@@ -56,17 +56,31 @@ pub fn state_dir() -> Result<PathBuf> {
     };
     Ok(config.join("local-swarm"))
 }
-pub fn setup(dir: &Path) -> Result<Value> {
-    let mut cfg: Value = match fs::read(dir.join("profiles.json")) {
+fn configured_profiles(dir: &Path) -> Result<Value> {
+    Ok(match fs::read(dir.join("profiles.json")) {
         Ok(raw) => serde_json::from_slice(&raw)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            json!({"profiles":{"codex":{"kind":"codex"},"claude":{"kind":"claude"},"hermes":{"kind":"hermes"},"antigravity":{"kind":"antigravity"}}})
+            json!({"profiles":{"codex":{"kind":"codex"},"claude":{"kind":"claude"},"hermes":{"kind":"hermes","hermes_profile":"default"},"antigravity":{"kind":"antigravity"}}})
         }
         Err(e) => return Err(e.into()),
-    };
+    })
+}
+pub fn setup(dir: &Path) -> Result<Value> {
+    let mut cfg = configured_profiles(dir)?;
+    let settings = cfg
+        .as_object_mut()
+        .and_then(|c| c.remove("hermes_models"))
+        .unwrap_or_default();
     let profiles = cfg["profiles"]
-        .as_object()
+        .as_object_mut()
         .context("profiles must be an object")?;
+    if let Some(home) = std::env::var_os("HOME") {
+        adapter::hermes::add_profiles(
+            profiles,
+            &adapter::hermes::root(Path::new(&home)),
+            &settings,
+        );
+    }
     if let Some(roles) = fs::read(dir.join("roles.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -337,6 +351,9 @@ impl Local {
                 .unwrap_or(0)
         };
         match (method.as_str(), path.as_slice()) {
+            ("POST", ["project-folder"]) => {
+                Ok(json!(crate::folder_picker::choose(&self.shutdown)?))
+            }
             ("GET", ["setup"]) => setup(&self.dir),
             ("GET", ["setup", "status"]) => {
                 let cfg = setup(&self.dir)?;
@@ -372,7 +389,14 @@ impl Local {
                         p[key] = value.trim().into()
                     }
                 }
-                write_local(&self.dir.join("profiles.json"), &cfg)?;
+                let mut config = configured_profiles(&self.dir)?;
+                let name = input["profile"].as_str().context("missing profile name")?;
+                if config["profiles"].get(name).is_some() {
+                    config["profiles"][name] = p.clone();
+                } else {
+                    config["hermes_models"][name] = json!({"benchmark_model":p["benchmark_model"],"benchmark_agent":p["benchmark_agent"],"benchmark_effort":p["benchmark_effort"]});
+                }
+                write_local(&self.dir.join("profiles.json"), &config)?;
                 Ok(cfg)
             }
             ("GET", ["destinations"]) => Ok(json!(release::destinations(&self.dir)?)),

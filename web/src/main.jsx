@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { AgentSetup } from "./setup.jsx";
+import { AgentSetup, profileLabel } from "./setup.jsx";
 import { Experiment, Inbox, ReleaseList, title } from "./experiments.jsx";
 import { Conversation, RoutingEvidence } from "./conversation.jsx";
 import { RecipeEditor, branchName } from "./review.jsx";
@@ -110,11 +110,20 @@ function Brief({ setup, agentChoice, onSetup, onCreate, perform, busy }) {
   return <section className="panel brief">
     <h1 tabIndex={-1}>Start a run</h1>
     <form className="form-card" onSubmit={create}>
-      <label>Project folder<input required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => setPath(event.target.value)} placeholder="/path/to/project" /></label>
+      <div className="project-picker">
+        <label htmlFor="project-folder">Project folder</label>
+        <div className="path-controls">
+          <input id="project-folder" required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => setPath(event.target.value)} placeholder="/path/to/project" />
+          <button type="button" disabled={busy} onClick={() => perform(async () => {
+            const folder = await api("/project-folder", {});
+            if (folder) setPath(folder);
+          }, "Choosing a folder…")}>Browse…</button>
+        </div>
+      </div>
       <label>What do you want to build?<textarea required rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
       <div className="roles">
-        <label>Coordinator<select aria-label="Coordinator" required value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}><option value="">Choose a profile</option>{names.map((name) => <option key={name}>{name}</option>)}</select></label>
-        <fieldset><legend>Workers</legend>{names.map((name) => <label className="checkbox" key={name}><input type="checkbox" checked={selectedWorkers.includes(name)} onChange={(event) => setWorkers(event.target.checked ? [...selectedWorkers, name] : selectedWorkers.filter((worker) => worker !== name))} />{name}</label>)}</fieldset>
+        <label>Coordinator<select aria-label="Coordinator" required value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}><option value="">Choose a profile</option>{names.map((name) => <option key={name} value={name}>{profileLabel(name, setup.profiles[name])}</option>)}</select></label>
+        <fieldset><legend>Workers</legend>{names.map((name) => <label className="checkbox" key={name}><input type="checkbox" checked={selectedWorkers.includes(name)} onChange={(event) => setWorkers(event.target.checked ? [...selectedWorkers, name] : selectedWorkers.filter((worker) => worker !== name))} />{profileLabel(name, setup.profiles[name])}</label>)}</fieldset>
       </div>
       {(!names.length || !selectedWorkers.length) && <p className="muted">
         {names.length ? "Select at least one worker." : "Add an agent profile in setup."}{" "}
@@ -127,7 +136,6 @@ function Brief({ setup, agentChoice, onSetup, onCreate, perform, busy }) {
       </select></label>}
       <details><summary>Run options</summary>
         <div className="options">
-          <label>Advisor<select aria-label="Advisor" value={advisor} onChange={(event) => setAdvisor(event.target.value)}><option value="">Use coordinator</option>{names.map((name) => <option key={name}>{name}</option>)}</select></label>
           <label>Token target<input type="number" min="0" step="1" value={tokens} onChange={(event) => setTokens(event.target.value)} placeholder="Optional" /></label>
           <label className="checkbox"><input type="checkbox" checked={compare} onChange={(event) => setCompare(event.target.checked)} />Compare approaches against a baseline</label>
           <label>Delivery<select value={delivery} onChange={(event) => {
@@ -142,9 +150,13 @@ function Brief({ setup, agentChoice, onSetup, onCreate, perform, busy }) {
                 <button type="button" onClick={loadDestinations}>Reload destinations</button></> :
               <p>The tested commit can land and deploy to this destination automatically.</p>}
           </div>}
+        </div>
+        <details><summary>Git and advisor settings</summary>
+        <div className="options">
+          <label>Advisor<select aria-label="Advisor" value={advisor} onChange={(event) => setAdvisor(event.target.value)}><option value="">Use coordinator</option>{names.map((name) => <option key={name} value={name}>{profileLabel(name, setup.profiles[name])}</option>)}</select></label>
           <label>Target branch<input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Current branch" /></label>
           <label>Initial import files<textarea rows={2} value={initialFiles} onChange={(event) => setInitialFiles(event.target.value)} placeholder="One repo-relative file per line" /></label>
-        </div>
+        </div></details>
       </details>
       {suggestion && <div className="answer">
         <label>Suggested brief<textarea rows={4} value={suggestion} onChange={(event) => setSuggestion(event.target.value)} /></label>

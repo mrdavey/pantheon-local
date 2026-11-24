@@ -342,7 +342,7 @@ impl Engine {
             adapter::validate(p)?;
             let binary = adapter::binary(p);
             ensure!(
-                adapter::installed(binary),
+                adapter::installed(&binary),
                 "profile {name:?}: executable {binary:?} is unavailable"
             );
         }

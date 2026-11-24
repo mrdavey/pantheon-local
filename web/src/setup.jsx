@@ -14,8 +14,7 @@ const agents = {
   hermes: {
     name: "Hermes",
     docs: "https://hermes-agent.nousresearch.com/docs/getting-started/quickstart",
-    command: "hermes model",
-    installed: "Select a provider and model in Hermes.",
+    installed: "Set the provider and model in Hermes Desktop.",
   },
   antigravity: {
     name: "Antigravity",
@@ -31,6 +30,13 @@ const labels = {
 };
 
 const rank = {connected: 0, installed: 1, "sign-in-unknown": 2, "sign-in": 3, missing: 4, invalid: 5};
+
+export function profileLabel(name, profile) {
+  if (profile?.kind === "hermes" && profile.hermes_profile && (name === "hermes" || name === `hermes-${profile.hermes_profile}`)) {
+    return `Hermes · ${profile.hermes_profile}`;
+  }
+  return name === profile?.kind ? agents[name]?.name || name : name;
+}
 
 function BenchmarkSettings({ name, profile, save }) {
   const [model, setModel] = useState(profile.model || "");
@@ -90,6 +96,7 @@ export function AgentSetup({ check, saveModel, onContinue }) {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const request = useRef(null);
+  const [choice, setChoice] = useState("");
   const refresh = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
@@ -119,45 +126,59 @@ export function AgentSetup({ check, saveModel, onContinue }) {
   profiles.sort(([a], [b]) => (rank[report.profiles[a]?.state] ?? 9) -
     (rank[report.profiles[b]?.state] ?? 9) || a.localeCompare(b));
 
+  const usable = ([name]) => ["connected", "installed", "sign-in-unknown"].includes(report.profiles[name]?.state);
+  const available = profiles.filter(usable);
+  const others = profiles.filter((p) => !usable(p));
+  const selected = available.find(([name]) => name === choice) || available[0];
+  const stateOf = (name) => report.profiles[name]?.state;
+  const agent = selected && agents[selected[1].kind];
+  const needsLoginCheck = selected && stateOf(selected[0]) === "sign-in-unknown";
+
+  const setupSteps = <ul className="setup-list">{others.map(([name, profile]) => {
+    const state = stateOf(name);
+    const info = agents[profile.kind];
+    return <li className="setup-step" key={name}>
+      <strong>{profileLabel(name, profile)}</strong>
+      {state === "missing" && info
+        ? <a href={info.docs} target="_blank" rel="noreferrer">Install {info.name}</a>
+        : state === "sign-in" && info?.command
+          ? <><span>{labels[state]}</span><SetupCommand command={info.command} /></>
+          : <p>Check the executable in <code>profiles.json</code>.</p>}
+    </li>;
+  })}</ul>;
+
   return <section className="panel setup">
     <header className="page-heading">
-      <h1 tabIndex={-1}>Connect an agent</h1>
+      <h1 tabIndex={-1}>Agent setup</h1>
       <button aria-disabled={checking} onClick={() => { if (!checking) refresh(); }}>
         {checking ? "Checking agents…" : "Check again"}
       </button>
     </header>
-    <p>One agent can coordinate and work in separate sessions.</p>
-    {checking && <p role="status">Checking for Git and local agent profiles.</p>}
+    {checking && <p role="status">Checking local agents…</p>}
     {error && <p className="notice" role="alert">Couldn’t check agents. {error}</p>}
     {report && <>
       {!report.git && <p className="notice" role="alert">Git is required. <a href="https://git-scm.com/install/" target="_blank" rel="noreferrer">Install Git</a> and check again.</p>}
-      {!profiles.length && <p>No agent profiles found. Run <code>swarm doctor</code> to find your <code>profiles.json</code> file and add a profile.</p>}
-      <ul className="setup-list">
-        {profiles.map(([name, profile]) => {
-          const agent = agents[profile.kind];
-          const state = report.profiles[name]?.state;
-          const usable = ["connected", "installed", "sign-in-unknown"].includes(state);
-          return <li className="row setup-card" key={name}>
-            <header>
-              <strong>{agent?.name || name}{agent && name !== profile.kind ? <small className="profile-name">{name}</small> : ""}</strong>
-              <span className={"state " + (state === "connected" ? "passed" : usable && state !== "sign-in-unknown" ? "" : "question")}>{labels[state] || "Unchecked"}</span>
-            </header>
-            {state === "missing" && agent && <p><a href={agent.docs} target="_blank" rel="noreferrer">Install {agent.name}</a>, then check again.</p>}
-            {state === "missing" && !agent && <p>Check the executable path in <code>profiles.json</code>.</p>}
-            {state === "sign-in" && <p>Run this in Terminal, then check again.</p>}
-            {state === "sign-in-unknown" && <p>Check your sign-in in the agent’s CLI before starting.</p>}
-            {state === "installed" && agent?.installed && <p>{agent.installed}{profile.hermes_profile && <> Use the <strong>{profile.hermes_profile}</strong> profile.</>}</p>}
-            {state === "installed" && !agent && <p>Confirm any required account setup in the agent’s CLI.</p>}
-            {["sign-in", "sign-in-unknown", "installed"].includes(state) && agent?.command &&
-              <SetupCommand command={agent.command} />}
-            {state === "invalid" && <p>Check the profile in <code>profiles.json</code>.</p>}
-            {usable && <>
-              <div className="actions"><button className={state === "connected" ? "primary" : ""} disabled={checking || !report.git} onClick={() => onContinue(name, report.setup)}>Use {name}</button></div>
-              <BenchmarkSettings {...{ name, profile }} save={updateModel} />
-            </>}
-          </li>;
-        })}
-      </ul>
+      {!profiles.length && <p>No profiles found. Run <code>swarm doctor</code> to locate <code>profiles.json</code>.</p>}
+      {selected && <div className="form-card agent-choice">
+        <fieldset><legend>Choose an agent</legend>
+          {available.map(([name, profile]) => <label key={name} className="agent-option">
+            <input type="radio" name="agent-choice" aria-label={profileLabel(name, profile)} aria-describedby={`status-${encodeURIComponent(name)}`} checked={name === selected[0]} onChange={() => setChoice(name)} />
+            <span>{profileLabel(name, profile)}</span>
+            <small id={`status-${encodeURIComponent(name)}`} className={"state " + (stateOf(name) === "connected" ? "passed" : "")}>{labels[stateOf(name)]}</small>
+          </label>)}
+        </fieldset>
+        {selected[1].kind === "hermes" && <p>{agent.installed} Runs use a separate session in this profile.</p>}
+        {stateOf(selected[0]) === "installed" && selected[1].kind === "antigravity" && <p>{agent.installed}</p>}
+        {needsLoginCheck && <p>Check your sign-in before starting.</p>}
+        {needsLoginCheck && agent?.command && <SetupCommand command={agent.command} />}
+        <button className="primary" disabled={checking || !report.git} onClick={() => onContinue(selected[0], report.setup)}>
+          Use {profileLabel(selected[0], selected[1])}
+        </button>
+        <BenchmarkSettings key={selected[0]} name={selected[0]} profile={selected[1]} save={updateModel} />
+      </div>}
+      {others.length > 0 && (available.length
+        ? <details className="setup-more"><summary>Set up another agent ({others.length})</summary>{setupSteps}</details>
+        : <div className="form-card"><h2>Set up your first agent</h2>{setupSteps}<p>After setup, select Check again.</p></div>)}
     </>}
   </section>;
 }

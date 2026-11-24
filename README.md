@@ -26,8 +26,8 @@ If you have a Pantheon Local archive for your platform, extract it and run `./sw
 
 ### Start a run
 
-1. Sign in to your agent CLI. In **Agent setup**, choose a coordinator and workers. One CLI can fill both roles.
-2. Enter a project folder and goal, then select **Start run**.
+1. Configure your agent in its CLI or Hermes Desktop. In **Agent setup**, select a profile. On the run form, choose a coordinator and workers. One CLI can fill both roles.
+2. Browse to a project folder and enter a goal, then select **Start run**.
 3. Answer any planning questions, approve the checks, and review the passing candidate before landing it on your branch. [First run and troubleshooting](docs/getting-started.md)
 
 ## What runs where

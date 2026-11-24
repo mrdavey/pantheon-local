@@ -1,4 +1,5 @@
 mod acp;
+pub mod hermes;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{
@@ -15,7 +16,15 @@ use wait_timeout::ChildExt;
 fn field<'a>(obj: &'a Value, key: &str) -> &'a str {
     obj[key].as_str().unwrap_or_default()
 }
-pub fn binary(p: &Value) -> &str {
+pub fn binary(p: &Value) -> std::borrow::Cow<'_, str> {
+    if p["kind"] == "hermes"
+        && field(p, "executable").is_empty()
+        && !installed("hermes")
+        && let Some(home) = env::var_os("HOME").map(PathBuf::from)
+        && let Some(path) = hermes::desktop_executable(&home, &hermes::root(&home))
+    {
+        return path.to_string_lossy().into_owned().into();
+    }
     match field(p, "executable") {
         "" => match field(p, "kind") {
             "antigravity" => "agy",
@@ -23,6 +32,7 @@ pub fn binary(p: &Value) -> &str {
         },
         s => s,
     }
+    .into()
 }
 pub fn validate(p: &Value) -> Result<()> {
     match field(p, "kind") {
@@ -49,7 +59,7 @@ pub fn installed(name: &str) -> bool {
 }
 fn inspect(p: &Value, args: &[&str], timeout: u64, combined: bool) -> Result<(bool, String)> {
     let mut capture = tempfile::tempfile()?;
-    let mut cmd = Command::new(binary(p));
+    let mut cmd = Command::new(binary(p).as_ref());
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(capture.try_clone()?);
@@ -84,7 +94,7 @@ pub fn probe(p: &Value) -> Result<String> {
 pub fn availability(p: &Value) -> Value {
     let state = if validate(p).is_err() {
         "invalid"
-    } else if !installed(binary(p)) {
+    } else if !installed(&binary(p)) {
         "missing"
     } else {
         match field(p, "kind") {
@@ -189,7 +199,7 @@ pub fn run(r: &Value, state: Option<&Path>, emit: impl Fn(Value) + Sync) -> Valu
 fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> Result<Value> {
     let p = &r["profile"];
     validate(p)?;
-    let mut cmd = Command::new(binary(p));
+    let mut cmd = Command::new(binary(p).as_ref());
     cmd.args(args(r))
         .current_dir(field(r, "dir"))
         .stdin(Stdio::piped())
@@ -375,6 +385,22 @@ mod tests {
             run(&request, None, |_| {}),
             json!({"text":"done","session":"abc"})
         );
+        Ok(())
+    }
+    #[test]
+    fn desktop_profile_starts_coordinator_and_worker_in_the_assigned_checkout() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let profile = json!({"kind":"hermes","hermes_profile":"desktop-work","executable":native_fixture(temp.path(),"mock-desktop-acp")?});
+        for role in ["coordinator", "worker"] {
+            let dir = temp.path().join(role);
+            fs::create_dir(&dir)?;
+            let request =
+                json!({"profile":profile,"role":role,"dir":dir.canonicalize()?,"prompt":"fixture"});
+            assert_eq!(
+                run(&request, None, |_| {}),
+                json!({"text":"done","session":"desktop-session"})
+            );
+        }
         Ok(())
     }
     #[test]

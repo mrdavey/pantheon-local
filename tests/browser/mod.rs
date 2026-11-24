@@ -176,6 +176,7 @@ impl Browser {
             "button" => "//button|//*[@role='button']",
             "link" => "//a[@href]",
             "heading" => "//h1|//h2|//h3|//h4|//*[@role='heading']",
+            "radio" => "//input[@type='radio']",
             "checkbox" => "//input[@type='checkbox']|//*[@role='checkbox']",
             "combobox" => "//select|//*[@role='combobox']",
             "navigation" => "//nav|//*[@role='navigation']",

@@ -15,6 +15,8 @@ use std::{
 use tokio::sync::oneshot;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Once {
+    FolderSelected,
+    FolderCancelled,
     SnapshotFailure,
     MissingGit,
     DestinationsFailure,
@@ -117,6 +119,9 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
             .iter()
             .position(|p| match p {
                 Once::SnapshotFailure | Once::SnapshotRace => path == "/api/snapshot",
+                Once::FolderSelected | Once::FolderCancelled => {
+                    path == "/api/project-folder" && parts.method == "POST"
+                }
                 Once::MissingGit => path == "/api/setup/status",
                 Once::DestinationsFailure | Once::DestinationsSuccess => {
                     path == "/api/destinations"
@@ -128,6 +133,10 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
     };
     let reply = |code: StatusCode, value: Value| (code, axum::Json(value)).into_response();
     match injection {
+        Some(Once::FolderSelected) => {
+            return Ok(reply(StatusCode::OK, json!("/tmp/Project With Spaces")));
+        }
+        Some(Once::FolderCancelled) => return Ok(reply(StatusCode::OK, Value::Null)),
         Some(Once::SnapshotFailure | Once::EvidenceFailure | Once::DestinationsFailure) => {
             return Ok(reply(
                 StatusCode::SERVICE_UNAVAILABLE,

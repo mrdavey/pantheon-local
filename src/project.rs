@@ -19,9 +19,7 @@ pub struct Repository {
 
 fn git_command(dir: &str) -> Command {
     let mut cmd = Command::new("git");
-    if !dir.is_empty() {
-        cmd.current_dir(dir);
-    }
+    cmd.current_dir(dir);
     for (key, _) in env::vars_os() {
         if key.as_encoded_bytes().starts_with(b"GIT_") {
             cmd.env_remove(key);
@@ -31,8 +29,31 @@ fn git_command(dir: &str) -> Command {
     cmd
 }
 
+fn folder_access_error(path: &Path) -> anyhow::Error {
+    let help = if cfg!(target_os = "macos") {
+        "Allow the launching terminal to access this folder in System Settings → Privacy & Security → Files & Folders, or choose another folder."
+    } else {
+        "Check the folder permissions or choose another folder."
+    };
+    anyhow::anyhow!("Cannot access {}. {help}", path.display())
+}
+
 fn output(cmd: &mut Command) -> Result<String> {
-    let out = cmd.output().context("running Git")?;
+    let cwd = cmd.get_current_dir().unwrap_or(Path::new(".")).to_owned();
+    let out = cmd.output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::PermissionDenied {
+            folder_access_error(&cwd)
+        } else {
+            anyhow::anyhow!("Could not start Git in {}: {err}", cwd.display())
+        }
+    })?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success()
+        && stderr.contains("current working directory")
+        && (stderr.contains("Operation not permitted") || stderr.contains("Permission denied"))
+    {
+        return Err(folder_access_error(&cwd));
+    }
     ensure!(
         out.status.success(),
         "Git failed ({}): {}{}",
@@ -57,7 +78,20 @@ fn path_text(path: &Path) -> Result<&str> {
 }
 
 pub fn discover(path: &str) -> Result<Repository> {
-    let path = fs::canonicalize(path)?;
+    let path = fs::canonicalize(path).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::PermissionDenied {
+            folder_access_error(Path::new(path))
+        } else {
+            anyhow::anyhow!("Cannot open project folder {path}: {err}")
+        }
+    })?;
+    fs::read_dir(&path).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::PermissionDenied {
+            folder_access_error(&path)
+        } else {
+            anyhow::anyhow!("Cannot read project folder {}: {err}", path.display())
+        }
+    })?;
     let root = git(path_text(&path)?, &["rev-parse", "--show-toplevel"])?;
     let common = git(
         &root,
@@ -165,9 +199,10 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
 }
 
 pub fn clone_repo(source: &str, dir: &str, base: &str, branch: &str) -> Result<()> {
-    fs::create_dir_all(Path::new(dir).parent().context("missing clone parent")?)?;
+    let parent = Path::new(dir).parent().context("missing clone parent")?;
+    fs::create_dir_all(parent)?;
     git(
-        "",
+        path_text(parent)?,
         &[
             "clone",
             "--no-local",

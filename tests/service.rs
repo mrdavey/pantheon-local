@@ -1,3 +1,4 @@
+mod common;
 use anyhow::{Context, Result, ensure};
 use reqwest::blocking::Client;
 use serde_json::Value;
@@ -137,5 +138,66 @@ fn daemon_can_spawn_its_own_supervisor_after_binary_replacement() -> Result<()> 
     let body = response.text()?;
     assert!(status.is_success(), "{body}");
     assert!(body.contains("Keep quotes private"), "{body}");
+    Ok(())
+}
+
+#[test]
+fn run_starts_after_launch_directory_disappears() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let start = tmp.path().join("launcher");
+    let state = tmp.path().join("state");
+    fs::create_dir(&start)?;
+    fs::create_dir(&state)?;
+    let project = common::repo(&tmp.path().join("project"))?;
+    common::git(&project, &["commit", "--allow-empty", "-m", "Base"])?;
+    fs::write(
+        state.join("profiles.json"),
+        r#"{"profiles":{"fixture":{"kind":"custom","executable":"true"}}}"#,
+    )?;
+    let mut daemon = Daemon(
+        Command::new(env!("CARGO_BIN_EXE_swarm"))
+            .current_dir(&start)
+            .env("SWARM_STATE_DIR", &state)
+            .arg("serve")
+            .stdout(Stdio::null())
+            .spawn()?,
+    );
+    let info = metadata(&mut daemon, &state.join("service.json"))?;
+    fs::remove_dir(start)?;
+    let response=Client::builder().no_proxy().timeout(Duration::from_secs(10)).build()?
+        .post(format!("{}/api/runs",info["url"].as_str().unwrap()))
+        .bearer_auth(info["token"].as_str().unwrap())
+        .json(&serde_json::json!({"path":project,"prompt":"Test project access","coordinator":"fixture","workers":["fixture"]})).send()?;
+    let status = response.status();
+    let run = response.json::<Value>()?;
+    ensure!(status.is_success(), "{run}");
+    assert_eq!(run["state"], "planning");
+    Ok(())
+}
+
+#[test]
+fn desktop_profile_settings_follow_the_discovered_agent() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let home = tmp.path().join("hermes-home");
+    let profile = home.join("profiles/work");
+    fs::create_dir_all(&profile)?;
+    fs::write(profile.join("config.yaml"), "")?;
+    let svc = common::Service::with_profiles(
+        tmp.path(),
+        std::collections::BTreeMap::from([("HERMES_HOME".into(), home.clone())]),
+        &serde_json::json!({"profiles":{"hermes":{"kind":"hermes","executable":"true"}}}),
+    )?;
+    let current = svc.get("/setup")?;
+    assert_eq!(current["profiles"]["hermes-work"]["hermes_profile"], "work");
+    svc.post(
+        "/setup/model",
+        &serde_json::json!({"profile":"hermes-work","benchmark_model":"fixture"}),
+    )?;
+    assert_eq!(
+        svc.get("/setup")?["profiles"]["hermes-work"]["benchmark_model"],
+        "fixture"
+    );
+    fs::create_dir_all(home.join("profiles/.deleted/work"))?;
+    assert!(svc.get("/setup")?["profiles"]["hermes-work"].is_null());
     Ok(())
 }

@@ -16,7 +16,7 @@ From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, th
 
 ## Choose how to assign workers
 
-The coordinator assigns workers by default. For benchmark-based assignments, open **Agent setup → Model and benchmark** and match each profile to its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes or Antigravity runtime model in its own CLI.
+The coordinator assigns workers by default. For benchmark-based assignments, select a profile in **Agent setup** and open **Model and benchmark** and match each profile to its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes runtime model in its Desktop profile or CLI. Choose the Antigravity model in its CLI.
 
 Select at least two worker profiles, then choose **Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
 

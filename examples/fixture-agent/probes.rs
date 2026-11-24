@@ -38,7 +38,15 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 json!({"type":"result","is_error":true,"result":"sign in"})
             );
         }
-        "mock-acp" => {
+        "mock-acp" | "mock-desktop-acp" => {
+            let fresh = name == "mock-desktop-acp";
+            if fresh {
+                ensure!(
+                    args == ["--profile", "desktop-work", "acp"],
+                    "wrong Desktop profile"
+                );
+            }
+
             ensure!(
                 next(&mut input)?["method"] == "initialize",
                 "expected ACP initialize"
@@ -48,11 +56,23 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 json!({"id":1,"result":{"agentCapabilities":{"loadSession":true}}})
             );
             let request = next(&mut input)?;
-            ensure!(
-                request["method"] == "session/load" && request["params"]["sessionId"] == "abc",
-                "expected ACP session load"
-            );
-            println!("{}", json!({"id":2,"result":{}}));
+            if fresh {
+                ensure!(
+                    request["method"] == "session/new"
+                        && request["params"]["cwd"] == json!(std::env::current_dir()?),
+                    "wrong new session workspace"
+                );
+                println!(
+                    "{}",
+                    json!({"id":2,"result":{"sessionId":"desktop-session"}})
+                );
+            } else {
+                ensure!(
+                    request["method"] == "session/load" && request["params"]["sessionId"] == "abc",
+                    "expected ACP session load"
+                );
+                println!("{}", json!({"id":2,"result":{}}));
+            }
             ensure!(
                 next(&mut input)?["method"] == "session/prompt",
                 "expected ACP prompt"

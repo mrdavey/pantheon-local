@@ -25,8 +25,13 @@ impl Harness {
         symlink(example("fixture-agent")?, &native)?;
         let fixture = json!({"kind":"custom","executable":example("fixture-agent")?});
         let worker = |model: &str| json!({"kind":"custom","executable":fixture["executable"],"benchmark_model":model,"benchmark_agent":"Fixture Agent"});
-        let profiles = json!({"profiles":{"first":fixture,"second":worker("Efficient model"),"writer":worker("Frontier model"),"writer-two":worker("Frontier model"),"codex":{"kind":"codex","executable":native},"claude":{"kind":"claude","executable":dir.path().join("missing-claude")}}});
+        let hermes_home = dir.path().join("hermes-home");
+        let desktop_profile = hermes_home.join("profiles/desktop-work");
+        fs::create_dir_all(&desktop_profile)?;
+        fs::write(desktop_profile.join("config.yaml"), "")?;
+        let profiles = json!({"profiles":{"hermes":{"kind":"hermes","executable":fixture["executable"],"hermes_profile":"default"},"first":fixture,"second":worker("Efficient model"),"writer":worker("Frontier model"),"writer-two":worker("Frontier model"),"codex":{"kind":"codex","executable":native},"claude":{"kind":"claude","executable":dir.path().join("missing-claude")}}});
         let env = BTreeMap::from([
+            ("HERMES_HOME".into(), hermes_home),
             ("SWARM_TEST_SIGNED_IN".into(), dir.path().join("signed-in")),
             ("SWARM_TEST_LIVE".into(), dir.path().join("live.json")),
         ]);
@@ -140,7 +145,7 @@ fn requires_link(h: &Harness) -> Result<()> {
 }
 fn color_and_keyboard(h: &Harness) -> Result<()> {
     h.goto()?;
-    h.b.role("heading", "Connect an agent").visible()?;
+    h.b.role("heading", "Agent setup").visible()?;
     ensure!(
         h.button("Agent setup").attr("aria-current")? == "page",
         "setup navigation not active"
@@ -166,7 +171,7 @@ fn failures(h: &Harness) -> Result<()> {
         .contains("Couldn’t load Pantheon Local")?;
     h.click("Try again")?;
     h.b.role("navigation", "Workspace").visible()?;
-    h.b.role("heading", "Connect an agent").visible()?;
+    h.b.role("heading", "Agent setup").visible()?;
     h.proxy.inject(Once::MissingGit);
     h.click("Check again")?;
     h.b.role("alert", "").contains("Git is required")?;
@@ -195,26 +200,42 @@ fn failures(h: &Harness) -> Result<()> {
         .visible()?;
     h.no_overflow()
 }
+fn desktop_profile_roles(h: &Harness) -> Result<()> {
+    h.goto()?;
+    let profile = h.b.role("radio", "Hermes · desktop-work");
+    if h.mobile {
+        profile.tap()?;
+    } else {
+        profile.focus()?;
+        h.b.key(" ")?;
+    }
+    h.click("Use Hermes · desktop-work")?;
+    h.b.label("Coordinator").value("hermes-desktop-work")?;
+    let worker = h.b.role("checkbox", "Hermes · desktop-work");
+    ensure!(worker.property("checked")? == true);
+    h.b.label("Coordinator").select("first")?;
+    ensure!(worker.property("checked")? == true);
+    h.no_overflow()
+}
+
 fn export(h: &Harness) -> Result<()> {
     let project = h.repo("quotes")?;
     let p = project.to_str().unwrap();
     let b = &h.b;
     h.goto()?;
-    b.role("heading", "Connect an agent").visible()?;
+    b.role("heading", "Agent setup").visible()?;
+    b.text("Set up another agent (2)").click()?;
     b.text("Sign in required").visible()?;
     b.role("link", "Install Claude Code").visible()?;
     fs::write(h.dir.path().join("signed-in"), "")?;
     h.click("Check again")?;
     b.text("Signed in").visible()?;
-    let second = b.xpath("//li[.//*[normalize-space(.)='second']]");
-    second
-        .xpath(".//summary[.='Model and benchmark']")
-        .click()?;
-    second
-        .xpath(".//label[contains(.,'Benchmark effort')]/input")
-        .fill("high")?;
-    second.xpath(".//button[.='Save model settings']").click()?;
-    second.contains("Saved for new runs.")?;
+    b.role("radio", "second").click()?;
+    b.text("Model and benchmark").click()?;
+    b.label("Benchmark effort").fill("high")?;
+    h.click("Save model settings")?;
+    b.text("Saved for new runs.").visible()?;
+    b.role("radio", "first").click()?;
     h.click("Use first")?;
     b.role("heading", "Start a run").focused()?;
     b.label("Coordinator").value("first")?;
@@ -222,6 +243,15 @@ fn export(h: &Harness) -> Result<()> {
     h.button("Needs you").focus()?;
     b.key("\u{e004}")?;
     b.label("Project folder").focused()?;
+    h.proxy.inject(Once::FolderSelected);
+    h.click("Browse…")?;
+    b.label("Project folder")
+        .value("/tmp/Project With Spaces")?;
+    h.proxy.inject(Once::FolderCancelled);
+    h.click("Browse…")?;
+    h.button("Browse…").enabled(true)?;
+    b.label("Project folder")
+        .value("/tmp/Project With Spaces")?;
     b.label("Project folder").fill(p)?;
     b.label("What do you want to build?")
         .fill("Add quote export")?;
@@ -453,6 +483,11 @@ scenario!(
 );
 scenario!(desktop_setup_recovery, mobile_setup_recovery, failures);
 scenario!(desktop_export, mobile_export, export);
+scenario!(
+    desktop_hermes_roles,
+    mobile_hermes_roles,
+    desktop_profile_roles
+);
 scenario!(desktop_comparison, mobile_comparison, compare);
 scenario!(desktop_blind_review, mobile_blind_review, blind);
 
