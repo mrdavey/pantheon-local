@@ -15,7 +15,7 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - {"kind":"reply_to_worker","ref":"task ID","text":"answer from the known decisions"}.
 - {"kind":"message_worker","ref":"task ID","text":"specific handoff for this worker's next turn"}. Use this to pass an interface decision or dependency finding to another active milestone. It does not resolve a question.
 - {"kind":"propose_suite","recipe":{"checks":[["command"]],"cases":[],"rule":{}}} for developer review. A case can use a known absolute driver or a self-contained interpreted program. Give its observable expectation and why it matters. Do not propose an empty policy.
-- {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Omit ref for independent work. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
+- {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Only a pending, running or questioning parent can receive children. An operator retries blocked milestones in Needs you. Omit ref for independent work. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.
 - For a requested combination, {"kind":"combine","ref":"combination ID","text":"scoped implementation instructions","tasks":[{"id":"new-slug","worker":"profile","goal":"specific change","paths":[]}]}.
 Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval or relax an approved check. Routine progress needs no action. "#;
@@ -134,7 +134,11 @@ fn delegate(r: &mut Value, action: &Value) -> Result<()> {
     let mut added = a(&action["tasks"]).to_vec();
     if !parent.is_empty() {
         let i = item(&r["tasks"], parent)?;
-        ensure!(active_task(r, i), "parent milestone has finished");
+        ensure!(
+            active_task(r, i),
+            "milestone {parent} cannot receive children in its current state ({})",
+            s(&r["tasks"][i], "state")
+        );
         let p = &r["tasks"][i];
         for t in &mut added {
             if s(t, "variant").is_empty()

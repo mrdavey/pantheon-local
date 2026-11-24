@@ -294,6 +294,7 @@ impl Engine {
         r["session"] = json!(s(res, "session"));
         match role {
             "plan" => {
+                record_title(r, &out);
                 let q = s(&out, "question").trim();
                 if !q.is_empty() {
                     r["state"] = json!("question");

@@ -6,6 +6,7 @@ struct Client<'a, F> {
     emit: &'a F,
     session: String,
     text: String,
+    message_id: String,
     id: u64,
 }
 impl<F: Fn(Value)> Client<'_, F> {
@@ -27,7 +28,17 @@ impl<F: Fn(Value)> Client<'_, F> {
                 if !event["id"].is_null() {
                     let mut response = json!({"jsonrpc":"2.0","id":event["id"]});
                     if method == "session/request_permission" {
-                        response["result"] = json!({"outcome":{"outcome":"cancelled"}})
+                        // Hermes keeps a cancelled approval open for another viewer.
+                        let denial = event["params"]["options"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|o| o["kind"] == "reject_once")
+                            .and_then(|o| o["optionId"].as_str());
+                        response["result"] = match denial {
+                            Some(id) => json!({"outcome":{"outcome":"selected","optionId":id}}),
+                            None => json!({"outcome":{"outcome":"cancelled"}}),
+                        }
                     } else {
                         response["error"] =
                             json!({"code":-32601,"message":"Host capability unavailable"})
@@ -41,6 +52,12 @@ impl<F: Fn(Value)> Client<'_, F> {
                     let kind = update["sessionUpdate"].as_str().unwrap_or(method);
                     let text = field(&update["content"], "text");
                     if kind == "agent_message_chunk" {
+                        if let Some(id) = update["messageId"].as_str()
+                            && id != self.message_id
+                        {
+                            self.message_id = id.to_owned();
+                            self.text.clear();
+                        }
                         self.text.push_str(text);
                     }
                     (self.emit)(
@@ -69,13 +86,15 @@ pub(super) fn exchange(
         emit,
         session: field(r, "session").into(),
         text: String::new(),
+        message_id: String::new(),
         id: 0,
     };
     let init=c.call("initialize",json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"local-swarm","version":env!("CARGO_PKG_VERSION")}}))?;
     let mut params = json!({"cwd":r["dir"],"mcpServers":[]});
-    if c.session.is_empty() {
+    let session_info = if c.session.is_empty() {
         let session = c.call("session/new", params)?;
         c.session = field(&session, "sessionId").into();
+        session
     } else {
         params["sessionId"] = json!(c.session);
         c.call(
@@ -85,10 +104,25 @@ pub(super) fn exchange(
                 "session/resume"
             },
             params,
-        )?;
-    }
+        )?
+    };
     ensure!(!c.session.is_empty(), "ACP returned no session ID");
     emit(json!({"type":"session","session":c.session}));
+    let modes = &session_info["modes"];
+    if r["role"] == "worker"
+        && r["profile"]["kind"] == "hermes"
+        && modes["currentModeId"] != "accept_edits"
+        && modes["availableModes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|m| m["id"] == "accept_edits")
+    {
+        c.call(
+            "session/set_mode",
+            json!({"sessionId":c.session,"modeId":"accept_edits"}),
+        )?;
+    }
     c.text.clear();
     let result = c.call(
         "session/prompt",

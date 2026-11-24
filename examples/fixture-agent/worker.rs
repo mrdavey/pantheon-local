@@ -32,6 +32,10 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             "worker missing approved checks"
         );
     }
+    if id == "recover-export" {
+        fs::write("export.txt", "ready")?;
+        return Ok(json!({"status":"blocked","message":"Cannot write Git metadata."}));
+    }
     let (name, content): (String, String) = match id {
         "team-format" if answer.is_empty() => {
             ensure!(
@@ -115,6 +119,9 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         }
     };
     fs::write(&name, content)?;
+    if id == "export" {
+        return Ok(json!({"status":"ready","files":[name],"message":"Reviewed the quote export."}));
+    }
     git(&["add", "--", &name])?;
     git(&["commit", "-m", &format!("Implement {id}")])?;
     Ok(

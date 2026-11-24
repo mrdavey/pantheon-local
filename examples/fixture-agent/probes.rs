@@ -64,7 +64,7 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 );
                 println!(
                     "{}",
-                    json!({"id":2,"result":{"sessionId":"desktop-session"}})
+                    json!({"id":2,"result":{"sessionId":"desktop-session","modes":{"currentModeId":"default","availableModes":[{"id":"accept_edits"}]}}})
                 );
             } else {
                 ensure!(
@@ -73,24 +73,50 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 );
                 println!("{}", json!({"id":2,"result":{}}));
             }
-            ensure!(
-                next(&mut input)?["method"] == "session/prompt",
-                "expected ACP prompt"
-            );
+            if fresh && std::env::current_dir()?.ends_with("worker") {
+                let mode = next(&mut input)?;
+                ensure!(
+                    mode["method"] == "session/set_mode"
+                        && mode["params"]["modeId"] == "accept_edits",
+                    "missing worker mode"
+                );
+                println!("{}", json!({"id":mode["id"],"result":{}}));
+            }
+            let prompt = next(&mut input)?;
+            ensure!(prompt["method"] == "session/prompt", "expected ACP prompt");
+            let options = if fresh {
+                json!([{"kind":"allow_once","optionId":"yes"},{"kind":"reject_once","optionId":"no"}])
+            } else {
+                json!([])
+            };
             println!(
                 "{}",
-                json!({"id":9,"method":"session/request_permission","params":{}})
+                json!({"id":9,"method":"session/request_permission","params":{"options":options}})
             );
             let reply = next(&mut input)?;
+            let expected = if fresh {
+                json!({"outcome":"selected","optionId":"no"})
+            } else {
+                json!({"outcome":"cancelled"})
+            };
             ensure!(
-                reply["id"] == 9 && reply["result"]["outcome"]["outcome"] == "cancelled",
-                "permission granted"
+                reply["id"] == 9 && reply["result"]["outcome"] == expected,
+                "incorrect permission response"
             );
+            for (id, text) in [
+                ("progress", "Checking the project."),
+                ("final", "do"),
+                ("final", "ne"),
+            ] {
+                println!(
+                    "{}",
+                    json!({"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","messageId":id,"content":{"text":text}}}})
+                );
+            }
             println!(
                 "{}",
-                json!({"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"done"}}}})
+                json!({"id":prompt["id"],"result":{"stopReason":"end_turn"}})
             );
-            println!("{}", json!({"id":3,"result":{"stopReason":"end_turn"}}));
         }
         "mock-logged-in" => println!("Logged in with ChatGPT"),
         "mock-logged-out" => {

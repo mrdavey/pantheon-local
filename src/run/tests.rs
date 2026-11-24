@@ -94,10 +94,11 @@ fn paused_plan_accepts_answer_before_resuming() -> Result<()> {
 fn accepted_proposal_keeps_original_checks_and_repair_dependency() -> Result<()> {
     let (_dir, e) = fixture()?;
     let mut r = json!({"id":"chat","state":"review","input":{"workers":["writer"],"recipe":{"checks":[["original"]]}},"tasks":[{"id":"base","state":"committed","worker":"writer"},{"id":"repair","state":"committed","worker":"writer","repair_base":"abc"}],"candidates":[{"id":"old","state":"passed"}],"conversation":[{"id":"u","state":"running"}]});
-    let reply = json!({"reply":"Add a follow-up","tasks":[{"id":"next","goal":"Write a check","worker":"writer","depends":["base"]}],"checks":[["added"]]});
+    let reply = json!({"reply":"Add a follow-up","title":"Quote export","tasks":[{"id":"next","goal":"Write a check","worker":"writer","depends":["base"]}],"checks":[["added"]]});
     e.finish_chat(&mut r, "u", &json!({"text":reply.to_string()}));
     let id = s(&r["conversation"][1], "id").to_owned();
     assert_eq!(r["conversation"][1]["proposal_state"], "pending");
+    assert_eq!(r["title"], "Quote export");
     e.save(&mut r, "seed")?;
     let action = json!({"kind":"accept-proposal","task":id});
     let got = e.command("chat", action.clone())?;

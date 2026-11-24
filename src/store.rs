@@ -239,8 +239,8 @@ impl Store {
     }
     pub fn project_history(&self, project: &str, before: i64) -> Result<Vec<Value>> {
         let db = self.lock()?;
-        let mut st=db.conn.prepare("SELECT rowid,id,json_extract(body,'$.input.prompt'),json_extract(body,'$.state'),coalesce(json_extract(body,'$.round'),0) FROM runs WHERE json_extract(body,'$.project')=?1 AND (?2=0 OR rowid<?2) ORDER BY rowid DESC LIMIT 20")?;
-        Ok(st.query_map(params![project,before],|r|Ok(json!({"cursor":r.get::<_,i64>(0)?,"id":r.get::<_,String>(1)?,"brief":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"round":r.get::<_,i64>(4)?})))?.collect::<rusqlite::Result<_>>()?)
+        let mut st=db.conn.prepare("SELECT rowid,id,json_extract(body,'$.input.prompt'),json_extract(body,'$.state'),coalesce(json_extract(body,'$.round'),0),json_extract(body,'$.title') FROM runs WHERE json_extract(body,'$.project')=?1 AND (?2=0 OR rowid<?2) ORDER BY rowid DESC LIMIT 20")?;
+        Ok(st.query_map(params![project,before],|r|Ok(json!({"cursor":r.get::<_,i64>(0)?,"id":r.get::<_,String>(1)?,"brief":r.get::<_,String>(2)?,"state":r.get::<_,String>(3)?,"round":r.get::<_,i64>(4)?,"title":r.get::<_,Option<String>>(5)?})))?.collect::<rusqlite::Result<_>>()?)
     }
 }
 

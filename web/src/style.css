@@ -136,6 +136,8 @@ pre { overflow: auto; max-height: 360px; color: var(--ink); background: var(--wa
 .page-heading h1, .run-heading h1 { margin: 0; }
 .page-heading + p { margin: .75rem 0 1.25rem; }
 .run-heading { margin-bottom: 1.25rem; }
+.run-brief { margin-top: .5rem; font-size: .9rem; }
+.run-brief p { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 78ch; }
 .run-meta { color: var(--muted); margin-bottom: .75rem; font-size: .88rem; overflow-wrap: anywhere; }
 .project-label { display: inline-flex; align-items: center; gap: .4rem; }
 .project-label .icon { width: 17px; height: 17px; color: var(--clay); }

@@ -280,6 +280,12 @@ fn export(h: &Harness) -> Result<()> {
     b.text("Original brief").click()?;
     h.click("Restore original")?;
     h.click("Start run")?;
+    b.role("heading", "Quote export").visible()?;
+    b.text("Full brief").focus()?;
+    b.key("\u{e007}")?;
+    b.xpath("//details[@open]/p[.='Add quote export']")
+        .visible()?;
+    b.key("\u{e007}")?;
     h.click("Conversation")?;
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
@@ -320,7 +326,7 @@ fn export(h: &Harness) -> Result<()> {
         ensure!(v != Some(false), "stale event cursor");
         Ok(v.map(|_| ()))
     })?;
-    h.run_button("Add quote export").click()?;
+    h.run_button("Quote export").click()?;
     h.click("Conversation")?;
     b.text("Milestones added").visible()?;
     b.text("Explain the result after reopening.").visible()?;
@@ -482,6 +488,37 @@ scenario!(
     color_and_keyboard
 );
 scenario!(desktop_setup_recovery, mobile_setup_recovery, failures);
+fn blocked_milestone(h: &Harness) -> Result<()> {
+    let brief =
+        "Goal\nRecover the fixture milestone\n\nRequirements\nUse the reviewed worker files.";
+    let run = h.svc.post("/runs",&json!({"path":h.repo("recovery")?,"prompt":brief,"coordinator":"first","workers":["writer"],"recipe":{"checks":[["true"]]}}))?;
+    let path = common::run_path(&run)?;
+    h.goto()?;
+    h.b.xpath("//button[contains(.,'Needs you') and contains(.,'1')]")
+        .click()?;
+    h.b.role("heading", "recover-export").visible()?;
+    h.b.text("Cannot write Git metadata.").visible()?;
+    let state = h.svc.get(&path)?;
+    let workspace = std::path::Path::new(
+        state["tasks"][0]["workspace"]
+            .as_str()
+            .context("worker checkout")?,
+    );
+    git(workspace, &["add", "export.txt"])?;
+    git(workspace, &["commit", "-m", "Record reviewed export"])?;
+    h.click("Retry milestone")?;
+    h.run_button("Recover the fixture milestone").click()?;
+    h.b.role("heading", "Recover the fixture milestone")
+        .visible()?;
+    h.b.text("Recovered the verified commit from the worker checkout.")
+        .visible()?;
+    h.no_overflow()
+}
+scenario!(
+    desktop_blocked_milestone,
+    mobile_blocked_milestone,
+    blocked_milestone
+);
 scenario!(desktop_export, mobile_export, export);
 scenario!(
     desktop_hermes_roles,

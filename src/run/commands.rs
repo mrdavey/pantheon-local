@@ -74,7 +74,7 @@ impl Engine {
             .collect::<Vec<_>>()
             .join("\n");
         let prompt = format!(
-            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Use no commands or tools. Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. The developer decides whether to add them. Return only JSON {{\"reply\":\"answer\",\"tasks\":[],\"checks\":[]}}.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nDeveloper message: {}",
+            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Use no commands or tools. Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. The developer decides whether to add them. Return only JSON {{\"title\":\"short name for the overall goal, up to eight words\",\"reply\":\"answer\",\"tasks\":[],\"checks\":[]}}.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nDeveloper message: {}",
             r["input"]["workers"],
             s(r, "state"),
             s(&r["input"], "prompt"),
@@ -106,6 +106,7 @@ impl Engine {
             return;
         }
         let Ok(data) = result else { return };
+        record_title(r, &data);
         r["conversation"][i]["state"] = json!("answered");
         r["chat_session"] = json!(s(res, "session"));
         let mut reply = json!({"id":uid(),"role":"coordinator","text":data["reply"]});

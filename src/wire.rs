@@ -58,9 +58,10 @@ request!(Task{
     state:String,workspace:String,base:String,commit:String,session:String,question:String,reply:String,
     finding:String,repair_base:String,notes:Vec<String>
 });
-request!(Plan{tasks:Vec<Task>,recipe:Recipe,question:String});
+request!(Plan{title:String,tasks:Vec<Task>,recipe:Recipe,question:String});
 request!(Worker {
     status: String,
+    files: Vec<String>,
     commit: String,
     message: String,
     recipient: String
@@ -69,7 +70,7 @@ request!(Repair {
     task: String,
     instruction: String
 });
-request!(Chat{reply:String,tasks:Vec<Task>,checks:Vec<Vec<String>>});
+request!(Chat{title:String,reply:String,tasks:Vec<Task>,checks:Vec<Vec<String>>});
 request!(ObservationCase {
     id: String,
     revision: i64,

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { runTitle, blockedTasks } from "./run-summary.js";
 import { AgentSetup, profileLabel } from "./setup.jsx";
 import { Experiment, Inbox, ReleaseList, title } from "./experiments.jsx";
 import { Conversation, RoutingEvidence } from "./conversation.jsx";
@@ -53,7 +54,8 @@ function Icon({ name }) {
   </svg>;
 }
 
-function Status({ state }) {
+function Status({ state, run }) {
+  if (state === "working" && run && blockedTasks(run).length) return <span className="state blocked">Milestone blocked</span>;
   return <span className={"state " + state}>{stateLabel[state] || state}</span>;
 }
 
@@ -245,9 +247,12 @@ function RunView({ run, send, perform, busy, openRun, openInbox }) {
       <div className="run-meta">
         <span className="project-label" title={run.repo.Root}><Icon name="folder" />{run.repo.Root.split(/[\\/]/).filter(Boolean).at(-1) || run.repo.Root}</span>
         {run.repo.Target && <code>{branchName(run.repo.Target)}</code>}
-        <Status state={run.state} />
+        <Status state={run.state} run={run} />
       </div>
-      <h1 tabIndex={-1}>{run.input.prompt}</h1>
+      <h1 tabIndex={-1}>{runTitle(run)}</h1>
+      {runTitle(run) !== run.input.prompt && <details key={run.id} className="run-brief">
+        <summary>Full brief</summary><p>{run.input.prompt}</p>
+      </details>}
     </header>
     {run.detail && !landed && <p className="notice" role="status">{run.detail}</p>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
@@ -438,7 +443,7 @@ function App() {
     return () => { controller.abort(); clearTimeout(timer); };
   }, [startup]);
 
-  const outstanding = runs.reduce((total, r) => total + (r.inbox || []).filter((q) => q.state === "open").length, 0);
+  const outstanding = runs.reduce((total, r) => total + (r.inbox || []).filter((q) => q.state === "open").length + blockedTasks(r).length, 0);
   const current = runs.find((run) => run.id === selection);
   const useAgent = (name, config) => {
     setSetup(config);
@@ -472,7 +477,7 @@ function App() {
         {runs.length > 0 && <div className="run-history">
           <div className="nav-heading" aria-hidden="true">Runs</div>
           <nav className="run-nav" aria-label="Runs">{runs.map((run) =>
-            <button {...navProps(run.id)} key={run.id}><span className="run-name" title={run.input.prompt}>{run.input.prompt}</span><Status state={run.state} /></button>)}</nav>
+            <button {...navProps(run.id)} key={run.id}><span className="run-name">{runTitle(run)}</span><Status state={run.state} run={run} /></button>)}</nav>
         </div>}
       </>}
     </aside>

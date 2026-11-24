@@ -24,7 +24,7 @@ For Hermes, Antigravity and custom adapters, **Installed** confirms the executab
 3. Answer any planning question. Review the proposed checks, edit them in **View or edit JSON** if needed, then select **Approve checks**. For this example, the check should verify the file’s exact contents.
 4. In **Work**, open **View checks** and **View diff**. If the recipe includes a preview, use **Start preview**. Choose **Request change** or land the tested commit on the named branch. A checked-out target must be clean.
 
-Use **Needs you** for decisions and **Conversation** to ask about a run or request more work. [Team coordination](model-routing.md)
+Open **Full brief** beneath the run title to read the original request. Use **Needs you** for blocked milestones and decisions and **Conversation** to ask about a run or request more work. [Team coordination](model-routing.md)
 
 **Pause run** interrupts active work. You can answer a planning question while paused. **Resume** continues the run and repeats an interrupted check. Closing the tab leaves the service running. Reopen the launcher to reconnect, or press Control-C in Terminal to stop the service.
 

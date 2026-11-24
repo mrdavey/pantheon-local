@@ -302,6 +302,94 @@ pub fn status(dir: &str) -> Result<String> {
 pub fn is_ancestor(dir: &str, base: &str, sha: &str) -> bool {
     git(dir, &["merge-base", "--is-ancestor", base, sha]).is_ok()
 }
+/// Record only the worker's explicit handoff, leaving unrelated index entries alone.
+pub fn commit_handoff(
+    dir: &str,
+    base: &str,
+    task: &str,
+    turn: &str,
+    files: &[String],
+    scopes: &[String],
+    summary: &str,
+) -> Result<String> {
+    ensure!(
+        !files.is_empty() && !summary.trim().is_empty(),
+        "a ready milestone needs reviewed files and a validation summary"
+    );
+    for file in files {
+        let path = Path::new(file);
+        ensure!(
+            !file.is_empty()
+                && path.components().all(|c| {
+                    matches!(c, Component::Normal(name) if !name.eq_ignore_ascii_case(".git"))
+                }),
+            "invalid handoff path {file:?}"
+        );
+        ensure!(
+            scopes.is_empty() || scopes.iter().any(|scope| path.starts_with(scope)),
+            "handoff path {file:?} is outside the assigned scope"
+        );
+        match fs::symlink_metadata(Path::new(dir).join(path)) {
+            Ok(metadata) => ensure!(
+                metadata.is_file() || metadata.is_symlink(),
+                "handoff requires individual files: {file:?}"
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let receipt = format!("Pantheon-Turn: {turn}");
+    let current = head(dir)?;
+    if current == base {
+        let scratch = tempfile::tempdir()?;
+        let indexed = |args: &[&str]| {
+            output(
+                git_command(dir)
+                    .env("GIT_INDEX_FILE", scratch.path().join("index"))
+                    .args(args),
+            )
+        };
+        indexed(&["read-tree", base])?;
+        let mut add = vec!["--literal-pathspecs", "add", "--"];
+        add.extend(files.iter().map(String::as_str));
+        indexed(&add)?;
+        let staged = paths(indexed(&[
+            "diff",
+            "--cached",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base,
+        ])?);
+        ensure!(
+            !staged.is_empty() && staged.iter().all(|path| files.contains(path)),
+            "handoff must name each changed file"
+        );
+        indexed(&[
+            "commit",
+            "-m",
+            &format!("Complete {task}"),
+            "-m",
+            summary,
+            "-m",
+            &receipt,
+        ])?;
+    } else {
+        // A restart may replay the handoff between committing and recording its receipt.
+        ensure!(
+            git(dir, &["show", "-s", "--format=%P", &current])? == base
+                && git(dir, &["show", "-s", "--format=%B", &current])?
+                    .trim_end()
+                    .ends_with(&receipt),
+            "worker HEAD changed before the handoff"
+        );
+    }
+    let mut reset = vec!["--literal-pathspecs", "reset", "--quiet", "HEAD", "--"];
+    reset.extend(files.iter().map(String::as_str));
+    git(dir, &reset)?;
+    head(dir)
+}
+
 pub fn reported_milestone(dir: &str, base: &str) -> Result<String> {
     let head = head(dir)?;
     ensure!(
@@ -583,6 +671,28 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn ready_handoff_preserves_other_edits_and_is_replayable() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let dir = init(home.path())?;
+        fs::write(home.path().join("remove"), "old")?;
+        let repo = open(dir, &["remove".into()], true)?;
+        fs::remove_file(home.path().join("remove"))?;
+        fs::write(home.path().join("added"), "reviewed")?;
+        fs::write(home.path().join("private"), "other")?;
+        git(dir, &["add", "private"])?;
+        let files = vec!["added".into(), "remove".into()];
+        let commit = |wanted: &[String], turn: &str| {
+            commit_handoff(dir, &repo.head, "task", turn, wanted, &files, "Checked.")
+        };
+        assert!(commit(&["private".into()], "first").is_err());
+        let sha = commit(&files, "first")?;
+        assert_eq!(commit(&files, "first")?, sha);
+        assert!(commit(&files, "other").is_err());
+        assert_eq!(changed_paths(dir, &repo.head, &sha)?, files);
+        assert_eq!(git(dir, &["diff", "--cached", "--name-only"])?, "private");
+        Ok(())
+    }
     #[test]
     fn explicit_initial_import_and_linked_worktree() -> Result<()> {
         let home = tempfile::tempdir()?;

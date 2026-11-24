@@ -158,16 +158,22 @@ fn identity(dir: &Path) -> Result<Option<Pid>> {
     .then_some(pid))
 }
 pub fn reception(dir: &Path) -> Option<Value> {
+    receive(dir, || identity(dir).ok().flatten().is_some())
+}
+
+fn receive(dir: &Path, running: impl FnOnce() -> bool) -> Option<Value> {
     if let Ok(v) = read_json(&dir.join("result.json")) {
         return Some(v);
     }
     let Ok(modified) = fs::metadata(dir.join("job.json")).and_then(|s| s.modified()) else {
         return Some(json!({"error":"dispatch intent missing"}));
     };
-    if modified.elapsed().unwrap_or_default() < Duration::from_secs(4)
-        || identity(dir).ok().flatten().is_some()
-    {
+    if modified.elapsed().unwrap_or_default() < Duration::from_secs(4) || running() {
         return None;
+    }
+    // The process may have published its receipt and exited during the identity check.
+    if let Ok(result) = read_json(&dir.join("result.json")) {
+        return Some(result);
     }
     let msg = if dir.join("stop").exists() {
         "stopped"
@@ -198,6 +204,22 @@ pub fn stop_job(dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receives_a_result_published_during_the_process_check() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let job = File::create(dir.path().join("job.json"))?;
+        job.set_modified(std::time::SystemTime::now() - Duration::from_secs(10))?;
+        let result = json!({"text":"done"});
+        assert_eq!(
+            receive(dir.path(), || {
+                write_json(&dir.path().join("result.json"), &result).unwrap();
+                false
+            }),
+            Some(result)
+        );
+        Ok(())
+    }
 
     #[test]
     fn reads_requested_log_tail_even_with_partial_utf8() -> Result<()> {

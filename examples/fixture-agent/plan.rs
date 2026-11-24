@@ -62,6 +62,16 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             ],
         );
     }
+    if prompt.contains("Recover the fixture milestone") {
+        return build(
+            vec![milestone(
+                "recover-export",
+                "Recover the export.",
+                json!({"paths":["export.txt"]}),
+            )],
+            &["export.txt", "ready"],
+        );
+    }
     if prompt.contains("Delegate the report") {
         return build(
             vec![milestone(
@@ -145,5 +155,7 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             &["export.txt", "open quotes"],
         );
     }
-    Ok(json!({"tasks":[],"recipe":{"checks":[]},"question":"Who can view quotes?"}))
+    Ok(
+        json!({"title":"Quote export","tasks":[],"recipe":{"checks":[]},"question":"Who can view quotes?"}),
+    )
 }

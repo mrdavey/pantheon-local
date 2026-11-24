@@ -141,6 +141,8 @@ impl Engine {
             && s(&t, "reply").is_empty()
             && a(&t["notes"]).len() == num(&t["delivered"]) as usize
         {
+            r["tasks"][i]["finding"] =
+                json!("Recovered the verified commit from the worker checkout.");
             self.save_commit(r, i, &sha)?;
             return self.save(r, "commit-recovered");
         }
@@ -297,13 +299,29 @@ impl Engine {
             let message = s(&outcome, "message");
             r["tasks"][i]["finding"] = json!(message);
             match s(&outcome, "status") {
-                "committed" => {
+                "committed" | "ready" => {
                     if children_pending(r, id)
                         || held(r, id)
                         || (num(&r["tasks"][i]["delivered"]) as usize)
                             < a(&r["tasks"][i]["notes"]).len()
                     {
                         r["tasks"][i]["state"] = json!("pending");
+                    } else if outcome["status"] == "ready" {
+                        let t = &r["tasks"][i];
+                        ensure!(
+                            s(t, "conflict").is_empty(),
+                            "a merge repair must commit both parents"
+                        );
+                        let sha = project::commit_handoff(
+                            s(t, "workspace"),
+                            s(t, "base"),
+                            id,
+                            s(turn, "id"),
+                            &strings(&outcome["files"]),
+                            &strings(&t["paths"]),
+                            message,
+                        )?;
+                        self.save_commit(r, i, &sha)?
                     } else {
                         self.save_commit(r, i, s(&outcome, "commit"))?
                     }

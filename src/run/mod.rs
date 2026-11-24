@@ -25,6 +25,18 @@ pub struct Engine {
 pub fn s<'v>(v: &'v Value, key: &str) -> &'v str {
     v[key].as_str().unwrap_or_default()
 }
+fn record_title(run: &mut Value, outcome: &Value) {
+    if !s(run, "title").is_empty() {
+        return;
+    }
+    let title = s(outcome, "title")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !title.is_empty() && title.chars().count() <= 80 {
+        run["title"] = json!(title);
+    }
+}
 pub fn a(v: &Value) -> &[Value] {
     v.as_array().map(Vec::as_slice).unwrap_or_default()
 }
