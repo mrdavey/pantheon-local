@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod adapter;
+mod attachments;
+mod chat_stream;
 mod cli;
 mod compat;
 mod eval;

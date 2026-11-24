@@ -8,10 +8,11 @@
 .milestones { margin: 0; padding: 0; list-style: none; border-block: 1px solid var(--line); }
 .milestones:empty { display: none; }
 .milestone + .milestone { border-top: 1px solid var(--line); }
-.milestone-link { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(5rem, .45fr) auto; align-items: center; gap: .45rem 1rem; text-align: start; padding: .9rem .6rem; border: 0; background: transparent; }
-.milestone-link strong, .milestone-link > span:not(.state) { overflow-wrap: anywhere; }
+.milestone-link { width: 100%; display: grid; grid-template-columns: 2rem minmax(0, 1fr) minmax(5rem, .4fr) auto; align-items: center; gap: .45rem 1rem; text-align: start; padding: .9rem .6rem; border: 0; background: transparent; }
+.milestone-link .milestone-title { display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
+.milestone-order { font-size: .9rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
 .milestone-link strong::first-letter, .milestone-meta + h2::first-letter { text-transform: uppercase; }
-.milestone-link > span:not(.state) { font-size: .88rem; color: var(--muted); font-weight: 500; }
+.milestone-link time, .milestone-link .milestone-owner { font-size: .88rem; color: var(--muted); font-weight: 500; }
 .milestone-link:hover { background: var(--wash); }
 .milestone > button + button, .milestone .answer { margin-bottom: .6rem; }
 .work-footer { padding-block: .5rem; justify-content: start; gap: .5rem 1.2rem; }
@@ -43,8 +44,27 @@
 .event-list { margin: 0; padding-inline-start: 1.15rem; }
 @media (max-width: 600px) {
   .milestone-link { grid-template-columns: minmax(0, 1fr) auto; gap: .2rem .5rem; }
-  .milestone-link > span:not(.state) { grid-column: 1; }
+  .milestone-link time, .milestone-link .milestone-owner { grid-column: 1; }
   .milestone-link .state { grid-row: 1 / 3; grid-column: 2; }
   .event-fields > div { display: block; }
   .work-footer { flex-direction: column; align-items: start; }
 }
+
+.work-detail-dialog .work-details { display: grid; gap: 1.3rem; }
+.work-detail-dialog .work-details section { min-width: 0; }
+.work-detail-dialog .work-details h3 { font: 650 1rem/1.4 system-ui, sans-serif; letter-spacing: normal; margin: 0 0 .45rem; }
+.work-detail-dialog .work-details .markdown + .markdown { margin-top: .7rem; }
+.work-detail-dialog .milestone-meta { margin: 0; }
+.work-detail-dialog .explain-context { margin-top: .45rem; }
+.included-milestones { padding-inline-start: 1.25rem; margin-block: .4rem; }
+.included-milestones li + li { margin-top: .85rem; }
+.included-milestones strong { display: block; margin-bottom: .18rem; }
+.metric-details, .experiment-glossary { display: grid; gap: 1rem; margin: 0; }
+.metric-details dt, .experiment-glossary dt { font-weight: 650; }
+.metric-details dd, .experiment-glossary dd { margin: .2rem 0 0; }
+.superseded-work { margin-top: 1rem; }
+.superseded-work > summary, .comparison-card .superseded-toggle { font-size: .9rem; color: var(--muted); }
+.superseded-work[open] > summary { margin-bottom: .65rem; }
+.comparison-card .implementation-title { max-width: min(38ch, 100%); text-align: start; overflow-wrap: anywhere; white-space: normal; }
+.implementation-help { display: flex; justify-content: end; margin-top: .55rem; }
+.implementation-help .help-icon { width: 2.5rem; height: 2.5rem; min-height: 2.5rem; padding: 0; border-radius: 50%; font-weight: 700; }

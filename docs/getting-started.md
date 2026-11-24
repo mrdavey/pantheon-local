@@ -19,8 +19,8 @@ For Hermes, Antigravity and custom adapters, **Installed** confirms the executab
 
 ## Start and review your first run
 
-1. In **New run**, enter a checkable goal. For example, “Create `hello.txt` containing `hello` followed by a single newline.” **Improve brief** suggests an editable version. Codex uses GPT-6 Luna and Claude Code uses Haiku, both with medium reasoning. Hermes and Antigravity use a known compact model from the same provider and medium reasoning when their sessions offer those settings. Custom adapters control their own models.
-2. Confirm the project folder and choose your coordinator and workers. The folder defaults to where you ran `swarm open`. Use **Browse…** to change it. Commit the edits you want agents to build on, then select **Start run**.
+1. In **New run**, enter a checkable goal. For example, “Create `hello.txt` containing `hello` followed by a single newline.” Use **Attach files** or drop reference files into the brief (up to 16 files, 16 MiB combined). The team receives private file copies and short text excerpts. **Improve brief** suggests an editable version. Codex uses GPT-6 Luna and Claude Code uses Haiku, both with medium reasoning. Hermes and Antigravity use a known compact model from the same provider and medium reasoning when their sessions offer those settings. Custom adapters control their own models.
+2. Confirm the project folder and open **Team** to choose your coordinator and workers. The folder defaults to where you ran `swarm open`. Use **Browse…** to change it. Commit the edits you want agents to build on, then select **Start run**.
 3. Answer any planning question. Review the proposed checks, edit them in **View or edit JSON** if needed, then select **Approve checks**. For this example, the check should verify the file’s exact contents.
 4. In **Work**, open **View checks** and **View diff**. If the recipe includes a preview, use **Start preview**. New workbench runs auto-land a passing candidate on a clean target. To review first, choose **Advanced settings → Delivery → Review before landing** before starting the run.
 
@@ -30,7 +30,7 @@ Use the gear beside a run to pause, resume, require review, or delete it. Deleti
 
 ## If setup gets stuck
 
-- **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, select them under **Advanced settings → Initial import files**, or commit them in Git.
+- **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, use **Advanced settings → Initial import files → Choose files…**. Select multiple files, choose **Add more files…** to add another batch, or remove individual entries before starting. These files become the first Git commit.
 - **Folder access denied on Mac.** In System Settings → Privacy & Security → Files & Folders, allow your launching terminal to access the project folder, then reopen the workbench. You can also choose a project outside the protected folder.
 - **Browse is unavailable on Linux.** Enter the project path, or install Zenity or KDialog on the computer running Pantheon Local.
 - **Git is missing.** Install Git and check `git --version`. Configure your Git name and email if the first commit asks for them.

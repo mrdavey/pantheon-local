@@ -31,6 +31,72 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 println!("{event}")
             }
         }
+        "mock-codex-chat" => {
+            ensure!(args == ["app-server"], "chat needs the streaming transport");
+            let init = next(&mut input)?;
+            ensure!(init["method"] == "initialize", "missing initialize");
+            println!("{}", json!({"id":init["id"],"result":{}}));
+            ensure!(
+                next(&mut input)?["method"] == "initialized",
+                "missing initialized"
+            );
+            let session = next(&mut input)?;
+            ensure!(
+                matches!(
+                    session["method"].as_str(),
+                    Some("thread/start" | "thread/resume")
+                ),
+                "missing thread"
+            );
+            ensure!(
+                session["params"]["sandbox"] == "read-only"
+                    && session["params"]["approvalPolicy"] == "never",
+                "wrong chat permissions"
+            );
+            ensure!(
+                session["params"]["model"] == "configured-model",
+                "wrong model"
+            );
+            if session["method"] == "thread/resume" {
+                ensure!(
+                    session["params"]["threadId"] == "native-chat",
+                    "wrong resumed session"
+                );
+            }
+            println!(
+                "{}",
+                json!({"id":session["id"],"result":{"thread":{"id":"native-chat"}}})
+            );
+            let start = next(&mut input)?;
+            ensure!(
+                start["method"] == "turn/start" && start["params"]["input"][0]["text"] == "hello",
+                "missing prompt"
+            );
+            println!("{}", json!({"id":start["id"],"result":{"turn":{"id":"t"}}}));
+            let note = |method, params| println!("{}", json!({"method":method,"params":params}));
+            note(
+                "item/reasoning/textDelta",
+                json!({"threadId":"native-chat","turnId":"t","delta":"private"}),
+            );
+            for delta in [r#"{"reply":"Good"#, r#" answer"}"#] {
+                note(
+                    "item/agentMessage/delta",
+                    json!({"threadId":"native-chat","turnId":"t","itemId":"m","delta":delta}),
+                );
+            }
+            note(
+                "item/completed",
+                json!({"threadId":"native-chat","turnId":"t","item":{"type":"agentMessage","id":"m","text":r#"{"reply":"Good answer"}"#}}),
+            );
+            note(
+                "thread/tokenUsage/updated",
+                json!({"threadId":"native-chat","turnId":"t","tokenUsage":{"last":{"totalTokens":17}}}),
+            );
+            note(
+                "turn/completed",
+                json!({"threadId":"native-chat","turn":{"id":"t","status":"completed"}}),
+            );
+        }
         "mock-claude" => {
             println!("{}", json!({"type":"system","session_id":"abc"}));
             println!(

@@ -15,6 +15,8 @@ use std::{
 use tokio::sync::oneshot;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Once {
+    InitialSelection,
+    MoreInitialFiles,
     FolderSelected,
     FolderCancelled,
     SnapshotFailure,
@@ -119,6 +121,9 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
             .iter()
             .position(|p| match p {
                 Once::SnapshotFailure | Once::SnapshotRace => path == "/api/snapshot",
+                Once::InitialSelection | Once::MoreInitialFiles => {
+                    path == "/api/pick-initial-files"
+                }
                 Once::FolderSelected | Once::FolderCancelled => {
                     path == "/api/project-folder" && parts.method == "POST"
                 }
@@ -133,6 +138,13 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
     };
     let reply = |code: StatusCode, value: Value| (code, axum::Json(value)).into_response();
     match injection {
+        Some(Once::InitialSelection) => return Ok(reply(StatusCode::OK, json!(["example.txt"]))),
+        Some(Once::MoreInitialFiles) => {
+            return Ok(reply(
+                StatusCode::OK,
+                json!(["example.txt", "nested/notes.md"]),
+            ));
+        }
         Some(Once::FolderSelected) => {
             return Ok(reply(StatusCode::OK, json!("/tmp/Project With Spaces")));
         }

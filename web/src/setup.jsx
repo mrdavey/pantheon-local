@@ -54,19 +54,39 @@ export function modelHint(profile) {
 }
 
 export function ModelSettings({ name, profile, save, onClose }) {
-  const [model, setModel] = useState(profile.model || "");
-  const [benchmarkModel, setBenchmarkModel] = useState(profile.benchmark_model || "");
-  const [agent, setAgent] = useState(profile.benchmark_agent || "");
-  const [effort, setEffort] = useState(profile.benchmark_effort || "");
+  const [draft, setDraft] = useState({});
   const [status, setStatus] = useState(null);
   const [saving, setSaving] = useState(false);
-  const passesModel = profile.kind === "codex" || profile.kind === "claude";
+  const detected = profile.detected || {};
+  const passesModel = ["codex", "claude"].includes(profile.kind);
+  const auto = {
+    model: detected.model || "",
+    benchmark_model: detected.routing?.model || "",
+    benchmark_agent: detected.routing?.agent || "",
+    benchmark_effort: detected.effort || "",
+  };
+  const value = (key) => Object.hasOwn(draft, key) ? draft[key] ?? auto[key] : profile[key] || auto[key];
+  const modelChanged = value("model") !== (profile.model || auto.model);
+  if (modelChanged) {
+    auto.benchmark_model = value("model");
+    auto.benchmark_effort = "";
+  }
+  const editable = (key) => ({
+    value: value(key), disabled: saving, autoComplete: "off", maxLength: 150,
+    onChange: (e) => { setStatus(null); setDraft({ ...draft, [key]: e.target.value }); },
+  });
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setStatus(null);
     try {
-      await save({ profile: name, model, benchmark_model: benchmarkModel, benchmark_agent: agent, benchmark_effort: effort });
+      const input = { profile: name };
+      for (const key of Object.keys(auto)) {
+        // Preserve explicit choices but never turn an untouched native default into a pin.
+        input[key] = Object.hasOwn(draft, key) ? (draft[key] || "").trim() : profile[key] || "";
+      }
+      await save(input);
+      setDraft({});
       setStatus({ text: "Saved for new runs." });
     } catch (problem) {
       setStatus({ error: true, text: problem.message });
@@ -74,18 +94,37 @@ export function ModelSettings({ name, profile, save, onClose }) {
       setSaving(false);
     }
   }
+  const modelName = modelChanged ? value("model") : detected.label || profile.model || detected.model;
+  const manualModel = passesModel && !!(Object.hasOwn(draft, "model") ? draft.model : profile.model);
   return <Dialog title={`Settings for ${profileLabel(name, profile)}`} onClose={onClose}>
     <form onSubmit={submit}>
-      {passesModel ? <label>Model ID<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Use the CLI default" /></label> : null}
+      <div className="model-identity">
+        <h3>{modelName || "Agent default"}</h3>
+        {modelName && <small>{manualModel ? "Pantheon model override" : detected.source}</small>}
+        {!modelChanged && detected.effort && <span title={detected.effort_source}>{detected.effort} reasoning</span>}
+      </div>
+      {passesModel ? <label>Model ID<input {...editable("model")} placeholder="Use the CLI default" /></label>
+        : <label>Model ID<input readOnly value={detected.model || ""} placeholder="Not reported by this agent" /></label>}
+      {detected.alias && !modelChanged && <p>Claude Code resolves this alias when a session starts.</p>}
       <p>{modelHint(profile)}</p>
       <h3>Benchmark routing</h3>
-      <label>Model name on the benchmark<input value={benchmarkModel} onChange={(event) => setBenchmarkModel(event.target.value)} placeholder={passesModel ? "Use model ID if it matches" : "Enter the exact displayed name"} /></label>
+      {!Object.keys(draft).length && (detected.routing?.source
+        ? <p className="model-provenance">Matched {detected.routing.source}.</p>
+        : <p className="model-provenance">No matching local benchmark result.</p>)}
+      <label>Model name on the benchmark<input {...editable("benchmark_model")} placeholder="Benchmark model name" /></label>
       <div className="options">
-        <label>Agent name on the benchmark<input value={agent} onChange={(event) => setAgent(event.target.value)} placeholder="Optional for known agents" /></label>
-        <label>Benchmark effort<input value={effort} onChange={(event) => setEffort(event.target.value)} placeholder="Optional" /></label>
+        <label>Agent name on the benchmark<input {...editable("benchmark_agent")} placeholder="Benchmark agent name" /></label>
+        <label>Benchmark effort<input {...editable("benchmark_effort")} placeholder="Optional" /></label>
       </div>
-      <p>Match the model and harness you actually use. <a href="https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard" target="_blank" rel="noreferrer">View the Terminal-Bench leaderboard</a>.</p>
-      <button type="submit" disabled={saving}>{saving ? "Saving model settings…" : "Save model settings"}</button>
+      <p><a href="https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard" target="_blank" rel="noreferrer">View Terminal-Bench results</a></p>
+      <div className="agent-actions">
+        <button className="primary" type="submit" disabled={saving}>{saving ? "Saving model settings…" : "Save model settings"}</button>
+        {(Object.keys(auto).some((key) => !!profile[key]) || Object.keys(draft).length > 0) &&
+          <button type="button" disabled={saving} onClick={() => {
+            setDraft({ model: null, benchmark_model: null, benchmark_agent: null, benchmark_effort: null });
+            setStatus(null);
+          }}>Use detected settings</button>}
+      </div>
       {status && <p role={status.error ? "alert" : "status"}>{status.text}</p>}
     </form>
   </Dialog>;
@@ -145,7 +184,7 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
       {others.length ? <ul className="setup-list">{others.map((name) => {
         const profile = profiles[name];
         const state = report.profiles[name]?.state;
-        const info = agents[profile.kind];
+        const info = agents[profile?.kind];
         return <li className="setup-step" key={name}>
           <strong>{profileLabel(name, profile)}</strong>
           {state === "missing" && info ? <a href={info.docs} target="_blank" rel="noreferrer">Install {info.name}</a>

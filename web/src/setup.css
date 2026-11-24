@@ -19,3 +19,8 @@
   .configured-row > div:first-child { display: grid; justify-items: start; gap: .2rem; }
   .brief-settings { display: grid; gap: .2rem; }
 }
+
+.model-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .65rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.model-identity h3 { margin: 0; }
+.model-identity span { font-size: .82rem; color: var(--muted); }
+.model-provenance { margin: 0 0 .75rem; }

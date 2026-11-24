@@ -1,3 +1,4 @@
+import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { RunSettings } from "./run-settings.jsx";
@@ -108,10 +109,11 @@ function Evidence({ path, kind, name, refreshable }) {
   </>;
 }
 
-function Candidate({ run, candidate, act, perform, busy, name }) {
+function Candidate({ run, candidate, act, perform, busy, name, explain }) {
   const [preview, setPreview] = useState("");
   const [evidence, setEvidence] = useState(null);
   const evalTurn = (run.turns || []).findLast((turn) => turn.role === "eval" && (turn.task === candidate.id || turn.id === candidate.evidence));
+  const [details, setDetails] = useState(false);
   const [changing, setChanging] = useState(false);
   const [target, setTarget] = useState("");
   const needsSelection = !!run.input.recipe.rubric && run.selection?.candidate !== candidate.id;
@@ -124,7 +126,7 @@ function Candidate({ run, candidate, act, perform, busy, name }) {
   return <article className="row work-result">
     <header>{name ? <h3>{name}</h3> : <h2>Implementation</h2>}<Status state={candidate.state} /></header>
     {candidate.tasks?.length > 0 && <p>{candidate.tasks.length} {candidate.tasks.length === 1 ? "milestone" : "milestones"} included</p>}
-    {candidate.detail && <Markdown>{candidate.detail}</Markdown>}
+    {candidate.detail && <p>{shortSummary(candidate.detail)}</p>}
     {canLand && <>
       {!run.repo.Target && <label>Target branch<input value={target} onChange={(event) => setTarget(event.target.value)} /></label>}
       {needsSelection && <p>Select this implementation in Experiment after reviewing the criteria.</p>}
@@ -146,8 +148,10 @@ function Candidate({ run, candidate, act, perform, busy, name }) {
       {evalTurn && <button disabled={busy} onClick={() => load("checks", "/turns/" + evalTurn.id)}>View checks</button>}
       {candidate.commit && <button disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", { candidate: candidate.id }), "Opening folder…")}>Open output folder</button>}
       {candidate.commit && previewCommand?.length > 0 && !preview && <button disabled={busy || candidate.state === "evaluating"} onClick={() => perform(async () => setPreview((await api("/runs/" + run.id + "/preview/" + candidate.id, {})).url), "Starting preview…")}>Start preview</button>}
+      <button onClick={() => setDetails(true)}>View details</button>
       {preview && <a href={preview} target="_blank" rel="noreferrer">Open preview ↗</a>}
     </div>
+    {details && <ImplementationDetails {...{ run, candidate, explain }} onClose={() => setDetails(false)} />}
     {evidence && <Dialog title={evidence.kind === "diff" ? "File changes" : "Acceptance checks"} className="evidence-dialog" onClose={() => setEvidence(null)}>
       <Evidence {...evidence} name="Acceptance checks" refreshable={evidence.kind === "checks" && evalTurn?.state === "running"} />
     </Dialog>}
@@ -159,25 +163,34 @@ const turnLabel = {
   chat: "Conversation", repair: "Repair planning", release: "Release",
 };
 
-function Milestone({ task, run, busy, act }) {
+function Milestone({ task, run, busy, act, order, explain }) {
   const [open, setOpen] = useState(false);
   const name = shortSummary(task.goal, 90) || task.id.replace(/[-_]+/g, " ");
+  const added = new Date(task.assigned_at);
+  const hasDate = Boolean(task.assigned_at) && Number.isFinite(added.getTime());
+  const date = hasDate && <time dateTime={task.assigned_at} title={added.toLocaleString()}>{added.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>;
   const retry = ["blocked", "interrupted"].includes(task.state);
   return <li className="milestone">
     <button className="milestone-link" data-task={task.id} onClick={() => setOpen(true)} aria-haspopup="dialog">
-      <strong>{name}</strong>
-      <span>{task.worker}{task.variant && " · " + task.variant}</span>
+      <span className="milestone-order" aria-label={"Milestone " + order}>{order}</span>
+      <span className="milestone-title"><strong>{name}</strong>{date}</span>
+      <span className="milestone-owner">{task.worker}{task.variant && " · " + task.variant}</span>
       <Status state={task.state} />
     </button>
     {retry && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>}
     {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
-    {open && <Dialog title={task.id.replace(/[-_]+/g, " ")} onClose={() => setOpen(false)}>
-      <div className="milestone-meta"><Status state={task.state} /><span>{task.worker}</span>{task.commit && <code>{task.commit.slice(0, 10)}</code>}</div>
-      {task.depends?.length > 0 && <p>After {task.depends.join(", ")}</p>}
-      <Markdown>{task.goal}</Markdown>
-      {task.finding && <><h3>Result</h3><Markdown>{task.finding}</Markdown></>}
-      {(task.notes || []).map((note, i) => <Markdown key={i}>{note}</Markdown>)}
-      <RoutingEvidence route={task.route} />
+    {open && <Dialog title={task.id.replace(/[-_]+/g, " ")} className="work-detail-dialog" onClose={() => setOpen(false)}>
+      <div className="work-details">
+        <section><div className="milestone-meta"><Status state={task.state} /><span>{task.worker}</span><span>Milestone {order}</span>{date}
+          {task.commit && <code title={task.commit}>{task.commit.slice(0, 10)}</code>}</div>
+          {task.depends?.length > 0 && <p>After {task.depends.join(", ")}</p>}
+          <button className="text-button explain-context" onClick={() => { setOpen(false); explain("milestone", task.id); }}>Explain this</button>
+        </section>
+        <section><h3>Assignment</h3><Markdown>{task.goal}</Markdown></section>
+        {task.finding && <section><h3>Result</h3><Markdown>{task.finding}</Markdown></section>}
+        {task.notes?.length > 0 && <section><h3>Notes</h3>{task.notes.map((note, i) => <Markdown key={i}>{note}</Markdown>)}</section>}
+        {task.route && <RoutingEvidence route={task.route} />}
+      </div>
     </Dialog>}
   </li>;
 }
@@ -216,13 +229,22 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const [view, setTab] = useState(() => run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "work");
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
   const [previous, setPrevious] = useState(false);
+  const [chatRequest, setChatRequest] = useState(null);
+  const explain = (kind, id) => {
+    setPrevious(false);
+    setChatRequest({kind, id, key: crypto.randomUUID()});
+  };
   const act = (body) => send(run, body);
   const questions = (run.inbox || []).filter((q) => q.state === "open" && (q.source !== "plan" || run.state !== "question"));
   const landed = run.state === "landed" && run.detail;
   const showExperiment = () => { setExperimentOpened(true); setTab("experiment"); };
   const tasks = run.tasks || [];
   const currentTasks = tasks.slice(run.task_start || 0);
-  const candidates = (run.candidates || []).filter((c) => (c.round || 1) === (run.round || 1) && (c.policy || 0) === (run.policy || 0));
+  const candidates = (run.candidates || []).filter(c => (c.round || 1) === (run.round || 1));
+  const activeCandidates = candidates.filter(c => (c.policy || 0) === (run.policy || 0) && c.state !== "superseded");
+  const superseded = candidates.filter(c => c.state === "superseded");
+  const renderCandidate = (candidate) => <Candidate key={candidate.id} name={activeCandidates.length === 1 && candidate === activeCandidates[0] ? "" : implementationLabel(candidate)}
+    {...{ candidate, run, act, perform, busy, explain }} />;
   const subdir = run.repo.Subdir;
   const projectPath = subdir && subdir !== "." ? run.repo.Root.replace(/\/$/, "") + "/" + subdir : run.repo.Root;
   const completed = currentTasks.filter((t) => t.state === "committed").length;
@@ -235,8 +257,9 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
         <Status state={run.state} run={run} />{settings}
       </div>
       <h1 tabIndex={-1}>{runTitle(run)}</h1>
-      {runTitle(run) !== run.input.prompt && <details key={run.id} className="run-brief">
+      {(runTitle(run) !== run.input.prompt || !!run.input.attachments?.length) && <details key={run.id} className="run-brief">
         <summary>Full brief</summary><Markdown>{run.input.prompt}</Markdown>
+        {!!run.input.attachments?.length && <ul aria-label="Brief attachments">{run.input.attachments.map(file => <li key={file.path}>{file.name}</li>)}</ul>}
       </details>}
     </header>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
@@ -260,28 +283,31 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
       <button aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</button>
     </nav>
     <ReleaseList {...{ run, act, busy }} />
-    {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun }} /></div>}
+    {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
-      {candidates.length > 0 && <section aria-label="Implementations">
-        {candidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
+      {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
+        {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
           <button className="text-button" onClick={showExperiment}>Compare in Experiment</button></header>}
-        {candidates.map((candidate) => <Candidate key={candidate.id} name={candidates.length === 1 && candidate.name === candidate.tasks?.join(" · ") ? "" : shortSummary(title(candidate), 80)}
-          {...{ candidate, run, act, perform, busy }} />)}
+        {activeCandidates.map(renderCandidate)}
+        {superseded.length > 0 && <details className="superseded-work">
+          <summary>Superseded implementations ({superseded.length})</summary>
+          {superseded.map(renderCandidate)}
+        </details>}
       </section>}
       <section aria-labelledby="milestone-heading">
         <header className="work-section-heading"><h2 id="milestone-heading">Milestones</h2>
           {currentTasks.length > 0 && <span>{completed} of {currentTasks.length} complete</span>}</header>
         {run.benchmark_note && <Markdown>{run.benchmark_note}</Markdown>}
         {!currentTasks.length && <p>Waiting for the coordinator’s plan.</p>}
-        <ol className="milestones">{currentTasks.map((task) => <Milestone key={task.id} {...{ task, run, busy, act }} />)}</ol>
+        <ol className="milestones" aria-label="Milestones in order added">{currentTasks.map((task, i) => <Milestone key={task.id} order={(run.task_start || 0) + i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
         {run.task_start > 0 && <button onClick={() => setPrevious(true)}>Earlier milestones</button>}
         {previous && <Dialog title="Earlier milestones" onClose={() => setPrevious(false)}>
-          <ol className="milestones">{tasks.slice(0, run.task_start).map((task) => <Milestone key={task.id} {...{ task, run, busy, act }} />)}</ol>
+          <ol className="milestones">{tasks.slice(0, run.task_start).map((task, i) => <Milestone key={task.id} order={i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
         </Dialog>}
       </section>
       <footer className="work-footer"><span>Coordinator · <strong>{run.input.coordinator}</strong></span><Activity run={run} /></footer>
     </div>
-    <Conversation {...{ run, act, busy }} />
+    <Conversation {...{ run, act, busy, api, chatRequest }} />
   </section>;
 }
 

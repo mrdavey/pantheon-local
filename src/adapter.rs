@@ -1,5 +1,7 @@
 mod acp;
+mod codex_chat;
 pub mod hermes;
+pub mod models;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{
@@ -133,6 +135,7 @@ fn args(request: &Value) -> Vec<String> {
             args.push("acp")
         }
         "custom" => args.push("turn-v1"),
+        "codex" if role == "chat" => args.push("app-server"),
         "codex" => {
             args.push("exec");
             if !session.is_empty() {
@@ -169,6 +172,9 @@ fn args(request: &Value) -> Vec<String> {
         }
         _ => {
             args.extend(["-p", "--verbose", "--output-format", "stream-json"]);
+            if role == "chat" {
+                args.push("--include-partial-messages");
+            }
             if role != "worker" {
                 args.extend(["--tools", ""])
             }
@@ -243,18 +249,21 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
             }
         });
         let acp = matches!(field(p, "kind"), "hermes" | "antigravity");
-        let result = if acp {
+        let codex_chat = field(p, "kind") == "codex" && field(r, "role") == "chat";
+        let result = if codex_chat {
+            codex_chat::exchange(r, stdin, stdout, emit)
+        } else if acp {
             acp::exchange(r, stdin, stdout, emit)
         } else {
             stream(r, stdin, stdout, emit)
         };
-        if acp || result.is_err() {
+        if acp || codex_chat || result.is_err() {
             let _ = child.kill();
         }
         let status = child.wait()?;
         let result = result?;
         ensure!(
-            acp || status.success() || !field(&result, "error").is_empty(),
+            acp || codex_chat || status.success() || !field(&result, "error").is_empty(),
             "agent exited with {status}"
         );
         ensure!(
@@ -402,6 +411,25 @@ mod tests {
         let result = run(&request, None, |_| {});
         assert_eq!(result["error"], "sign in");
         assert_eq!(result["session"], "abc");
+        Ok(())
+    }
+    #[test]
+    fn codex_chat_streams_and_resumes_only_assistant_messages() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let executable = native_fixture(dir.path(), "mock-codex-chat")?;
+        for session in ["", "native-chat"] {
+            let events = std::sync::Mutex::new(Vec::new());
+            let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":session,"role":"chat","prompt":"hello","dir":dir.path()});
+            let result = run(&request, None, |event| events.lock().unwrap().push(event));
+            assert_eq!(
+                result,
+                json!({"session":"native-chat","text":r#"{"reply":"Good answer"}"#,"tokens":17})
+            );
+            let events = events.into_inner().unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[1]["type"], "agent_message_chunk");
+            assert_eq!(events[2]["text"], r#" answer"}"#);
+        }
         Ok(())
     }
     #[test]

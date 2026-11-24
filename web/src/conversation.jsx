@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Command } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
+import { shortSummary } from "./run-summary.js";
 import "./conversation.css";
 
 // Keep unsent drafts and reading positions scoped to the run and this open page.
@@ -43,12 +44,41 @@ function Proposal({ message, run, act, busy }) {
   </section>;
 }
 
-export function Conversation({ run, act, busy }) {
+function referenceLabel(run, reference) {
+  const item = (reference.kind === "milestone" ? run.tasks : run.candidates)?.find((row) => row.id === reference.id);
+  return shortSummary(item?.goal || item?.name || reference.id, 60);
+}
+
+function useLiveReply(api, runId, turnId, open) {
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    if (!open || !turnId) return;
+    const controller = new AbortController();
+    let timer;
+    async function read() {
+      try {
+        const text = await api(`/runs/${runId}/turns/${turnId}/reply`, undefined, controller.signal);
+        if (!controller.signal.aborted) setPreview((current) => current?.turnId === turnId && current.text === text ? current : { turnId, text });
+      } catch {
+        // A later poll can recover; the run update carries the final answer or error.
+      }
+      if (!controller.signal.aborted) timer = setTimeout(read, 300);
+    }
+    read();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [api, runId, turnId, open]);
+  return turnId && preview?.turnId === turnId ? preview.text : "";
+}
+
+export function Conversation({ run, act, busy, api, chatRequest }) {
   const panelId = useId();
   const titleId = useId();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(() => drafts.get(run.id) || "");
   const [sendError, setSendError] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState(null);
+  const explained = useRef(null);
   const [atLatest, setAtLatest] = useState(() => !readingPositions.has(run.id));
   const launcher = useRef(null);
   const minimize = useRef(null);
@@ -59,11 +89,39 @@ export function Conversation({ run, act, busy }) {
   const lastReply = messages.filter(({ role }) => role === "coordinator").at(-1)?.id;
   const [seenReply, setSeenReply] = useState(lastReply);
   const unread = lastReply && lastReply !== seenReply;
-  const waiting = messages.some(({ state }) => state === "queued" || state === "running");
+  const pending = messages.find(({ state }) => state === "queued" || state === "running");
+  const waiting = !!pending;
+  const activeTurn = pending && run.turns?.findLast((turn) => turn.role === "chat" && turn.task === pending.id && turn.state === "running");
+  const liveReply = useLiveReply(api, run.id, activeTurn?.id, open);
   const paused = run.state === "stopped" || (run.input.token_target > 0 && run.tokens >= run.input.token_target);
   const overLimit = new TextEncoder().encode(text.trim()).length > 6000;
   const full = messages.length >= 200;
-  const canSend = !paused && !waiting && !busy && !overLimit && !full && !!text.trim();
+  const available = !paused && !waiting && !busy && !sending && !full;
+  const canSend = available && !overLimit && !!text.trim() && !attachment;
+
+  useEffect(() => {
+    if (!chatRequest) return;
+    readingPositions.delete(run.id);
+    setAtLatest(true);
+    setOpen(true);
+    setAttachment(chatRequest);
+    setSendError(false);
+  }, [run.id, chatRequest]);
+
+  async function askAbout(reference) {
+    explained.current = reference.key;
+    setSending(true);
+    setSendError(false);
+    const key = reference.kind === "milestone" ? "task" : "candidate";
+    const ok = await act({ kind: "chat", text: `Explain this ${reference.kind}.`, [key]: reference.id });
+    setSending(false);
+    if (ok) setAttachment((current) => current?.key === reference.key ? null : current);
+    else setSendError(true);
+  }
+
+  useEffect(() => {
+    if (attachment && available && explained.current !== attachment.key) askAbout(attachment);
+  }, [attachment, available]);
 
   useEffect(() => {
     if (open && atLatest) setSeenReply(lastReply);
@@ -74,7 +132,7 @@ export function Conversation({ run, act, busy }) {
     if (!open) return;
     const log = history.current;
     log.scrollTop = readingPositions.get(run.id) ?? log.scrollHeight;
-  }, [open, run.id, messages.length, waiting]);
+  }, [open, run.id, messages.length, waiting, liveReply, chatRequest]);
 
   function trackPosition() {
     const log = history.current;
@@ -109,7 +167,10 @@ export function Conversation({ run, act, busy }) {
   async function send(event) {
     event.preventDefault();
     if (!canSend) return;
-    if (!await act({ kind: "chat", text })) {
+    setSending(true);
+    const ok = await act({ kind: "chat", text });
+    setSending(false);
+    if (!ok) {
       setSendError(true);
       return;
     }
@@ -136,17 +197,28 @@ export function Conversation({ run, act, busy }) {
         {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
         {messages.map((message) => <article className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={message.id}>
           <strong className="chat-author">{message.role === "user" ? "You" : "Coordinator"}</strong>
+          {message.context && <small className="chat-context">{referenceLabel(run, message.context)}</small>}
           <Markdown>{message.text}</Markdown>
           {message.error && <p className="chat-error" role="alert">{message.error}</p>}
           {message.tasks?.length > 0 && <Proposal {...{ message, run, act, busy }} />}
         </article>)}
+        {waiting && <article className="chat-message chat-live" aria-live="off">
+          <strong className="chat-author">Coordinator</strong>
+          {liveReply && <Markdown>{liveReply}</Markdown>}
+          <span className="chat-progress" role="status"><i aria-hidden="true" />{liveReply ? "Writing…" : "Waiting for the coordinator…"}</span>
+        </article>}
       </div>
       {!atLatest && <button className="chat-latest" type="button" onClick={() => {
         history.current.scrollTop = history.current.scrollHeight;
         trackPosition();
       }}>Latest messages ↓</button>}
       <form className="chat-composer" onSubmit={send}>
-        {waiting && <p role="status">Waiting for the coordinator…</p>}
+        {attachment && <div className="chat-attachment">
+          <span>Explain {attachment.kind} · {referenceLabel(run, attachment)}</span>
+          {sendError && <button type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</button>}
+          {!sending && <button type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</button>}
+        </div>}
+        {sending && <p role="status">Sending…</p>}
         {paused && <p>Resume the run to send a message.</p>}
         {full && <p>This conversation is full.</p>}
         {overLimit && <p role="alert">Shorten your message to 6,000 bytes.</p>}
@@ -154,12 +226,12 @@ export function Conversation({ run, act, busy }) {
         <div>
           <textarea ref={composer} aria-label="Message" placeholder="Message the coordinator…" rows={2}
             value={text} onChange={(event) => edit(event.target.value)} onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault();
                 event.currentTarget.form.requestSubmit();
               }
             }} />
-          <button type="submit" className="primary" title="Send (⌘/Ctrl + Enter)" disabled={!canSend}>Send</button>
+          <button type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</button>
         </div>
       </form>
     </section>}</div>

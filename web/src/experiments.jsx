@@ -1,3 +1,4 @@
+import { ImplementationDetails, ExperimentHelp, implementationLabel } from "./implementation.jsx";
 import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { Dialog } from "./dialog.jsx";
@@ -5,7 +6,7 @@ import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
 import React, { useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
-export const title = (candidate) => candidate?.name || candidate?.tasks?.join(" · ") || candidate?.id || "Implementation";
+export const title = implementationLabel;
 const number = (value) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 5 }).format(value);
 const when = (value) => new Date(value).toLocaleString();
 const rounds = (run) => [...new Set([run.round || 1, ...(run.candidates || []).map((c) => c.round || 1)])].sort((a, b) => a - b);
@@ -93,7 +94,7 @@ function ScorePlot({ values, metric, xMetric, yLimit, xLimit }) {
   </figure>;
 }
 
-function Charts({ run, candidates, rule, policy }) {
+function Charts({ run, candidates, rule, policy, includeSuperseded }) {
   const metrics = rule?.metrics || [];
   const [chosen, setChosen] = useState("");
   const [second, setSecond] = useState("");
@@ -101,7 +102,7 @@ function Charts({ run, candidates, rule, policy }) {
   const x = metrics.find((m) => m.name === second && m !== y) || metrics.find((m) => m !== y);
   if (!y) return null;
   const label = (m) => `${m.name} (${m.unit})`;
-  const history = (run.candidates || []).filter((c) => (c.policy || 0) === policy);
+  const history = (run.candidates || []).filter((c) => (c.policy || 0) === policy && (includeSuperseded || c.state !== "superseded"));
   const showHistory = !x || new Set(history.filter((c) => c.score?.[y.name]).map((c) => c.round)).size > 1;
   return <section className="charts-card" aria-labelledby="metrics-heading">
     <h3 id="metrics-heading">Measurements</h3>
@@ -166,7 +167,7 @@ function Cases({ run, candidates, api, perform }) {
   </section>;
 }
 
-export function Experiment({ active, run, act, perform, api, busy, openRun }) {
+export function Experiment({ active, run, act, perform, api, busy, openRun, explain }) {
   const [base, setBase] = useState("");
   const [donors, setDonors] = useState([]);
   const [goal, setGoal] = useState("");
@@ -178,6 +179,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
   const [savedCases, setSavedCases] = useState(null);
   const [ab, setAB] = useState({});
   const [history, setHistory] = useState(null);
+  const [inspected, setInspected] = useState("");
+  const [expandedGroup, setExpandedGroup] = useState("");
   const [round, setRound] = useState(0);
   const [policy, setPolicy] = useState(null);
   const visibleRound = round || run.round || 1;
@@ -208,9 +211,11 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
     const batch = await api("/runs/" + run.id + "/history" + (before ? "?before=" + before : ""));
     setHistory(before ? [...history, ...batch] : batch);
   });
-  const outcomeTitle = winner && title(winner);
-  const combined = winner?.tasks?.length > 1 && outcomeTitle === winner.tasks.join(" · ");
-  const headline = combined ? "Combined implementation" : shortSummary(outcomeTitle, 80);
+  const headline = winner && title(winner);
+  const inspectedCandidate = all.find(c => c.id === inspected);
+  const group = visibleRound + ":" + latestPolicy;
+  const superseded = candidates.filter(c => c.state === "superseded");
+  const visibleCandidates = expandedGroup === group ? candidates : candidates.filter(c => c.state !== "superseded");
   const reason = shortSummary(selected?.reason);
   return <section className="experiment">
     <h2 className="visually-hidden">Experiment</h2>
@@ -221,11 +226,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
           selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
         {winner && <h3>{headline}</h3>}
         {reason && <p>{reason}</p>}
-        {(headline !== (outcomeTitle || "") || reason !== (selected.reason || "").trim()) &&
-          <button className="text-button" onClick={() => setDetail("decision")}>View decision details</button>}
-        {detail === "decision" && <Dialog title="Decision details" onClose={() => setDetail("")}>
-          {winner && <h3>{outcomeTitle}</h3>}<Markdown>{selected.reason}</Markdown>
-        </Dialog>}
+        <button className="text-button" onClick={() => setDetail("decision")}>View decision details</button>
+        {detail === "decision" && <ImplementationDetails candidate={winner} decision={selected} {...{run, rule, explain}} onClose={() => setDetail("")} />}
       </div>
       {(winner?.commit || selected.landed_at) && <div className="outcome-meta">
         {selected.landed_at && <span><strong>{branchName(run.repo.Target)}</strong> · {when(selected.landed_at)}</span>}
@@ -248,10 +250,10 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
           <h3 id="comparison-heading">Implementations</h3>
           <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
             <table><thead><tr><th scope="col">Implementation</th><th scope="col">Checks</th>{rule?.metrics?.map((m) => <th scope="col" key={m.name}>{m.name} ({m.unit})</th>)}<th scope="col">Decision</th></tr></thead>
-              <tbody>{candidates.map((c) => <tr key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
-                <th scope="row">{title(c)}{c.parents?.length > 0 && <small>From {c.parents.map((id) => title(all.find((item) => item.id === id))).join(" + ")}</small>}</th><td><span className={`state ${c.state}`}>{c.state}</span>{c.detail && <small>{c.detail}</small>}</td>
-                {rule?.metrics?.map((m) => <td key={m.name}>{c.score?.[m.name] ? <>{number(c.score[m.name].value)}
-                  <small>{number(c.score[m.name].min)}–{number(c.score[m.name].max)} · {c.score[m.name].n} samples</small></> : "—"}</td>)}
+              <tbody>{visibleCandidates.map((c) => <tr key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
+                <th scope="row"><button className="text-button implementation-title" aria-label={"View details for " + title(c)} onClick={() => setInspected(c.id)}>{title(c)}</button></th>
+                <td><span className={`state ${c.state}`}>{c.state}</span></td>
+                {rule?.metrics?.map((m) => <td key={m.name}>{c.score?.[m.name] ? number(c.score[m.name].value) : "—"}</td>)}
                 <td>
                   {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
                     c.id === selected?.recommended ? "Recommended" :
@@ -261,9 +263,15 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
                 </td>
               </tr>)}</tbody></table>
           </div>
+          {superseded.length > 0 && <button className="text-button superseded-toggle" aria-expanded={expandedGroup === group}
+            onClick={() => setExpandedGroup(expandedGroup === group ? "" : group)}>
+            {expandedGroup === group ? "Hide" : "Show"} superseded implementations ({superseded.length})
+          </button>}
+          <ExperimentHelp />
         </section>
-        <Charts {...{ run, candidates, rule }} policy={latestPolicy} />
+        <Charts {...{ run, rule }} candidates={visibleCandidates} policy={latestPolicy} includeSuperseded={expandedGroup === group} />
       </div>
+      {inspectedCandidate && <ImplementationDetails candidate={inspectedCandidate} {...{run, rule, explain}} onClose={() => setInspected("")} />}
     </> : <p>Measurements appear as candidates finish.</p>}
     <div className="actions">
       {canDecide && <button disabled={busy} onClick={() => act({ kind: "keep-baseline" })}>Keep current version</button>}

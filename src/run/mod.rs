@@ -243,7 +243,7 @@ pub fn validate_tasks(added: &[Value], existing: &[Value], workers: &Value) -> R
     Ok(())
 }
 fn policy(r: &mut Value) {
-    let p = json!({"revision":r["policy"],"rule":r["input"]["recipe"]["rule"],"at":now()});
+    let p = json!({"revision":r["policy"],"rule":r["input"]["recipe"]["rule"],"checks":r["input"]["recipe"]["checks"],"at":now()});
     push(&mut r["policies"], p)
 }
 fn context(r: &Value, worker: Option<&Value>) -> Value {
@@ -299,7 +299,9 @@ impl Engine {
         let catalog = read(self.root(r).join("benchmarks.json"))
             .unwrap_or_else(|_| json!({"note":"The run's benchmark snapshot is unavailable."}));
         let workers = strings(&r["input"]["workers"]);
+        let assigned_at = now();
         for t in tasks {
+            t["assigned_at"] = json!(assigned_at);
             let (w, route) = routing::choose(
                 s(&r["input"], "routing"),
                 s(t, "class"),
@@ -333,7 +335,8 @@ impl Engine {
         }
         eval::pin(&recipe, &self.root(r).join("evaluators"))
     }
-    pub fn start(&self, input: Value, profiles: Value) -> Result<Value> {
+    pub fn start(&self, mut input: Value, profiles: Value) -> Result<Value> {
+        let attachments = crate::attachments::unpack(&mut input)?;
         let mode = s(&input, "routing");
         ensure!(routing::mode_valid(mode), "unknown benchmark routing mode");
         ensure!(
@@ -409,6 +412,9 @@ impl Engine {
             r["benchmark_fetched"] = cat["fetched"].clone();
             supervisor::write_json(&self.root(&r).join("benchmarks.json"), &cat)?
         }
+        if !attachments.is_empty() {
+            r["input"]["attachments"] = crate::attachments::save(&self.root(&r), attachments)?;
+        }
         self.save(&mut r, "started")?;
         Ok(r)
     }
@@ -419,8 +425,12 @@ impl Engine {
         let msg_count = worker.map(|t| a(&t["notes"]).len()).unwrap_or_default();
         let prompt = s(&job["request"], "prompt");
         if !prompt.is_empty() {
-            job["request"]["prompt"] =
-                json!(format!("Run context: {}\n{}", context(r, worker), prompt));
+            let mut context = context(r, worker);
+            if !a(&r["input"]["attachments"]).is_empty() {
+                context["brief_attachments"] =
+                    crate::attachments::context(&self.root(r), &r["input"]["attachments"])?;
+            }
+            job["request"]["prompt"] = json!(format!("Run context: {context}\n{prompt}"));
         }
         let id = uid();
         let dir = self.jobdir(r, &id);
