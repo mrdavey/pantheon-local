@@ -2,9 +2,7 @@
 
 ## Open the workbench
 
-Build the Rust workbench on macOS or Linux using the [source instructions](../README.md#build-from-source). From an extracted archive, run `./swarm open`. On a Mac you can also double-click **Open Pantheon Local.command**. Keep Terminal open and use the printed link if the browser doesn’t open.
-
-When upgrading, close the previous service before opening the Rust binary. It uses the same state directory for runs, profiles and history.
+Follow the [source build instructions](../README.md#build-from-source), or run `./swarm open` from an extracted archive. Keep Terminal open. If the browser doesn’t open, use the link printed in Terminal.
 
 ## Connect an agent
 
@@ -17,7 +15,7 @@ When upgrading, close the previous service before opening the Rust binary. It us
 | Hermes | Run `hermes model` and select your provider and model. [Install Hermes](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
 | Antigravity | Run `agy` and finish sign-in. [Install Antigravity](https://antigravity.google/docs/cli-getting-started) |
 
-For Hermes, Antigravity and custom adapters, **Installed** confirms the executable was found. Check provider access in the CLI. [Agent testing status](../README.md#what-runs-where)
+For Hermes, Antigravity and custom adapters, **Installed** confirms the executable was found. Check provider access in the CLI.
 
 ## Start and review your first run
 

@@ -1,6 +1,6 @@
 # Pantheon Local
 
-Pantheon Local coordinates command-line coding agents on a Git project from a browser on your computer. For a patch from Codex and a review from Claude, a direct CLI handoff is usually simpler.
+Pantheon Local coordinates command-line coding agents on a local Git project. In the browser, you give the team a goal, answer the coordinator’s questions, and review a tested commit. For a single patch and a review, a direct CLI handoff is usually simpler.
 
 ## When to use it
 
@@ -11,13 +11,9 @@ Pantheon Local coordinates command-line coding agents on a Git project from a br
 
 ## Quick start
 
-1. On an Apple Silicon Mac, extract the archive and open **Open Pantheon Local.command**. Keep Terminal open. Build from source below for the Rust version. The published v0.2.0 archive predates the migration. [macOS download](https://github.com/mrdavey/pantheon-local/releases/latest)
-2. Sign in to your agent CLI and choose it in **Agent setup**. One CLI can fill both coordinator and worker roles.
-3. Enter a project folder and goal, then select **Start run**. Approve the checks and review the tested commit before landing it on your local branch. [First run and troubleshooting](docs/getting-started.md)
-
 ### Build from source
 
-On macOS or Linux, install rustup, Node.js 24 and Git 2.39+. Cargo uses the Rust version pinned in this checkout. Tests and example checkers use Rust. Node.js builds the React workbench. From the repository root, run
+On macOS or Linux, install rustup, Node.js 24, Git 2.39 or newer, and a coding-agent CLI. From the repository root, build the React workbench and launch the Rust executable.
 
 ```sh
 npm --prefix web ci
@@ -26,11 +22,17 @@ cargo build --locked --release
 ./target/release/swarm open
 ```
 
+If you have a Pantheon Local archive for your platform, extract it and run `./swarm open` from its folder. On macOS you can also double-click **Open Pantheon Local.command**.
+
+### Start a run
+
+1. Sign in to your agent CLI. In **Agent setup**, choose a coordinator and workers. One CLI can fill both roles.
+2. Enter a project folder and goal, then select **Start run**.
+3. Answer any planning questions, approve the checks, and review the passing candidate before landing it on your branch. [First run and troubleshooting](docs/getting-started.md)
+
 ## What runs where
 
-Git checkouts, logs and results stay on your computer. Your agents send prompts and project context to their configured providers. No Pantheon account is required. Use projects and scripts you trust.
-
-The fixture suite exercises the Rust runtime without using model quota. Earlier macOS releases were tested with a signed-in Codex CLI. Live validation of the Rust version with native accounts is pending. [Architecture and adapter contract](docs/architecture.md)
+The service stores Git checkouts, logs and results on your computer. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 

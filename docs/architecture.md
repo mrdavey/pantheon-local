@@ -12,7 +12,7 @@ Each alternative gets a separate candidate. Conflict repairs must preserve both 
 
 ## Native adapters
 
-The adapter accepts a role, working directory, prompt, optionally an existing session ID, and a user-configured profile. It returns session and activity events plus a final response. The native harness retains its own account, tools, and context. Coordinator and worker outcomes are parsed as typed JSON. A generation prevents an old coordinator from mutating a run after a switch.
+The adapter accepts a role, working directory, prompt, optionally an existing session ID, and a user-configured profile. It returns session and activity events plus a final response. The native harness retains its own account, tools, and context. Coordinator and worker outcomes are parsed as typed JSON. When you switch coordinators, a generation number ensures only the active coordinator can update the run.
 
 To add an adapter, create an executable that accepts `--version` and `turn-v1`. On a turn, read one JSON object from stdin and stream JSON lines on stdout.
 
@@ -26,7 +26,7 @@ To add an adapter, create an executable that accepts `--version` and `turn-v1`. 
 {"result":{"session":"session-id","text":"{\"status\":\"committed\",\"commit\":\"actual-git-sha\"}","tokens":1024}}
 ```
 
-Omit usage when a harness has no reliable receipt. Use the result's `error` field for a failed turn. Process termination is the cancellation surface. Model profile configuration is local to the developer.
+Omit usage when a harness has no reliable receipt. Return a failed turn in the result’s `error` field. The supervisor cancels a turn by stopping its process group.
 
 ## Worker routing and conversation
 
@@ -38,11 +38,11 @@ Benchmark-enabled runs retain one snapshot and the reason for each assignment. C
 
 ## Local execution
 
-Use projects and adapters you trust to execute under your local account. The workbench provides independent checkouts, a scoped environment for evals, and separate browser origins for the workbench and previews. Configure each native worker’s sandbox and permissions for the project it handles. On macOS, the recipe and preview runner use a filesystem sandbox that confines writes to the disposable checkout and scratch directory and restricts reads of the developer checkout, service state, and common harness directories. Linux runs recipes with the local user’s filesystem privileges. The service retains local prompts, logs, and candidate evidence in the state directory. Hosted providers still receive the context sent through their own harness.
+Use projects and adapters you trust to execute under your local account. The workbench provides independent checkouts, a scoped environment for evals, and separate browser origins for the workbench and previews. Configure each native worker’s sandbox and permissions for the project it handles. On macOS, the recipe and preview runner use a filesystem sandbox that confines writes to the disposable checkout and scratch directory and restricts reads of the developer checkout, service state, and common harness directories. Linux runs recipes with the local user’s filesystem privileges. The service retains local prompts, logs, and candidate evidence in the state directory. Each harness sends context to its configured provider.
 
 ## Experiments and delivery
 
-The Rust runtime opens existing SQLite state and supervisor receipts in place. SQLite schema 2 records project identities keyed by Git common directory and revisioned case history. Candidate measurements stay in supervised job receipts on disk. Current and earlier decisions remain associated with the tested Git commit and input fingerprint. The coordinator turns outcome observations into typed actions. Recording accepted actions with the consumed observation batch prevents replay after restart. Its inbox questions are independent of harness permission requests.
+SQLite identifies each project by its Git common directory and stores each revision of its evaluation cases. Each measurement report records the candidate’s results, tested commit and input fingerprint on disk. The coordinator turns outcome observations into typed actions. Recording accepted actions with the consumed observation batch prevents replay after restart. Its inbox questions are independent of harness permission requests.
 
 Candidate evaluation pins an independent driver and runs baseline and variants in separate checkouts. The same supervisor records structured observations and checks the checkout before and after the run. Measurements use one candidate at a time on the daemon. The evaluator trust boundary depends on local filesystem and native harness permissions. Keep untrusted repositories and eval executables off this service account.
 

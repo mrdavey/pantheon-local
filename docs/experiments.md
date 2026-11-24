@@ -6,7 +6,7 @@ For example, the search fixture rewards relevant hits and sets a 5 ms latency li
 
 ## Decide what qualifies
 
-An acceptance recipe can still contain just `checks`, a list of executable argument arrays. Add optional named `cases` and a `rule` to measure an improvement. Each case uses a trusted standalone driver. Supply its absolute path in `driver`, or put the source in `program` and select its `interpreter`. The coordinator can propose an evaluator this way. Review its source and criteria before approval. Pantheon Local saves a fixed copy. The driver starts in the candidate checkout and reads a JSON object with `input`, `expected`, `sample`, and `seed` on stdin. Write one JSON result to stdout. Here is a sample.
+For pass/fail checks, put each command and its arguments in an array under `checks`. To compare measurements, add named `cases` and a `rule`. Each case uses a trusted standalone driver. Supply its absolute path in `driver`, or put the source in `program` and select its `interpreter`. The coordinator can propose an evaluator this way. Review its source and criteria before approval. Pantheon Local saves a fixed copy. The driver starts in the candidate checkout and reads a JSON object with `input`, `expected`, `sample`, and `seed` on stdin. Write one JSON result to stdout.
 
 ```json
 {"pass":true,"observed":"Expected note ranked first","metrics":{"relevance":1,"latency":23.4}}
@@ -56,4 +56,4 @@ Only the status, deploy and rollback phases receive the configured environment v
 
 Choose **Auto-land and deploy** and the destination when starting a run. Use **Hold release** before promotion. Status must return both fields. Use an empty digest for a destination with no current release. If the verified artifact is already live and healthy, Pantheon Local records the match and skips promotion. After a promotion it reads the live digest and health again. A failed health check can restore the previous digest when the adapter supports it. If status is unavailable, **Check live state** reconciles the recorded attempt without starting another deployment.
 
-From the terminal, use `swarm start --compare --recipe recipe.json --delivery auto` with the usual project and profile arguments. Add `--delivery deploy --destination production` to release. Use `swarm status`, `swarm cases`, `swarm evidence`, and `swarm help` to find the same controls and records.
+For a CLI comparison, pass `--compare --recipe recipe.json` to `swarm start`. Choose `--delivery auto` for auto-land or `--delivery deploy --destination production` for deployment. Use `swarm help` for command syntax.
