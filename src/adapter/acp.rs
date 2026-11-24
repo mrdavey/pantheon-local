@@ -74,6 +74,40 @@ impl<F: Fn(Value)> Client<'_, F> {
         bail!("ACP connection closed during {method}")
     }
 }
+/// Hermes can replay a streamed receipt and append its file-mutation report.
+/// Only fold an identical receipt. Leave ambiguous responses to strict decoding.
+fn worker_receipt(text: &str) -> Option<Value> {
+    let text = text.trim();
+    let mut stream = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    let mut receipt = stream.next()?.ok()?;
+    let (original, suffix) = text.split_at(stream.byte_offset());
+    let suffix = suffix.trim();
+    if suffix.is_empty() || !receipt.is_object() {
+        return None;
+    }
+    let tail = suffix.strip_prefix(original).unwrap_or(suffix).trim();
+    if tail.is_empty() {
+        return Some(receipt);
+    }
+
+    // A committed milestone still goes through HEAD, ancestry and scope checks.
+    // Preserve the native warning for the coordinator in the handoff itself.
+    let mut lines = tail.lines();
+    let heading = lines.next()?;
+    if receipt["status"] != "committed"
+        || !heading.starts_with("⚠️ File-mutation verifier:")
+        || !lines
+            .clone()
+            .any(|line| line.trim_start().starts_with("• "))
+        || !lines.all(|line| line.trim_start().starts_with("• "))
+    {
+        return None;
+    }
+    let summary = receipt.get_mut("message")?;
+    *summary = json!(format!("{}\n\n{tail}", summary.as_str()?));
+    Some(receipt)
+}
+
 pub(super) fn exchange(
     r: &Value,
     stdin: ChildStdin,
@@ -130,11 +164,48 @@ pub(super) fn exchange(
     );
     match result {
         Ok(result) if result["stopReason"] == "end_turn" && !c.text.is_empty() => {
+            if r["role"] == "worker"
+                && let Some(receipt) = worker_receipt(&c.text)
+            {
+                c.text = serde_json::to_string(&receipt)?;
+            }
             Ok(json!({"session":c.session,"text":c.text}))
         }
         Ok(result) => Ok(
             json!({"session":c.session,"error":format!("ACP turn stopped: {}",field(&result,"stopReason"))}),
         ),
         Err(e) => Ok(json!({"session":c.session,"error":e.to_string()})),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merges_replayed_worker_receipts_and_keeps_native_warnings() -> Result<()> {
+        let original = r#"{"status":"committed","commit":"abc","message":"Storage tested"}"#;
+        let warning =
+            "⚠️ File-mutation verifier: 1 file edit(s) FAILED this turn.\n  • scratch: denied";
+        let replay = format!("{original}\n\n{original}");
+        assert_eq!(
+            worker_receipt(&replay),
+            Some(serde_json::from_str(original)?)
+        );
+        for prefix in [original, replay.as_str()] {
+            let receipt = worker_receipt(&format!("{prefix}\n\n{warning}")).unwrap();
+            assert_eq!(receipt["commit"], "abc");
+            assert_eq!(receipt["message"], format!("Storage tested\n\n{warning}"));
+            crate::wire::validate_outcome(&receipt, "worker")?;
+        }
+        for invalid in [
+            format!("{original}\n{}", original.replace("abc", "def")),
+            format!("{original}\n{warning}\n{original}"),
+            format!("{}\n{warning}", original.replace("committed", "ready")),
+            format!("{original}\nunexpected prose"),
+        ] {
+            assert!(worker_receipt(&invalid).is_none());
+        }
+        Ok(())
     }
 }
