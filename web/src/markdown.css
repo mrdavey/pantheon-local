@@ -1,0 +1,14 @@
+.markdown { min-width: 0; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { color: inherit; white-space: normal; }
+.markdown :is(h1, h2, h3, h4, h5, h6) { margin: 1em 0 .4em; font: 650 1em/1.35 system-ui, sans-serif; letter-spacing: normal; }
+.markdown :is(ul, ol) { margin-block: .5em; padding-inline-start: 1.5em; }
+.markdown li + li { margin-top: .15em; }
+.markdown li > p { margin-block: .2em; }
+.markdown blockquote { margin: .6em 0; padding-inline-start: .8em; border-inline-start: 3px solid var(--input-line); color: var(--muted); }
+.markdown :not(pre) > code { background: var(--wash); border-radius: .25rem; padding: .08em .25em; font-size: .92em; }
+.markdown pre { margin-block: .7em; max-width: 100%; overflow: auto; white-space: pre; tab-size: 4; }
+.markdown-table { max-width: 100%; overflow: auto; }
+.markdown table { border-collapse: collapse; font-size: .92em; }
+.markdown :is(td, th) { padding: .3em .6em; border: 1px solid var(--line); }

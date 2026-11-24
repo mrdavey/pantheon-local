@@ -152,7 +152,14 @@ fn args(request: &Value) -> Vec<String> {
                     },
                 ])
             }
-            if !model.is_empty() {
+            if role == "advisor" {
+                args.extend([
+                    "--model",
+                    "gpt-6-luna",
+                    "-c",
+                    r#"model_reasoning_effort="medium""#,
+                ]);
+            } else if !model.is_empty() {
                 args.extend(["--model", model])
             }
             if !session.is_empty() {
@@ -165,7 +172,9 @@ fn args(request: &Value) -> Vec<String> {
             if role != "worker" {
                 args.extend(["--tools", ""])
             }
-            if !model.is_empty() {
+            if role == "advisor" {
+                args.extend(["--model", "haiku", "--effort", "medium"]);
+            } else if !model.is_empty() {
                 args.extend(["--model", model])
             }
             if !session.is_empty() {
@@ -364,6 +373,24 @@ mod tests {
     use super::*;
     use crate::test_examples::native_fixture;
     #[test]
+    fn brief_uses_a_fast_model_with_medium_reasoning_only_for_advice() {
+        for (kind, fast, effort) in [
+            ("codex", "gpt-6-luna", r#"model_reasoning_effort="medium""#),
+            ("claude", "haiku", "medium"),
+        ] {
+            let profile = json!({"kind":kind,"model":"coordinator-model"});
+            let advice = args(&json!({"profile":profile,"role":"advisor"}));
+            assert!(advice.windows(2).any(|p| p == ["--model", fast]));
+            assert!(advice.contains(&effort.to_owned()));
+            let plan = args(&json!({"profile":profile,"role":"plan"}));
+            assert!(
+                plan.windows(2)
+                    .any(|p| p == ["--model", "coordinator-model"])
+            );
+            assert!(!plan.contains(&effort.to_owned()));
+        }
+    }
+    #[test]
     fn native_adapters_decode_events_and_usage() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let request = json!({"profile":{"kind":"codex","executable":native_fixture(temp.path(),"mock-codex")?},"session":"abc","prompt":"hello\n","dir":temp.path()});
@@ -388,11 +415,12 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn desktop_profile_starts_coordinator_and_worker_in_the_assigned_checkout() -> Result<()> {
+    fn desktop_profile_starts_each_role_with_settings_for_its_session() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let profile = json!({"kind":"hermes","hermes_profile":"desktop-work","executable":native_fixture(temp.path(),"mock-desktop-acp")?});
-        for role in ["coordinator", "worker"] {
-            let dir = temp.path().join(role);
+        for role_dir in ["coordinator", "worker", "advisor", "advisor-options"] {
+            let role = role_dir.strip_suffix("-options").unwrap_or(role_dir);
+            let dir = temp.path().join(role_dir);
             fs::create_dir(&dir)?;
             let request =
                 json!({"profile":profile,"role":role,"dir":dir.canonicalize()?,"prompt":"fixture"});
@@ -421,6 +449,16 @@ mod tests {
             let profile = json!({"kind":kind,"executable":native_fixture(temp.path(),name)?});
             assert_eq!(availability(&profile), json!({"state":state}));
         }
+        Ok(())
+    }
+    #[test]
+    fn hung_login_probe_releases_setup() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let profile =
+            json!({"kind":"codex","executable":native_fixture(temp.path(), "mock-hanging-login")?});
+        let started = std::time::Instant::now();
+        assert_eq!(availability(&profile)["state"], "sign-in-unknown");
+        assert!(started.elapsed() < Duration::from_secs(10));
         Ok(())
     }
     #[test]

@@ -1,4 +1,7 @@
-import { runTitle, blockedTasks } from "./run-summary.js";
+import { Fields } from "./evidence.jsx";
+import { Markdown } from "./markdown.jsx";
+import { Dialog } from "./dialog.jsx";
+import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
 import React, { useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
@@ -7,41 +10,50 @@ const number = (value) => new Intl.NumberFormat(undefined, { maximumSignificantD
 const when = (value) => new Date(value).toLocaleString();
 const rounds = (run) => [...new Set([run.round || 1, ...(run.candidates || []).map((c) => c.round || 1)])].sort((a, b) => a - b);
 
-export function Inbox({ runs, act, open, busy }) {
-  const [resolved, setResolved] = useState(false);
-  const questions = runs.flatMap((run) => (run.inbox || []).map((question) => ({ run, question })));
+export function Inbox({ runs, act, open, busy, initialHistory = false }) {
+  const [history, setHistory] = useState(initialHistory);
+  const items = runs.flatMap(run => [
+    ...(run.inbox || []).map(issue => ({ run, issue, type: "question" })),
+    ...blockedTasks(run).map(issue => ({ run, issue, type: "milestone" })),
+  ]);
+  const archived = ({ issue, type }) => issue.inbox_dismissed || (type === "question" && issue.state !== "open");
+  const active = items.filter(item => !archived(item));
+  const past = items.filter(archived);
+  const card = ({ run, issue, type }) => <InboxItem key={run.id + type + issue.id} {...{ run, issue, type, act, open, busy }} />;
   return <section className="panel">
     <h1 tabIndex={-1}>Needs you</h1>
-    {runs.flatMap((run) => blockedTasks(run).map((task) =>
-      <article className="row" key={run.id + ":" + task.id}>
-        <button className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</button>
-        <h2>{task.id}</h2><p>Blocked · {task.worker}</p>
-        {task.finding && <p>{task.finding}</p>}
-        <button disabled={busy} onClick={() => act(run, { kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>
-      </article>))}
-    {!runs.some((run) => blockedTasks(run).length) && !questions.some(({ question }) => question.state === "open") && <p>No open questions.</p>}
-    {questions.filter(({ question }) => resolved || question.state === "open").map(({ run, question }) =>
-      <InboxItem key={question.id} {...{ run, question, act, open, busy }} />)}
-    {questions.some(({ question }) => question.state !== "open") &&
-      <button onClick={() => setResolved(!resolved)}>{resolved ? "Hide history" : "Show history"}</button>}
+    {active.length ? active.map(card) : <p>No open questions or blockers in your inbox.</p>}
+    {past.length > 0 && <><button aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide history" : "Show history"}</button>
+      {history && <section aria-label="Inbox history">{past.map(card)}</section>}</>}
   </section>;
 }
 
-function InboxItem({ run, question, act, open, busy }) {
+function InboxItem({ run, issue, type, act, open, busy }) {
   const [answer, setAnswer] = useState("");
+  const resolved = type === "question" && issue.state !== "open";
+  const dismiss = <button type="button" disabled={busy} onClick={() => act(run, {
+    kind: issue.inbox_dismissed ? "restore-issue" : "dismiss-issue", task: issue.id, text: type,
+  })}>{issue.inbox_dismissed ? "Restore to inbox" : "Dismiss"}</button>;
   return <article className="row">
     <button className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</button>
-    <h2>{question.text}</h2>
-    {question.state === "open" ? <form onSubmit={(event) => {
-      event.preventDefault();
-      act(run, { kind: "answer-inbox", task: question.id, text: answer });
-    }}>
-      {question.choices?.length > 0 && <div className="actions">{question.choices.map((choice, i) =>
-        <button key={i} type="button" onClick={() => setAnswer(choice)}>{choice}</button>)}</div>}
-      <label>Answer<textarea required value={answer} onChange={(event) => setAnswer(event.target.value)} /></label>
-      {question.tasks?.length > 0 && <p>Waiting work · {question.tasks.join(", ")}</p>}
-      <button className="primary" disabled={busy || !answer.trim()}>Send answer</button>
-    </form> : <p>{question.answer || question.state}</p>}
+    {type === "question" ? <>
+      <h2>{issue.text}</h2>
+      {resolved ? <Markdown>{issue.answer || issue.state}</Markdown> : <form onSubmit={async event => {
+        event.preventDefault();
+        if (await act(run, {kind: "answer-inbox", task: issue.id, text: answer})) setAnswer("");
+      }}>
+        {issue.choices?.length > 0 && <div className="actions">{issue.choices.map((choice, i) =>
+          <button key={i} type="button" onClick={() => setAnswer(choice)}>{choice}</button>)}</div>}
+        <label>Answer<textarea required value={answer} onChange={event => setAnswer(event.target.value)} /></label>
+        {issue.tasks?.length > 0 && <p>Waiting work · {issue.tasks.join(", ")}</p>}
+        {issue.blocking && <p className="muted">This run needs an answer to continue.</p>}
+        <div className="actions"><button className="primary" disabled={busy || !answer.trim()}>Send answer</button>{dismiss}</div>
+      </form>}
+    </> : <>
+      <h2>{issue.title || issue.id}</h2><p>Blocked · {issue.worker}</p>
+      {issue.finding && <Markdown>{issue.finding}</Markdown>}
+      <div className="actions"><button disabled={busy} onClick={() => act(run, { kind: "resume", task: issue.id, tokens: run.input.token_target })}>Retry milestone</button>{dismiss}</div>
+    </>}
   </article>;
 }
 
@@ -147,7 +159,7 @@ function Cases({ run, candidates, api, perform }) {
             <td key={reports[i][0].id}>{samples.length ? <details><summary>{samples.filter((s) => s.state === "pass").length}/{samples.length} passed</summary>
               {samples.map((s) => <div key={s.number}><strong>Sample {s.number} · {s.state}</strong>
                 {s.observed && <p>{s.observed}</p>}{s.error && <p>{s.error}</p>}
-                {s.expected != null && <pre>{JSON.stringify(s.expected)}</pre>}
+                {s.expected != null && <div><strong>Expected</strong><Fields value={s.expected} /></div>}
                 {Object.entries(s.values || {}).map(([metric, value]) => <p key={metric}>{metric} · {number(value)}</p>)}</div>)}
             </details> : "Missing"}</td>)}</tr>)}</tbody></table>
     </div>}
@@ -162,6 +174,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
   const [feedback, setFeedback] = useState("");
   const [rollout, setRollout] = useState(false);
   const [target, setTarget] = useState("");
+  const [detail, setDetail] = useState("");
   const [savedCases, setSavedCases] = useState(null);
   const [ab, setAB] = useState({});
   const [history, setHistory] = useState(null);
@@ -195,15 +208,24 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
     const batch = await api("/runs/" + run.id + "/history" + (before ? "?before=" + before : ""));
     setHistory(before ? [...history, ...batch] : batch);
   });
+  const outcomeTitle = winner && title(winner);
+  const combined = winner?.tasks?.length > 1 && outcomeTitle === winner.tasks.join(" · ");
+  const headline = combined ? "Combined implementation" : shortSummary(outcomeTitle, 80);
+  const reason = shortSummary(selected?.reason);
   return <section className="experiment">
     <h2 className="visually-hidden">Experiment</h2>
-    {isCurrent && run.round_goal && <p className="round-goal">{run.round_goal}</p>}
+    {isCurrent && run.round_goal && <div className="round-goal"><Markdown>{run.round_goal}</Markdown></div>}
     {selected && <div className="outcome">
       <div className="outcome-copy">
         <strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
           selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
-        {winner && <h3>{title(winner)}</h3>}
-        <p>{selected.reason}</p>
+        {winner && <h3>{headline}</h3>}
+        {reason && <p>{reason}</p>}
+        {(headline !== (outcomeTitle || "") || reason !== (selected.reason || "").trim()) &&
+          <button className="text-button" onClick={() => setDetail("decision")}>View decision details</button>}
+        {detail === "decision" && <Dialog title="Decision details" onClose={() => setDetail("")}>
+          {winner && <h3>{outcomeTitle}</h3>}<Markdown>{selected.reason}</Markdown>
+        </Dialog>}
       </div>
       {(winner?.commit || selected.landed_at) && <div className="outcome-meta">
         {selected.landed_at && <span><strong>{branchName(run.repo.Target)}</strong> · {when(selected.landed_at)}</span>}
@@ -302,22 +324,29 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
         <div className="actions">{[["left", "Prefer A"], ["right", "Prefer B"], ["tie", "Tie"], ["skip", "Skip"]].map(([value, label]) =>
           <button key={value} disabled={busy} onClick={() => act({ kind: "vote", task: p.id, text: value })}>{label}</button>)}</div></>}
     </article>)}
-    <details><summary>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</summary>
+    <div className="actions experiment-tools">
+      <button onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</button>
+      <button onClick={() => { setDetail("cases"); if (!savedCases) loadCases(); }}>Project eval cases</button>
+      <button onClick={() => { setDetail("history"); if (!history) loadHistory(); }}>Project run history</button>
+    </div>
+    {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
       <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"
         busy={busy || !["review", "working", "blocked"].includes(run.state)}
-        onApprove={(recipe) => act({ kind: "update-suite", recipe })} />
-    </details>
-    <details onToggle={(event) => { if (event.currentTarget.open && !savedCases) loadCases(); }}><summary>Project eval cases</summary>
-      {savedCases && !savedCases.length && <p>The coordinator has no saved cases for this project yet.</p>}
+        onApprove={async (recipe) => { const ok = await act({ kind: "update-suite", recipe }); if (ok) setDetail(""); return ok; }} />
+    </Dialog>}
+    {detail === "cases" && <Dialog title="Project eval cases" onClose={() => setDetail("")}>
+      {!savedCases && (busy ? <p role="status">Loading cases…</p> : <button onClick={() => loadCases()}>Reload cases</button>)}
+      {savedCases && !savedCases.length && <p>No saved cases for this project.</p>}
       {savedCases?.map((entry) => <article className="row" key={entry.cursor}><strong>{entry.scenario}</strong>
-        <p>Expected · {entry.expected}</p><p>{entry.why}</p><small>{entry.active ? "Active in this suite" : entry.state} · Revision {entry.revision} · {entry.author}</small></article>)}
+        <p>Expected · {entry.expected}</p><Markdown>{entry.why}</Markdown><small>{entry.active ? "Active in this suite" : entry.state} · Revision {entry.revision} · {entry.author}</small></article>)}
       {savedCases?.length >= 100 && savedCases.length % 100 === 0 && <button onClick={() => loadCases(savedCases.at(-1).cursor)}>Load older revisions</button>}
-    </details>
-    <details onToggle={(event) => { if (event.currentTarget.open && !history) loadHistory(); }}><summary>Project run history</summary>
+    </Dialog>}
+    {detail === "history" && <Dialog title="Project run history" onClose={() => setDetail("")}>
+      {!history && (busy ? <p role="status">Loading history…</p> : <button onClick={() => loadHistory()}>Reload history</button>)}
       <ul>{history?.map((entry) => <li key={entry.id}><button disabled={entry.id === run.id}
         onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <button onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
-    </details>
+    </Dialog>}
     <form className="form-card" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
         .then((ok) => { if (ok) setFeedback(""); });

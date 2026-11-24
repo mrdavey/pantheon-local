@@ -220,7 +220,28 @@ impl Engine {
         if matches!(kind, "combine" | "feedback") && s(&r, "project").is_empty() {
             r["project"] = json!(self.store.project_id(s(&r["repo"], "Common"))?)
         }
-        if kind == "new-round" {
+        if matches!(kind, "dismiss-issue" | "restore-issue") {
+            let item = match text {
+                "question" => {
+                    let i = index(&r["inbox"], task)?;
+                    ensure!(
+                        r["inbox"][i]["state"] == "open",
+                        "question is already resolved"
+                    );
+                    &mut r["inbox"][i]
+                }
+                "milestone" => {
+                    let i = index(&r["tasks"], task)?;
+                    ensure!(
+                        i >= num(&r["task_start"]) as usize && r["tasks"][i]["state"] == "blocked",
+                        "milestone is no longer blocked"
+                    );
+                    &mut r["tasks"][i]
+                }
+                _ => bail!("unknown inbox item"),
+            };
+            item["inbox_dismissed"] = json!(kind == "dismiss-issue");
+        } else if kind == "new-round" {
             self.new_round(&mut r, text)?
         } else if kind == "update-suite" {
             self.update_suite(&mut r, &action)?
@@ -388,6 +409,7 @@ impl Engine {
                         if (task.is_empty() || t["id"] == task)
                             && matches!(s(t, "state"), "blocked" | "interrupted")
                         {
+                            t["inbox_dismissed"] = json!(false);
                             t["state"] = json!("pending")
                         }
                     }

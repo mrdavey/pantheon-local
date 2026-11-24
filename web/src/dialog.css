@@ -1,0 +1,18 @@
+.workbench-dialog { box-sizing: border-box; width: min(38rem, calc(100% - 2rem)); max-height: 86dvh; padding: 1.4rem; border: 1px solid var(--line); border-radius: 14px; background: var(--paper, Canvas); color: var(--ink, CanvasText); box-shadow: 0 16px 72px #0003; overflow: auto; }
+.workbench-dialog::backdrop { background: #17202b70; }
+.dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; }
+.dialog-heading h2 { margin: 0; }
+.dialog-close { flex: none; min-width: 40px; min-height: 40px; font-size: 1.4rem; }
+
+.run-nav-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; }
+.run-nav-row > button:first-child { min-width: 0; }
+.run-nav-row .run-name { overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+.run-nav button.run-settings-button, .run-settings-button { display: inline-grid; place-items: center; width: 2.75rem; min-height: 2.75rem; padding: .5rem; }
+.settings-details { display: grid; grid-template-columns: auto minmax(0,1fr); gap: .5rem 1rem; }
+.settings-details dt { color: var(--muted); }
+.settings-details dd { margin: 0; overflow-wrap: anywhere; }
+.settings-title { font-weight: 650; overflow-wrap: anywhere; }
+.settings-delete { padding-top: 1rem; margin-top: 1rem; border-top: 1px solid var(--line); }
+.workbench-dialog button.danger { color: var(--red, #a52b26); }
+@media (prefers-color-scheme: dark) { .workbench-dialog button.danger { color: #ffada6; } }
+@media (max-width: 760px) { .run-nav-row { flex: 0 0 min(82vw, 16rem); } }

@@ -10,15 +10,15 @@ A worker can ask the coordinator or send a finding to a peer. If you already cho
 
 ## Talk to the coordinator
 
-Use **Conversation** to ask about a decision or request more work. While a run is working or ready for review, **Add milestones** accepts a proposal and its extra checks. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. After landing, use **Start another round** in **Experiment**.
+Open **Coordinator chat** to ask about a decision or request more work. While a run is working or ready for review, **Add milestones** accepts a proposal and its extra checks. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. After landing, use **Start another round** in **Experiment**.
 
 From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, then `swarm status <run-id>`. Accept a proposal with `swarm accept-proposal --task <proposal-id> <run-id>`.
 
 ## Choose how to assign workers
 
-The coordinator assigns workers by default. For benchmark-based assignments, select a profile in **Agent setup** and open **Model and benchmark** and match each profile to its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes runtime model in its Desktop profile or CLI. Choose the Antigravity model in its CLI.
+The coordinator assigns workers by default. For benchmark-based assignments, open **Settings** beside each agent in **Agent setup** and match its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes runtime model in its Desktop profile or CLI. Choose the Antigravity model in its CLI.
 
-Select at least two worker profiles, then choose **Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
+Select at least two worker profiles, then choose **Advanced settings → Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
 
 | Routing setting | Selection |
 | --- | --- |

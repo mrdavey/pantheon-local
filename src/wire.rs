@@ -25,6 +25,7 @@ request!(Model {
     benchmark_agent: String,
     benchmark_effort: String
 });
+request!(InitialFiles { path: String });
 request!(Advice {
     profile: String,
     prompt: String
@@ -121,6 +122,9 @@ pub fn validate(value: &Value, schema: &str) -> Result<()> {
         }
         "model" => {
             Model::deserialize(value)?;
+        }
+        "initial-files" => {
+            InitialFiles::deserialize(value)?;
         }
         "advice" => {
             Advice::deserialize(value)?;

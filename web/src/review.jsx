@@ -1,3 +1,4 @@
+import { Command } from "./evidence.jsx";
 import React, { useState } from "react";
 
 export function branchName(ref) {
@@ -43,7 +44,7 @@ export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
   }}>
     {draft !== null && <p>The edited JSON will be used when you approve.</p>}
     {draft === null && recipe.checks?.length > 0 && <ul className="check-list">
-      {recipe.checks.map((command, index) => <li key={index}><code>{JSON.stringify(command)}</code></li>)}
+      {recipe.checks.map((command, index) => <li key={index}><Command argv={command} /></li>)}
     </ul>}
     {draft === null && recipe.rule && <SelectionRule rule={recipe.rule} />}
     {draft === null && recipe.cases?.length > 0 && <details>
@@ -54,7 +55,7 @@ export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
         {entry.program ? <pre>{entry.program}</pre> : <p><code>{entry.driver}</code></p>}
       </li>)}</ul>
     </details>}
-    {draft === null && recipe.preview?.length > 0 && <p>Preview <code>{JSON.stringify(recipe.preview)}</code></p>}
+    {draft === null && recipe.preview?.length > 0 && <p>Preview <Command argv={recipe.preview} /></p>}
     {draft === null && recipe.rubric && <p>Review criteria · {recipe.rubric}</p>}
     <details open={editing} onToggle={(event) => setEditing(event.currentTarget.open)}>
       <summary>View or edit JSON</summary>

@@ -141,10 +141,52 @@ fn check_initial_files(mut git: Command, root: &str, selected: &Path) -> Result<
             )
         };
         bail!(
-            "{location} Choose a separate empty project folder, list the files to include in Run options → Git and advisor settings → Initial import files (CLI: --import), or commit them in Git."
+            "{location} Choose a separate empty project folder, select files in Advanced settings → Initial import files (CLI: --import), or commit them in Git."
         );
     }
     Ok(())
+}
+
+/// List the same untracked, nonignored files Git will accept for the first commit.
+pub fn initial_choices(path: &str) -> Result<serde_json::Value> {
+    let selected =
+        fs::canonicalize(path).with_context(|| format!("Cannot open project folder {path}"))?;
+    let temp;
+    let (root, mut cmd) = match discover(path) {
+        Ok(repo) => {
+            ensure!(
+                repo.head.is_empty(),
+                "This project already has a commit. Workers start from the committed files."
+            );
+            ensure!(
+                git(&repo.root, &["ls-files", "-z"])?.is_empty(),
+                "Create the initial commit in Git to preserve your staged work."
+            );
+            let cmd = git_command(&repo.root);
+            (repo.root, cmd)
+        }
+        Err(err) if err.to_string().contains("not a git repository") => {
+            let root = path_text(&selected)?;
+            temp = tempfile::tempdir()?;
+            git(
+                root,
+                &["init", "--bare", "--quiet", path_text(temp.path())?],
+            )?;
+            let mut cmd = git_command(root);
+            cmd.arg("--git-dir")
+                .arg(temp.path())
+                .arg("--work-tree")
+                .arg(&selected);
+            (root.to_owned(), cmd)
+        }
+        Err(err) => return Err(err),
+    };
+    let names = output(cmd.args(["ls-files", "--others", "--exclude-standard", "-z"]))?;
+    let files: Vec<_> = names
+        .split_terminator('\0')
+        .filter(|name| !name.ends_with('/'))
+        .collect();
+    Ok(serde_json::json!({"root": root, "files": files}))
 }
 
 pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository> {
@@ -638,6 +680,29 @@ mod tests {
             git(dir, &["config", key, val])?;
         }
         Ok(dir)
+    }
+    #[test]
+    fn initial_picker_matches_git_ignores_and_imports_nested_files() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = path_text(dir.path())?;
+        fs::write(dir.path().join(".gitignore"), "*.tmp\n")?;
+        fs::create_dir(dir.path().join("nested"))?;
+        fs::write(dir.path().join("nested/two words"), "ok")?;
+        fs::write(dir.path().join("hidden.tmp"), "ignored")?;
+        let choices = initial_choices(root)?;
+        assert_eq!(
+            choices["files"],
+            serde_json::json!([".gitignore", "nested/two words"])
+        );
+        assert!(!dir.path().join(".git").exists());
+        git(root, &["init", "--quiet"])?;
+        let choices = initial_choices(path_text(&dir.path().join("nested"))?)?;
+        assert_eq!(choices["root"], path_text(&fs::canonicalize(root)?)?);
+        assert_eq!(choices["files"][1], "nested/two words");
+        let repo = open(root, &["nested/two words".into()], true)?;
+        assert_eq!(git(&repo.root, &["ls-files"])?, "nested/two words");
+        assert!(initial_choices(root).is_err());
+        Ok(())
     }
     #[test]
     fn recognizes_only_object_ids_for_the_reported_commit() -> Result<()> {
