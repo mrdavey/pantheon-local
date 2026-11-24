@@ -30,9 +30,22 @@ jobs:
           base="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64"
           for component in chrome chromedriver; do
             curl --fail --silent --show-error --location --retry 3 "$base/$component-linux64.zip" -o "$RUNNER_TEMP/$component.zip"
-            unzip -q "$RUNNER_TEMP/$component.zip" -d "$RUNNER_TEMP"
           done
-          echo "CHROME_BIN=$RUNNER_TEMP/chrome-linux64/chrome" >> "$GITHUB_ENV"
+          unzip -q "$RUNNER_TEMP/chromedriver.zip" -d "$RUNNER_TEMP"
+          sudo install -d /opt/pantheon-browser
+          sudo unzip -q "$RUNNER_TEMP/chrome.zip" -d /opt/pantheon-browser
+          # Ubuntu restricts the user namespaces Chrome uses for its sandbox.
+          # Scope the browser profile to the root-owned, pinned test binary.
+          sudo apparmor_parser -r <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile pantheon-cft /opt/pantheon-browser/chrome-linux64/chrome flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          chrome=/opt/pantheon-browser/chrome-linux64/chrome
+          "$chrome" --headless --disable-dev-shm-usage --dump-dom about:blank
+          echo "CHROME_BIN=$chrome" >> "$GITHUB_ENV"
           echo "CHROMEDRIVER=$RUNNER_TEMP/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
       - if: runner.os == 'Linux'
         run: cargo test --locked --test workbench -- --ignored --test-threads=1

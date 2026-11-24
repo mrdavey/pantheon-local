@@ -93,9 +93,24 @@ fn restart_recovers_workers_and_repairs_failed_candidate() -> Result<()> {
     svc.wait_state(&url, "checks")?;
     svc.post(&url, &json!({"kind":"approve"}))?;
     until(TIMEOUT, || {
-        Ok(rows(&svc.get(&url)?["turns"])
+        let run = svc.get(&url)?;
+        let turns = svc
+            .state
+            .join("runs")
+            .join(run["id"].as_str().unwrap())
+            .join("turns");
+        // The daemon persists dispatch intent before spawning the supervisor.
+        // Kill it only after the worker whose recovery we are testing has claimed the turn.
+        Ok(rows(&run["turns"])
             .iter()
-            .any(|t| t["role"] == "worker" && t["state"] == "running")
+            .any(|t| {
+                t["role"] == "worker"
+                    && t["state"] == "running"
+                    && turns
+                        .join(t["id"].as_str().unwrap())
+                        .join("claim")
+                        .is_file()
+            })
             .then_some(()))
     })?;
     svc.restart(true)?;
