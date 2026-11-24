@@ -103,11 +103,23 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 reply["id"] == 9 && reply["result"]["outcome"] == expected,
                 "incorrect permission response"
             );
-            for (id, text) in [
-                ("progress", "Checking the project."),
-                ("final", "do"),
-                ("final", "ne"),
-            ] {
+            let chunks = if fresh && std::env::current_dir()?.ends_with("worker") {
+                [
+                    ("progress", "Checking the project."),
+                    ("final", "Finished the checks.\n\n"),
+                    (
+                        "final",
+                        r#"{"status":"committed","commit":"abc","message":"Checks passed"}"#,
+                    ),
+                ]
+            } else {
+                [
+                    ("progress", "Checking the project."),
+                    ("final", "do"),
+                    ("final", "ne"),
+                ]
+            };
+            for (id, text) in chunks {
                 println!(
                     "{}",
                     json!({"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","messageId":id,"content":{"text":text}}}})

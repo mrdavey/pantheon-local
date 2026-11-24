@@ -74,15 +74,19 @@ impl<F: Fn(Value)> Client<'_, F> {
         bail!("ACP connection closed during {method}")
     }
 }
-/// Hermes can replay a streamed receipt and append its file-mutation report.
+/// Hermes can summarize its work before the receipt, replay it or append a verifier report.
 /// Only fold an identical receipt. Leave ambiguous responses to strict decoding.
 fn worker_receipt(text: &str) -> Option<Value> {
     let text = text.trim();
-    let mut stream = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    let (summary, body) = text.split_at(text.find('{')?);
+    if !summary.is_empty() && !summary.ends_with('\n') {
+        return None;
+    }
+    let mut stream = serde_json::Deserializer::from_str(body).into_iter::<Value>();
     let mut receipt = stream.next()?.ok()?;
-    let (original, suffix) = text.split_at(stream.byte_offset());
+    let (original, suffix) = body.split_at(stream.byte_offset());
     let suffix = suffix.trim();
-    if suffix.is_empty() || !receipt.is_object() {
+    if (summary.is_empty() && suffix.is_empty()) || !receipt.is_object() {
         return None;
     }
     let tail = suffix.strip_prefix(original).unwrap_or(suffix).trim();
@@ -198,7 +202,13 @@ mod tests {
             assert_eq!(receipt["message"], format!("Storage tested\n\n{warning}"));
             crate::wire::validate_outcome(&receipt, "worker")?;
         }
+        assert_eq!(
+            worker_receipt(&format!("Checked the finished CLI.\n\n{original}")),
+            Some(serde_json::from_str(original)?)
+        );
         for invalid in [
+            format!("Example: {original}"),
+            format!("There was an earlier {{object}}.\n{original}"),
             format!("{original}\n{}", original.replace("abc", "def")),
             format!("{original}\n{warning}\n{original}"),
             format!("{}\n{warning}", original.replace("committed", "ready")),

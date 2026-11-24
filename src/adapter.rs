@@ -396,10 +396,15 @@ mod tests {
             fs::create_dir(&dir)?;
             let request =
                 json!({"profile":profile,"role":role,"dir":dir.canonicalize()?,"prompt":"fixture"});
-            assert_eq!(
-                run(&request, None, |_| {}),
-                json!({"text":"done","session":"desktop-session"})
-            );
+            let result = run(&request, None, |_| {});
+            assert_eq!(result["session"], "desktop-session");
+            if role == "worker" {
+                let receipt = decode_typed_outcome(role, field(&result, "text"))?;
+                assert_eq!(receipt["commit"], "abc");
+                assert_eq!(receipt["message"], "Checks passed");
+            } else {
+                assert_eq!(result["text"], "done");
+            }
         }
         Ok(())
     }
