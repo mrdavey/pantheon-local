@@ -201,3 +201,35 @@ fn desktop_profile_settings_follow_the_discovered_agent() -> Result<()> {
     assert!(svc.get("/setup")?["profiles"]["hermes-work"].is_null());
     Ok(())
 }
+
+#[test]
+fn rejected_parent_leaves_child_free_to_start_its_own_project() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let home = tmp.path().join("home");
+    fs::create_dir(&home)?;
+    fs::write(
+        home.join(".gitconfig"),
+        "[user]\nname = Test\nemail = test@example.invalid\n",
+    )?;
+    let svc = common::Service::with_env(tmp.path(), [("HOME".into(), home)].into())?;
+    let parent = tmp.path().canonicalize()?.join("Downloads");
+    let child = parent.join("test");
+    fs::create_dir_all(child.join("src"))?;
+    fs::write(parent.join("download.txt"), "private")?;
+    let mut input = serde_json::json!({"path":parent,"prompt":"Plan an expense CLI","coordinator":"first","workers":["writer"]});
+    let err = svc.post("/runs", &input).unwrap_err().to_string();
+    assert!(
+        err.contains(parent.to_str().unwrap()) && err.contains("Initial import files"),
+        "{err}"
+    );
+    assert!(!parent.join(".git").exists());
+
+    input["path"] = serde_json::json!(child);
+    let run = svc.post("/runs", &input)?;
+    assert_eq!(run["repo"]["Root"], child.to_str().unwrap());
+    assert_eq!(run["repo"]["Subdir"], ".");
+    assert_eq!(run["state"], "planning");
+    assert!(common::git(&child, &["ls-tree", "-r", "HEAD"])?.is_empty());
+    assert!(!parent.join(".git").exists());
+    Ok(())
+}

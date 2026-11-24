@@ -115,6 +115,38 @@ pub fn discover(path: &str) -> Result<Repository> {
     })
 }
 
+fn check_initial_files(mut git: Command, root: &str, selected: &Path) -> Result<()> {
+    let entries = git
+        .args([
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--directory",
+            "--no-empty-directory",
+            "-z",
+        ])
+        .output()?;
+    ensure!(
+        entries.status.success(),
+        "Cannot check initial files in {root}: {}",
+        String::from_utf8_lossy(&entries.stderr).trim()
+    );
+    if !entries.stdout.is_empty() {
+        let location = if Path::new(root) == selected {
+            format!("{root} contains files and has no commits.")
+        } else {
+            format!(
+                "{} belongs to the Git repository at {root}, which contains files and has no commits.",
+                selected.display()
+            )
+        };
+        bail!(
+            "{location} Choose a separate empty project folder, list the files to include in Run options → Git and advisor settings → Initial import files (CLI: --import), or commit them in Git."
+        );
+    }
+    Ok(())
+}
+
 pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository> {
     let repo = match discover(path) {
         Ok(repo) => repo,
@@ -129,7 +161,22 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
                     ),
                 }
             }
-            git(path_text(&canonical)?, &["init", "--quiet"])?;
+            let root = path_text(&canonical)?;
+            // Check Git's ignore rules before creating a repository in the user's folder.
+            if files.is_empty() && fs::read_dir(&canonical)?.next().transpose()?.is_some() {
+                let probe = tempfile::tempdir()?;
+                git(
+                    root,
+                    &["init", "--bare", "--quiet", path_text(probe.path())?],
+                )?;
+                let mut cmd = git_command(root);
+                cmd.arg("--git-dir")
+                    .arg(probe.path())
+                    .arg("--work-tree")
+                    .arg(&canonical);
+                check_initial_files(cmd, root, &canonical)?;
+            }
+            git(root, &["init", "--quiet"])?;
             discover(path)?
         }
         Err(e) => return Err(e),
@@ -146,15 +193,13 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
         git(&repo.root, &["ls-files", "-z"])?.is_empty(),
         "create the initial commit in Git to preserve your staged work"
     );
-    ensure!(
-        !files.is_empty()
-            || git(
-                &repo.root,
-                &["ls-files", "--others", "--exclude-standard", "-z"]
-            )?
-            .is_empty(),
-        "choose initial files explicitly (or commit in Git)"
-    );
+    if files.is_empty() {
+        check_initial_files(
+            git_command(&repo.root),
+            &repo.root,
+            &fs::canonicalize(path)?,
+        )?;
+    }
     let scratch = tempfile::tempdir()?;
     let indexed = |args: &[&str]| {
         output(
@@ -521,6 +566,23 @@ mod tests {
         assert_eq!(target_head(dir, &repo.target)?, candidate);
         Ok(())
     }
+    #[test]
+    fn existing_unborn_parent_reports_the_actual_root_without_changing_it() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let root = home.path().canonicalize()?;
+        let dir = init(&root)?;
+        let child = root.join("app");
+        fs::create_dir(&child)?;
+        fs::write(root.join("private"), "keep")?;
+        let err = open(path_text(&child)?, &[], true).unwrap_err().to_string();
+        assert!(err.contains(dir) && err.contains(path_text(&child)?));
+        assert!(err.contains("belongs to the Git repository"));
+        assert!(!child.join(".git").exists());
+        assert!(discover(dir)?.head.is_empty());
+        assert!(git(dir, &["ls-files"])?.is_empty());
+        Ok(())
+    }
+
     #[test]
     fn explicit_initial_import_and_linked_worktree() -> Result<()> {
         let home = tempfile::tempdir()?;

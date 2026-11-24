@@ -30,6 +30,7 @@ Use **Needs you** for decisions and **Conversation** to ask about a run or reque
 
 ## If setup gets stuck
 
+- **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, list their paths under **Run options → Git and advisor settings → Initial import files**, or commit them in Git. Paths are relative to the Git root shown in the error.
 - **Folder access denied on Mac.** In System Settings → Privacy & Security → Files & Folders, allow your launching terminal to access the project folder, then reopen the workbench. You can also choose a project outside the protected folder.
 - **Browse is unavailable on Linux.** Enter the project path, or install Zenity or KDialog on the computer running Pantheon Local.
 - **Git is missing.** Install Git and check `git --version`. Configure your Git name and email if the first commit asks for them.
