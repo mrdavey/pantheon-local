@@ -1,6 +1,6 @@
 # Architecture
 
-The browser and CLI use the same authenticated loopback service for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand.
+One Rust executable contains the CLI, loopback service, turn supervisor and compiled React workbench. The browser and CLI use the same authenticated HTTP API for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand. Git operations and agent commands run outside the async HTTP executor. A single writer serializes run changes while the UI reads committed state.
 
 ## Process and Git lifetimes
 
@@ -42,7 +42,7 @@ Use projects and adapters you trust to execute under your local account. The wor
 
 ## Experiments and delivery
 
-SQLite schema 2 adds project identities keyed by Git common directory and revisioned case history. Candidate measurements stay in supervised job receipts on disk. Current and earlier decisions remain associated with the tested Git commit and input fingerprint. The coordinator turns outcome observations into typed actions. Recording accepted actions with the consumed observation batch prevents replay after restart. Its inbox questions are independent of harness permission requests.
+The Rust runtime opens existing SQLite state and supervisor receipts in place. SQLite schema 2 records project identities keyed by Git common directory and revisioned case history. Candidate measurements stay in supervised job receipts on disk. Current and earlier decisions remain associated with the tested Git commit and input fingerprint. The coordinator turns outcome observations into typed actions. Recording accepted actions with the consumed observation batch prevents replay after restart. Its inbox questions are independent of harness permission requests.
 
 Candidate evaluation pins an independent driver and runs baseline and variants in separate checkouts. The same supervisor records structured observations and checks the checkout before and after the run. Measurements use one candidate at a time on the daemon. The evaluator trust boundary depends on local filesystem and native harness permissions. Keep untrusted repositories and eval executables off this service account.
 

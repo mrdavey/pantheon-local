@@ -2,9 +2,9 @@
 
 ## Open the workbench
 
-On an Apple Silicon Mac, extract the archive and open **Open Pantheon Local.command**, or run `./swarm open` from the extracted folder. Keep Terminal open. If the browser doesn't open, use the link printed there. [Download the macOS archive](https://github.com/mrdavey/pantheon-local/releases/latest)
+Build the Rust workbench on macOS or Linux using the [source instructions](../README.md#build-from-source). From an extracted archive, run `./swarm open`. On a Mac you can also double-click **Open Pantheon Local.command**. Keep Terminal open and use the printed link if the browser doesn’t open.
 
-On Linux or an Intel Mac, build the workbench from source. [Build instructions](../README.md#build-from-source)
+When upgrading, close the previous service before opening the Rust binary. It uses the same state directory for runs, profiles and history.
 
 ## Connect an agent
 

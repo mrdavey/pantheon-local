@@ -11,9 +11,10 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-BIN = REPO / "bin" / "swarm"
-if not BIN.exists():
-    BIN = REPO / "swarm"
+# Release archives place the executable beside the tests directory.
+BIN = Path(os.environ["SWARM_BIN"]) if "SWARM_BIN" in os.environ else (
+    REPO / "swarm" if (REPO / "swarm").is_file() else REPO / "target" / "debug" / "swarm"
+)
 
 
 def git(path, *args):

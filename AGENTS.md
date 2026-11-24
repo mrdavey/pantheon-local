@@ -4,7 +4,7 @@
 
 Pantheon Local coordinates native coding agents on the developer’s computer. See the [architecture](docs/architecture.md) and [experiment guide](docs/experiments.md). Use ordinary Git commits for milestones and preserve the developer’s index and checkout.
 
-Install Go 1.26 or newer and Git 2.39 or newer. Run `go test -race ./...`, `go vet ./...`, and `git diff --check` from this repository. Tests use temporary Git repos and must never depend on a developer's project or model quota.
+Install rustup (see rust-toolchain.toml) and Git 2.39 or newer. Run `cargo test --locked`, `cargo clippy --locked --all-targets -- -D warnings`, and `git diff --check` from this repository. Tests use temporary Git repos and must never depend on a developer's project or model quota.
 
 ## Engineering and documentation
 
@@ -20,4 +20,4 @@ Complete the requested behavior through integration and relevant validation. Fix
 After every completed feature integration, create a local Git commit unless the user explicitly asks to defer it. Review the diff and stage only the intended completed code, tests, and documentation. Preserve unrelated, pre-staged, incomplete, or concurrently edited work. Use the git-commit-complete-changes skill when available.
 Use a relevant imperative subject and a body explaining what changed, why, validation results, and material limitations. Report the commit hash and subject, or the concrete blocker. This rule does not authorize pushing or deployment.
 
-Build the embedded interface with `npm --prefix web ci` and `npm --prefix web run build`, then build the CLI with `go build -o bin/swarm ./cmd/swarm`. Use `python3 tests/e2e.py` and `npm --prefix web test` for service and browser flows. Install the pinned Chromium via `npm --prefix web exec -- playwright install chromium` when needed. Keep native credential checks distinct from fixture tests. See [architecture](docs/architecture.md) for process, Git, and adapter boundaries.
+Build the embedded interface with `npm --prefix web ci` and `npm --prefix web run build`, then build the CLI with `cargo build --locked`. Use `python3 tests/e2e.py` and `npm --prefix web test` for service and browser flows. Install the pinned Chromium via `npm --prefix web exec -- playwright install chromium` when needed. Keep native credential checks distinct from fixture tests. See [architecture](docs/architecture.md) for process, Git, and adapter boundaries.

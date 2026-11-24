@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --outDir ../internal/ui/dist --emptyOutDir && touch ../internal/ui/dist/.keep",
+    "build": "vite build",
     "test": "playwright test"
   },
   "dependencies": {

@@ -34,7 +34,7 @@ test.beforeAll(async () => {
     { model: "Efficient model", agent: "Fixture Agent", effort: "high", class: "terminal", suite: "Fixture Bench", date: now.slice(0, 10), score: 88, cost_per_trial: .1, source: "https://example.invalid/benchmark" },
   ] }));
   openEnv = { ...process.env, SWARM_STATE_DIR: dir, SWARM_TEST_OPENED: opened, SWARM_TEST_SIGNED_IN: join(dir, "signed-in"), SWARM_TEST_LIVE: join(dir, "live.json"), PATH: programs + ":" + process.env.PATH };
-  service = spawn(join(repo, "bin/swarm"), ["open"], { env: openEnv, stdio: "ignore" });
+  service = spawn(process.env.SWARM_BIN || join(repo, "target/debug/swarm"), ["open"], { env: openEnv, stdio: "ignore" });
   await expect.poll(() => {
     try {
       meta = JSON.parse(readFileSync(join(dir, "service.json"), "utf8"));
@@ -46,7 +46,7 @@ test.beforeAll(async () => {
   await expect.poll(() => {
     try { return readFileSync(opened, "utf8").trim(); } catch { return ""; }
   }).toBe(meta.url + "/#" + meta.token);
-  execFileSync(join(repo, "bin/swarm"), ["open"], { env: openEnv, timeout: 5000 });
+  execFileSync(process.env.SWARM_BIN || join(repo, "target/debug/swarm"), ["open"], { env: openEnv, timeout: 5000 });
   expect(readFileSync(opened, "utf8").trim().split("\n")).toEqual(Array(2).fill(meta.url + "/#" + meta.token));
 });
 

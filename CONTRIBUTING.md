@@ -2,11 +2,13 @@
 
 For a bug, open an issue with your OS, agent CLI version and steps to reproduce. Remove tokens, prompts and private repo paths from logs.
 
-Build the workbench and CLI using the README. Then run:
+Build the React assets using the README. From the repository root, run
 
 ```sh
-go test -race ./...
-go vet ./...
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
 python3 tests/e2e.py
 python3 tests/experiments.py
 npm --prefix web exec -- playwright install chromium

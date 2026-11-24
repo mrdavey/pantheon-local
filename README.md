@@ -11,26 +11,26 @@ Pantheon Local coordinates command-line coding agents on a Git project from a br
 
 ## Quick start
 
-1. On an Apple Silicon Mac, extract the archive and open **Open Pantheon Local.command**. Keep Terminal open. For shared planning answers and direct coordinator messages to workers, build this checkout from source. The v0.2.0 archive predates those changes. [macOS download](https://github.com/mrdavey/pantheon-local/releases/latest)
+1. On an Apple Silicon Mac, extract the archive and open **Open Pantheon Local.command**. Keep Terminal open. Build from source below for the Rust version. The published v0.2.0 archive predates the migration. [macOS download](https://github.com/mrdavey/pantheon-local/releases/latest)
 2. Sign in to your agent CLI and choose it in **Agent setup**. One CLI can fill both coordinator and worker roles.
 3. Enter a project folder and goal, then select **Start run**. Approve the checks and review the tested commit before landing it on your local branch. [First run and troubleshooting](docs/getting-started.md)
 
 ### Build from source
 
-On macOS or Linux, use Go 1.26+, Node.js 24 and Git 2.39+. Python 3 runs the example checks and test fixtures. From the repository root, run
+On macOS or Linux, install rustup, Node.js 24 and Git 2.39+. Cargo uses the Rust version pinned in this checkout. Python 3 runs the example checks and test fixtures. From the repository root, run
 
 ```sh
 npm --prefix web ci
 npm --prefix web run build
-go build -o bin/swarm ./cmd/swarm
-./bin/swarm open
+cargo build --locked --release
+./target/release/swarm open
 ```
 
 ## What runs where
 
 Git checkouts, logs and results stay on your computer. Your agents send prompts and project context to their configured providers. No Pantheon account is required. Use projects and scripts you trust.
 
-Codex CLI has completed signed-in runs on macOS. Claude Code and Hermes have simulated adapter tests. Signed-in multi-agent testing for those adapters and native testing for Antigravity are pending. [Architecture and adapter contract](docs/architecture.md)
+The fixture suite exercises the Rust runtime without using model quota. Earlier macOS releases were tested with a signed-in Codex CLI. Live validation of the Rust version with native accounts is pending. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 
