@@ -1,9 +1,6 @@
 .codex/implementation-plans/
-bin/
+/bin/
+/target/
+/web/dist/
 node_modules/
-internal/ui/dist/*
-!internal/ui/dist/.keep
-playwright-report/
 test-results/
-
-__pycache__/

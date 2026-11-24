@@ -1,3 +1,4 @@
+import { runTitle, blockedTasks } from "./run-summary.js";
 import React, { useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
@@ -11,7 +12,14 @@ export function Inbox({ runs, act, open, busy }) {
   const questions = runs.flatMap((run) => (run.inbox || []).map((question) => ({ run, question })));
   return <section className="panel">
     <h1 tabIndex={-1}>Needs you</h1>
-    {!questions.some(({ question }) => question.state === "open") && <p>No open questions.</p>}
+    {runs.flatMap((run) => blockedTasks(run).map((task) =>
+      <article className="row" key={run.id + ":" + task.id}>
+        <button className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</button>
+        <h2>{task.id}</h2><p>Blocked · {task.worker}</p>
+        {task.finding && <p>{task.finding}</p>}
+        <button disabled={busy} onClick={() => act(run, { kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>
+      </article>))}
+    {!runs.some((run) => blockedTasks(run).length) && !questions.some(({ question }) => question.state === "open") && <p>No open questions.</p>}
     {questions.filter(({ question }) => resolved || question.state === "open").map(({ run, question }) =>
       <InboxItem key={question.id} {...{ run, question, act, open, busy }} />)}
     {questions.some(({ question }) => question.state !== "open") &&
@@ -22,7 +30,7 @@ export function Inbox({ runs, act, open, busy }) {
 function InboxItem({ run, question, act, open, busy }) {
   const [answer, setAnswer] = useState("");
   return <article className="row">
-    <button className="text-button" onClick={() => open(run.id)}>{run.input.prompt}</button>
+    <button className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</button>
     <h2>{question.text}</h2>
     {question.state === "open" ? <form onSubmit={(event) => {
       event.preventDefault();
@@ -307,7 +315,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun }) {
     </details>
     <details onToggle={(event) => { if (event.currentTarget.open && !history) loadHistory(); }}><summary>Project run history</summary>
       <ul>{history?.map((entry) => <li key={entry.id}><button disabled={entry.id === run.id}
-        onClick={() => openRun(entry.id)}>{entry.brief} · {entry.state}</button></li>)}</ul>
+        onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <button onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
     </details>
     <form className="form-card" onSubmit={(event) => {

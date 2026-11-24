@@ -3,29 +3,13 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  go:
+  rust:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - run: go test -race ./...
-      - run: go vet ./...
-      - run: go build -o bin/swarm ./cmd/swarm
-      - run: python3 tests/e2e.py
-      - run: python3 tests/experiments.py
-  browser:
-    # Playwright 1.60 supports Ubuntu 24.04.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -33,6 +17,35 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
       - run: npm --prefix web run build
-      - run: go build -o bin/swarm ./cmd/swarm
-      - run: npm --prefix web exec -- playwright install --with-deps chromium
-      - run: npm --prefix web test
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked --examples
+      - run: cargo test --locked
+      - run: cargo build --locked
+      - name: Install matching Chrome and ChromeDriver
+        if: runner.os == 'Linux'
+        env:
+          CHROME_VERSION: '158.0.8127.37'
+        run: |
+          base="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64"
+          for component in chrome chromedriver; do
+            curl --fail --silent --show-error --location --retry 3 "$base/$component-linux64.zip" -o "$RUNNER_TEMP/$component.zip"
+          done
+          unzip -q "$RUNNER_TEMP/chromedriver.zip" -d "$RUNNER_TEMP"
+          sudo install -d /opt/pantheon-browser
+          sudo unzip -q "$RUNNER_TEMP/chrome.zip" -d /opt/pantheon-browser
+          # Ubuntu restricts the user namespaces Chrome uses for its sandbox.
+          # Scope the browser profile to the root-owned, pinned test binary.
+          sudo apparmor_parser -r <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile pantheon-cft /opt/pantheon-browser/chrome-linux64/chrome flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          chrome=/opt/pantheon-browser/chrome-linux64/chrome
+          "$chrome" --headless --disable-dev-shm-usage --dump-dom about:blank
+          echo "CHROME_BIN=$chrome" >> "$GITHUB_ENV"
+          echo "CHROMEDRIVER=$RUNNER_TEMP/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
+      - if: runner.os == 'Linux'
+        run: cargo test --locked --test workbench -- --ignored --test-threads=1

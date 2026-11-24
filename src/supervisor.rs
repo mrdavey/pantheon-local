@@ -1,0 +1,234 @@
+use anyhow::{Context, Result, bail, ensure};
+use nix::{
+    errno::Errno,
+    sys::signal::{Signal, killpg},
+    unistd::{Pid, getpgid},
+};
+use serde_json::{Value, json};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
+    os::unix::{fs::OpenOptionsExt, process::CommandExt},
+    path::Path,
+    process::{Command, Stdio},
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
+
+pub fn log_tail(path: &Path, limit: u64) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let start = file.metadata()?.len().saturating_sub(limit);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.take(limit).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+pub fn write_json(path: &Path, value: &Value) -> Result<()> {
+    let mut f = tempfile::NamedTempFile::new_in(path.parent().context("missing job directory")?)?;
+    serde_json::to_writer(f.as_file_mut(), value)?;
+    f.write_all(b"\n")?;
+    f.as_file().sync_all()?;
+    f.persist(path)?;
+    Ok(())
+}
+fn read_json(path: &Path) -> Result<Value> {
+    Ok(serde_json::from_reader(File::open(path)?)?)
+}
+pub fn spawn(dir: &Path) -> Result<()> {
+    let state = dir.ancestors().nth(4).context("invalid job directory")?;
+    spawn_with_state(dir, state)
+}
+pub fn spawn_with_state(dir: &Path, state: &Path) -> Result<()> {
+    let job = read_json(&dir.join("job.json"))?;
+    // A running daemon must dispatch its own supervisor protocol after an upgrade.
+    #[cfg(target_os = "linux")]
+    let mut cmd = Command::new("/proc/self/exe");
+    #[cfg(not(target_os = "linux"))]
+    let mut cmd = Command::new(std::env::current_exe()?);
+    cmd.arg("_supervise")
+        .arg(dir)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if job["release"].is_null() {
+        crate::run::release::scrub_worker(&mut cmd, state)?;
+    }
+    let mut child = cmd.spawn()?;
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+pub fn supervise(dir: &Path) -> Result<()> {
+    // Keep ownership of the process-group ID until every child has received
+    // the stop signal, even when an adapter ignores graceful cancellation.
+    let own_group = getpgid(None)? == Pid::this();
+    let mut signals = signal_hook::iterator::Signals::new([signal_hook::consts::SIGTERM])?;
+    let signal_handle = signals.handle();
+    let watchdog = thread::spawn(move || {
+        if signals.forever().next().is_some() && own_group {
+            thread::sleep(Duration::from_millis(750));
+            let _ = killpg(Pid::this(), Signal::SIGKILL);
+        }
+    });
+    let mut claim = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dir.join("claim"))?;
+    writeln!(claim, "{}", std::process::id())?;
+    claim.sync_all()?;
+    drop(claim);
+    let result = match execute(dir) {
+        Ok(v) => v,
+        Err(e) => json!({"error":e.to_string()}),
+    };
+    let written = write_json(&dir.join("result.json"), &result);
+    signal_handle.close();
+    // A cancelled job can finish while ignored children remain in its group.
+    if own_group && dir.join("stop").is_file() {
+        let _ = killpg(Pid::this(), Signal::SIGKILL);
+    }
+    let _ = watchdog.join();
+    written
+}
+fn execute(dir: &Path) -> Result<Value> {
+    let spec = read_json(&dir.join("job.json"))?;
+    ensure!(!dir.join("stop").try_exists()?, "stopped");
+    let mut log = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .open(dir.join("events.log"))?;
+    let result = if !spec["release"].is_null() {
+        crate::run::release::supervise(&spec["release"], &mut log)?
+    } else if !spec["recipe"].is_null() {
+        crate::eval::supervise(dir, &spec, &mut log)?;
+        json!({})
+    } else {
+        let logger = Mutex::new((BufWriter::new(&mut log), None::<io::Error>));
+        let result = crate::adapter::run(&spec["request"], None, |event| {
+            if let Ok(mut guard) = logger.lock() {
+                let (writer, error) = &mut *guard;
+                if error.is_none() {
+                    *error = (|| -> io::Result<()> {
+                        serde_json::to_writer(&mut *writer, &event)?;
+                        writer.write_all(b"\n")?;
+                        writer.flush()
+                    })()
+                    .err();
+                }
+            }
+        });
+        let (mut writer, error) = logger
+            .into_inner()
+            .map_err(|_| anyhow::anyhow!("event writer failed"))?;
+        writer.flush()?;
+        if let Some(e) = error {
+            return Err(e.into());
+        }
+        result
+    };
+    log.sync_all()?;
+    Ok(result)
+}
+fn identity(dir: &Path) -> Result<Option<Pid>> {
+    let raw = match fs::read_to_string(dir.join("claim")) {
+        Ok(s) => s,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let raw: i32 = raw.trim().parse().context("invalid process identity")?;
+    ensure!(raw > 1, "invalid process identity");
+    let pid = Pid::from_raw(raw);
+    if getpgid(Some(pid)) != Ok(pid) {
+        return Ok(None);
+    }
+    let output = Command::new("ps")
+        .args(["-ww", "-p", &raw.to_string(), "-o", "command="])
+        .output()?;
+    let suffix = format!(" _supervise {}", dir.display());
+    Ok((output.status.success()
+        && String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .ends_with(&suffix))
+    .then_some(pid))
+}
+pub fn reception(dir: &Path) -> Option<Value> {
+    receive(dir, || identity(dir).ok().flatten().is_some())
+}
+
+fn receive(dir: &Path, running: impl FnOnce() -> bool) -> Option<Value> {
+    if let Ok(v) = read_json(&dir.join("result.json")) {
+        return Some(v);
+    }
+    let Ok(modified) = fs::metadata(dir.join("job.json")).and_then(|s| s.modified()) else {
+        return Some(json!({"error":"dispatch intent missing"}));
+    };
+    if modified.elapsed().unwrap_or_default() < Duration::from_secs(4) || running() {
+        return None;
+    }
+    // The process may have published its receipt and exited during the identity check.
+    if let Ok(result) = read_json(&dir.join("result.json")) {
+        return Some(result);
+    }
+    let msg = if dir.join("stop").exists() {
+        "stopped"
+    } else {
+        "turn outcome uncertain; inspect the checkout and retry explicitly"
+    };
+    Some(json!({"error":msg}))
+}
+pub fn stop_job(dir: &Path) -> Result<()> {
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join("stop"))?;
+    if dir.join("result.json").try_exists()? {
+        return Ok(());
+    }
+    let Some(pid) = identity(dir)? else {
+        return Ok(());
+    };
+    match killpg(pid, Signal::SIGTERM) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(e) => bail!("cannot stop job: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receives_a_result_published_during_the_process_check() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let job = File::create(dir.path().join("job.json"))?;
+        job.set_modified(std::time::SystemTime::now() - Duration::from_secs(10))?;
+        let result = json!({"text":"done"});
+        assert_eq!(
+            receive(dir.path(), || {
+                write_json(&dir.path().join("result.json"), &result).unwrap();
+                false
+            }),
+            Some(result)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reads_requested_log_tail_even_with_partial_utf8() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("events.log");
+        fs::write(&path, "prefix…ok")?;
+        assert_eq!(log_tail(&path, 100)?, "prefix…ok");
+        assert_eq!(log_tail(&path, 3)?, "�ok");
+        assert_eq!(log_tail(&path, 0)?, "");
+        Ok(())
+    }
+}

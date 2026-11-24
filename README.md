@@ -1,61 +1,39 @@
 # Pantheon Local
 
-Run a swarm of coding agents on your computer. Give them a goal, let them work in parallel, and step in when they need a decision. When they try different approaches, use your own checks to decide what ships.
+Pantheon Local coordinates command-line coding agents on a local Git project. In the browser, you give the team a goal, answer the coordinator’s questions, and review a tested commit. For a single patch and a review, a direct CLI handoff is usually simpler.
 
-```text
-                  YOU
-             goal + checks
-                   |
-              coordinator
-             /           \
-        worker A       worker B
-             \           /
-            compare results
-                   |
-             land what passes
-```
+## When to use it
+
+- **Split one change across a team.** A coordinator can assign the API, interface, docs and integration check to four workers in separate checkouts. It clarifies what matters, passes decisions to the workers that need them, and brings unresolved questions to **Needs you**. Independent work continues. [Team coordination](docs/model-routing.md) · [Example briefs](examples/README.md)
+- **Choose between implementations.** Test the starting commit and each alternative against the same checks. For search, that might mean finding more relevant results within a latency limit. Review the diff and measurements, keep the baseline, or combine parts of two candidates and test again. [Experiments and delivery](docs/experiments.md)
 
 [Website and screenshots](https://pantheon.talk/local)
 
 ## Quick start
 
-On Apple Silicon, download the [macOS archive](https://github.com/mrdavey/pantheon-local/releases/latest). Extract it and open **Open Pantheon Local.command**. Keep Terminal open while you work. If your browser doesn’t open, use the link printed in Terminal.
-
-Sign in to an agent CLI you already use. In **Agent setup**, choose an agent. One CLI can coordinate and work in separate sessions. Pick an empty folder or an existing Git repo, describe the work, and select **Start run**. Review the proposed checks before approving them.
-
-[Agent setup and troubleshooting](docs/getting-started.md)
-
 ### Build from source
 
-Requires Go 1.26+, Node.js 24, Git 2.39+, and a supported agent CLI. Python 3 runs the example checks and test fixtures.
+On macOS or Linux, install rustup, Node.js 24, Git 2.39 or newer, and a coding-agent CLI. From the repository root, build the React workbench and launch the Rust executable.
 
 ```sh
-git clone https://github.com/mrdavey/pantheon-local.git
-cd pantheon-local
 npm --prefix web ci
 npm --prefix web run build
-go build -o bin/swarm ./cmd/swarm
-./bin/swarm open
+cargo build --locked --release
+./target/release/swarm open
 ```
 
-## Swarm riding
+If you have a Pantheon Local archive for your platform, extract it and run `./swarm open` from its folder. On macOS you can also double-click **Open Pantheon Local.command**.
 
-The coordinator turns a brief into milestones and starts the work that can run in parallel. Workers commit in separate Git checkouts. Follow them in the browser and answer questions in **Needs you**. Use **Conversation** to ask why a choice was made or add work.
+### Start a run
 
-Say you want better search. Define a few queries that should work and a latency limit. Let workers try different approaches. **Experiment** shows the baseline, the results for each candidate, and what landed. You can keep the baseline or ask the swarm to combine parts of two candidates.
-
-Review before landing is the default. Opt into automatic landing when your checks are ready. Deployment uses an adapter you configure.
-
-- [Experiments and delivery](docs/experiments.md)
-- [Worker routing and coordinator conversation](docs/model-routing.md)
-- [Example briefs and checks](examples/README.md)
+1. Configure your agent in its CLI or Hermes Desktop. In **Agent setup**, select a profile. On the run form, choose a coordinator and workers. One CLI can fill both roles.
+2. Browse to a project folder and enter a goal, then select **Start run**.
+3. Answer any planning questions, approve the checks, and review the passing candidate before landing it on your branch. [First run and troubleshooting](docs/getting-started.md)
 
 ## What runs where
 
-The workbench, Git operations and run history stay on your computer. Your agents use their own accounts and send prompts and project context to their providers as configured. Use projects and scripts you trust.
-
-Codex CLI has passed signed-in runs on macOS. Claude Code and Hermes have fixture coverage, with signed-in multi-agent qualification pending. Antigravity uses the ACP adapter and still needs native qualification. [Architecture and adapter contract](docs/architecture.md)
+The service stores Git checkouts, logs and results on your computer. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 
-[Run the checks or open an issue](CONTRIBUTING.md). Apache-2.0 licensed. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+[Development checks and bug reports](CONTRIBUTING.md) · [Apache-2.0 license](LICENSE) · [Notice](NOTICE)

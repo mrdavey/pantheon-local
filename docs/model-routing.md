@@ -1,36 +1,35 @@
-# Model routing and coordinator conversation
+# Team coordination and worker routing
 
-## Choose how to assign workers
+## Run a team
 
-The coordinator chooses workers by default. Benchmark routing is off until you opt in for a run.
+Choose a coordinator and the workers you want to use. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
 
-1. In **Agent setup**, open **Model and benchmark** for each worker profile you want to compare. Use the model and harness you actually run. For Codex and Claude Code, **Model ID** is passed to the native CLI. For Hermes and Antigravity, choose the runtime model in the native agent.
-2. If the CLI model ID differs from the name in the leaderboard, enter **Model name on the benchmark**. Add an effort label for a profile tied to a particular reasoning effort. Enter the benchmark’s agent name if it uses a different label for your harness.
-3. Start a run with at least two workers. Select a benchmark mode under **Worker routing**. On a milestone, open **Why this model?** to see the decision, score, benchmark cost, and source.
+The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Once you approve the checks, workers can start independent milestones in parallel.
 
-The coordinator creates the milestones and supplies a task category and fallback worker. Pantheon Local compares selected profiles using the latest matching rows available in the run's benchmark snapshot.
-
-| Routing setting | How it chooses |
-| --- | --- |
-| Balance benchmark score and cost | Choose the lowest cost per trial within five percentage points of the best score. |
-| Highest benchmark score | Choose the highest score and use cost to break ties where available. |
-| Favor lower cost | Choose the lowest cost per trial within fifteen percentage points of the best score. |
-| Coordinator chooses (default) | Use the coordinator's assignment with benchmark routing off. |
-
-For implementation, debugging, testing, and automation, the built-in source is the [official Terminal-Bench 4.1 leaderboard](https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard). Pantheon Local can reuse a snapshot for 24 hours and refreshes it when a benchmark-enabled run needs newer data. If the feed is down, a snapshot from the last seven days can be used. The chosen snapshot stays with the run. Published results estimate how a model and harness performed under benchmark conditions. The displayed dollars are the reported mean cost per trial. Your subscription, usage limits, and provider charges are determined by your account.
-
-Profiles need evidence from the same suite and category to be compared. The selected mode also needs usable cost data when it optimizes for cost. With too little evidence, Pantheon Local uses the coordinator's fallback and shows why. A model set to the native CLI default has an unknown identity until you explicitly match it to a benchmark row.
-
-### Use your own eval results
-
-Create `benchmarks.json` in the Pantheon Local state directory. Use `swarm doctor` to find the directory. The file contains a `rows` array, with entries that share a `suite`, `source`, and `class` when you want to compare them. Each entry includes `model`, `agent`, `date` in YYYY-MM-DD format, and `score` on a 0–100 scale. Include `cost_per_trial` in USD for cost-aware ranking and `effort` if relevant. Use an HTTPS link for the source. Pantheon Local prefers evidence specific to the task category when enough profiles match. Each new run filters invalid or expired rows, including cached results. Rows expire after 180 days.
-
-Categories are `implementation`, `debugging`, `testing`, `automation`, `documentation`, and `design`. Use named profiles in `profiles.json` to compare multiple models from the same harness. The optional fields are `benchmark_model`, `benchmark_agent`, and `benchmark_effort`. The CLI supports `swarm start --routing balanced` alongside the usual worker flags.
+A worker can ask the coordinator or send a finding to a peer. If you already chose ISO dates for an export, the coordinator can answer the exporter and tell the verifier which format to check. Each worker receives new guidance on its next turn. Routine completions are grouped for review. A question that still needs your decision appears in **Needs you** while unrelated work continues.
 
 ## Talk to the coordinator
 
-Open a run and choose **Conversation**. Ask why work was split, what a result means, or what the coordinator would add next. The replies use the run's milestone, routing, and candidate state. The conversation remains available when you reopen the run.
+Use **Conversation** to ask about a decision or request more work. While a run is working or ready for review, **Add milestones** accepts a proposal and its extra checks. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. After landing, use **Start another round** in **Experiment**.
 
-If you ask to add work, the coordinator can propose milestones and extra checks. Review the proposal and its commands before choosing **Add milestones**. Added milestones use the existing dependency graph and routing settings. Automatic landing waits while the coordinator answers you and while a proposal awaits your decision. The new candidate must pass the original checks and any approved additions. You can accept changes while a run is working or ready for review. After landing, use **Start another round** or **Improve this version** in the Experiment view.
+From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, then `swarm status <run-id>`. Accept a proposal with `swarm accept-proposal --task <proposal-id> <run-id>`.
 
-From the terminal, use `swarm chat --text 'Why was this worker chosen?' <run-id>`. Use `swarm status <run-id>` to see the reply and proposal ID, then `swarm accept-proposal --task <proposal-id> <run-id>` to accept it.
+## Choose how to assign workers
+
+The coordinator assigns workers by default. For benchmark-based assignments, select a profile in **Agent setup** and open **Model and benchmark** and match each profile to its leaderboard model, agent and effort. **Model ID** sets the Codex or Claude Code runtime model. Choose the Hermes runtime model in its Desktop profile or CLI. Choose the Antigravity model in its CLI.
+
+Select at least two worker profiles, then choose **Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
+
+| Routing setting | Selection |
+| --- | --- |
+| Balance benchmark score and cost | Lowest cost per trial within 5 percentage points of the best score |
+| Highest benchmark score | Highest score, with lower cost breaking a tie when available |
+| Favor lower cost | Lowest cost per trial within 15 percentage points of the best score |
+
+For implementation, debugging, testing and automation, Pantheon Local uses Terminal-Bench. Each run keeps its snapshot. The cache refreshes after 24 hours and can be reused for up to seven days if the feed is unavailable. Costs are benchmark averages per trial. If fewer than two profiles have comparable evidence, the coordinator’s assignment stands. [Terminal-Bench leaderboard](https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard)
+
+### Use your own eval results
+
+Run `swarm doctor` to locate the state directory. Add a `benchmarks.json` file with a `rows` array. Comparable rows share a `suite`, HTTPS `source` and task `class`. Each row needs a `model`, `agent`, `date` (YYYY-MM-DD) and `score` (0–100). Include `cost_per_trial` in USD for cost-aware routing and `effort` when relevant. Rows expire after 180 days.
+
+Supported classes are `implementation`, `debugging`, `testing`, `automation`, `documentation` and `design`. Use named profiles in `profiles.json` for multiple models from the same CLI. Optional matching fields are `benchmark_model`, `benchmark_agent` and `benchmark_effort`. For balanced routing from the CLI, add `--routing balanced` to `swarm start`.
