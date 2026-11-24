@@ -30,6 +30,10 @@ Omit usage when a harness has no reliable receipt. Use the result's `error` fiel
 
 The coordinator assigns each milestone to a worker. When it delegates part of a milestone, the child inherits the parent’s allowed files, prerequisites and experiment variant. Once the children finish, the parent gets their commit refs to review and integrate.
 
+During a run, the coordinator and workers receive saved planning answers, the current round goal and approved checks, scoring rules and review criteria. Workers also see active peer milestone IDs and scopes within their approach. A planning question takes precedence over tasks drafted in the same response.
+
+Routine completions share an observer turn while other workers are busy. An explicit worker question, finding, developer input or full batch makes the observations ready for review. The coordinator can reply, send a note to another active milestone, delegate, or ask the developer. If a worker still has no answer, delegated work or linked inbox item after review, the scheduler creates one scoped question. A worker that receives new guidance during its turn must process it before its commit can be accepted.
+
 Benchmark routing is opt-in. When enabled, the service captures one benchmark snapshot for the run. If two or more selected profiles have comparable results for a milestone’s category, it can use those results to assign the worker. The milestone records the reason and the evidence used. If evidence is missing, the coordinator’s choice stands.
 
 Conversation uses a separate native session under the selected coordinator and shares the run's durable event history and token accounting. Replies can propose additional milestones. A human approval revalidates their IDs, dependencies, and workers against the current graph, adds any approved checks, and invalidates older passing candidates.

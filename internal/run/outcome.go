@@ -28,7 +28,7 @@ func (e *Engine) accept(ctx context.Context, r *Run, turn Turn, result adapter.R
 	if result.Error != "" {
 		if t := taskByID(r, turn.Task); t != nil {
 			t.Session = result.Session
-			if !awaitingChildren(r, t.ID) && t.Delivered == len(t.Notes) {
+			if !awaitingChildren(r, t.ID) && t.Delivered == len(t.Notes) && !r.taskHeld(t.ID) {
 				if sha, err := project.Milestone(ctx, t.Workspace, t.Base); err == nil {
 					return e.saveCommit(ctx, r, t, sha)
 				}
@@ -45,11 +45,12 @@ func (e *Engine) accept(ctx context.Context, r *Run, turn Turn, result adapter.R
 		if err := adapter.DecodeOutcome(result.Text, &plan); err != nil {
 			return err
 		}
+		plan.Question = strings.TrimSpace(plan.Question)
 		if err := validatePlan(plan, r.Input.Workers); err != nil {
 			return err
 		}
 		r.Session = result.Session
-		if plan.Question != "" && len(plan.Tasks) == 0 {
+		if plan.Question != "" {
 			r.State, r.Question = "question", plan.Question
 			r.Inbox = append(r.Inbox, Question{ID: uid(), Text: plan.Question, Source: "plan", State: "open", Revision: 1, Blocking: true})
 			return nil
@@ -106,8 +107,8 @@ func (e *Engine) workerResult(ctx context.Context, r *Run, turn Turn, result ada
 	t.Finding = outcome.Message
 	switch outcome.Status {
 	case "committed":
-		if awaitingChildren(r, t.ID) || t.Delivered < len(t.Notes) {
-			// A handoff or message arrived after this turn started.
+		if awaitingChildren(r, t.ID) || t.Delivered < len(t.Notes) || r.taskHeld(t.ID) {
+			// A handoff, message or blocking decision arrived after this turn started.
 			t.State = "pending"
 			return nil
 		}
@@ -127,7 +128,7 @@ func (e *Engine) workerResult(ctx context.Context, r *Run, turn Turn, result ada
 			t.State, t.Finding = "blocked", "invalid finding recipient"
 			return nil
 		}
-		r.observe("worker-finding", t.ID, outcome.Message)
+		r.observe("worker-finding", t.ID, "For "+recipient.ID+": "+outcome.Message)
 		recipient.Notes = append(recipient.Notes, t.ID+": "+outcome.Message)
 		t.State = "pending"
 	case "blocked":
@@ -568,12 +569,12 @@ func (e *Engine) Command(ctx context.Context, id string, action Command) (Run, e
 				}
 			}
 		} else if t := taskByID(&r, action.Task); t != nil && t.State == "question" {
-			t.State, t.Question, t.Reply = "pending", "", action.Text
 			for i := range r.Inbox {
 				if r.Inbox[i].State == "open" && slices.Contains(r.Inbox[i].Tasks, t.ID) {
-					r.Inbox[i].State, r.Inbox[i].Answer = "answered", action.Text
+					r.recordInboxAnswer(&r.Inbox[i], action.Text)
 				}
 			}
+			t.State, t.Question, t.Reply = "pending", "", action.Text
 		} else {
 			return r, errors.New("question is no longer open")
 		}

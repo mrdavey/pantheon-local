@@ -44,7 +44,7 @@ class Service:
         state.mkdir()
         profile = {"kind": "custom", "executable": str(REPO / "tests" / "fixture-agent.py")}
         (state / "profiles.json").write_text(json.dumps({
-            "profiles": {key: profile for key in ("first", "second", "writer", "writer-two")},
+            "profiles": {key: profile for key in ("first", "second", "writer", "writer-two", "verifier")},
         }))
         self.start()
 
@@ -82,11 +82,48 @@ class Service:
             raise AssertionError(self.api("/runs/" + run["id"])) from err
 
 
+def exercise_team(svc, project):
+    run = svc.api("/runs", {"path": str(project), "prompt": "Build the team export", "coordinator": "first",
+                            "workers": ["writer", "writer-two", "second", "verifier"]})
+    url = "/runs/" + run["id"]
+    first = svc.wait_state(run, "question")
+    assert first["question"] == "Which date format?" and not first["tasks"]
+    svc.api(url, {"kind": "answer", "text": "ISO dates"})
+    second = svc.wait_state(run, "question")
+    assert second["question"] == "What should the export optimize?"
+    svc.stop()
+    svc.start()
+    svc.api(url, {"kind": "answer-inbox", "task": second["inbox"][-1]["id"], "text": "readability"})
+    plan = svc.wait_state(run, "checks")
+    assert not any(turn["role"] == "worker" for turn in plan["turns"])
+    assert len({t["worker"] for t in plan["tasks"]}) == 4
+    svc.api(url, {"kind": "approve"})
+
+    def remaining_question():
+        state = svc.api(url)
+        assert not state.get("observer_error"), state
+        waiting = [q for q in state["inbox"] if q["state"] == "open"]
+        if all(t["state"] == "committed" for t in state["tasks"] if t["id"] != "team-view") and waiting:
+            assert len(waiting) == 1 and waiting[0]["tasks"] == ["team-view"], state
+            return waiting[0]
+
+    question = until(remaining_question)
+    svc.stop()
+    svc.start()
+    assert [q for q in svc.api(url)["inbox"] if q["state"] == "open"] == [question]
+    svc.api(url, {"kind": "answer-inbox", "task": question["id"], "text": "No quotes"})
+    ready = svc.wait_state(run, "review")
+    passed = next(c for c in ready["candidates"] if c["state"] == "passed")
+    svc.api(url, {"kind": "land", "candidate": passed["id"]})
+    assert git(project, "rev-parse", "HEAD") == passed["commit"]
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="local-swarm-e2e-") as directory:
         root = Path(directory)
         svc = Service(root / "state")
         try:
+            exercise_team(svc, repo(root / "team"))
             app = repo(root / "new")
             run = svc.api("/runs", {"path": str(app), "prompt": "Build the fixture", "coordinator": "first", "workers": ["writer", "writer-two"]})
             svc.wait_state(run, "checks")
@@ -176,7 +213,7 @@ def main():
             assert (comparison / "result.txt").read_text() == "correct"
         finally:
             svc.stop()
-    print("Daemon end-to-end checks passed for bootstrap, recovery, repair, dirty repository, stale landing, and competing candidates.")
+    print("Daemon checks passed for team coordination, bootstrap, recovery, repair, dirty repositories, stale landing and competing candidates.")
 
 
 if __name__ == "__main__":

@@ -6,9 +6,9 @@ If Codex writes a patch and Claude reviews the diff, a direct CLI handoff is usu
 
 ## When to use it
 
-- **Build one change in parallel.** For a quote tracker, one worker can build the API while another builds the interface against the same data format. Test them together by adding two quotes, accepting one and checking the outstanding balance after a restart. [Example briefs and checks](examples/README.md)
+- **Coordinate a team on one change.** For a quote tracker, a coordinator and four workers can split the API, interface, docs and integration check. Agree on the data format first. The API and interface can then proceed in parallel, and the integration check can verify that accepting a quote updates the balance after a restart. [Example briefs and checks](examples/README.md)
 - **Choose between implementations.** To improve search, run the same queries against the current version and each alternative. Compare relevant hits and response time in **Experiment**. Keep the baseline, select a candidate or ask a worker to combine the best parts and test again. [Experiments and delivery](docs/experiments.md)
-- **Steer work in progress.** Answer questions across runs in **Needs you**. Use **Conversation** to ask about a decision or approve extra milestones. With multiple worker profiles, you can let benchmark scores and reported costs guide assignments. [Worker routing and conversation](docs/model-routing.md)
+- **Steer work in progress.** The coordinator can answer worker questions from your brief, earlier answers and approved checks. Product decisions reach **Needs you** while unrelated milestones continue. Use **Conversation** to ask about a decision or add work. [Team coordination and worker routing](docs/model-routing.md)
 
 [Website and screenshots](https://pantheon.talk/local)
 

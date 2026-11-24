@@ -1,5 +1,13 @@
 # Model routing and coordinator conversation
 
+## Run a team
+
+Select one coordinator and the worker profiles you want to use. Give the coordinator an outcome people can observe. For example, “Make quote search faster. Keep exact title matches first and tell me how latency changes on our existing queries.”
+
+The coordinator looks for gaps that would change the work or its tests. If a choice matters, it asks before assigning milestones. Your planning answers travel with the run, including after a restart or coordinator change. Review the proposed checks before workers start.
+
+During the run, a worker can ask the coordinator or send a finding to a peer milestone. The coordinator can answer from agreed decisions and pass an interface change to the workers that need it. Guidance reaches a worker on its next turn. If a question still needs you, answer it in **Needs you**. Only the affected work waits.
+
 ## Choose how to assign workers
 
 The coordinator chooses workers by default. Benchmark routing is off until you opt in for a run.

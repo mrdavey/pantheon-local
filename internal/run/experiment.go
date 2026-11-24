@@ -109,6 +109,20 @@ func (r *Run) observe(kind, ref, message string) {
 	}
 }
 
+const observationBatchSize = 30
+
+func (r *Run) observationsReady(workersBusy bool) bool {
+	if len(r.Observations) == 0 {
+		return false
+	}
+	if !workersBusy || r.State != "working" || len(r.Observations) >= observationBatchSize {
+		return true
+	}
+	// Let routine completions share a coordinator turn. Questions, findings
+	// and human input still get the next available turn.
+	return slices.ContainsFunc(r.Observations, func(o Observation) bool { return o.Kind != "worker-completed" })
+}
+
 func (r *Run) waitingForSelection() bool {
 	return slices.ContainsFunc(r.Inbox, func(q Question) bool {
 		return q.State == "open" && q.Blocking && len(q.Tasks) == 0
@@ -127,14 +141,14 @@ func (e *Engine) observeTurn(r *Run) error {
 		return err
 	}
 	type taskSummary struct {
-		ID, Goal, State, Worker, Question, Commit, Variant string
-		Paths, Depends                                     []string
+		ID, Goal, State, Worker, Question, Commit, Variant, Finding string
+		Paths, Depends                                              []string
 	}
 	var tasks []taskSummary
 	for _, t := range r.Tasks {
-		tasks = append(tasks, taskSummary{t.ID, t.Goal, t.State, t.Worker, t.Question, t.Commit, t.Variant, t.Paths, t.Depends})
+		tasks = append(tasks, taskSummary{t.ID, t.Goal, t.State, t.Worker, t.Question, t.Commit, t.Variant, t.Finding, t.Paths, t.Depends})
 	}
-	batch := r.Observations[:min(len(r.Observations), 30)]
+	batch := r.Observations[:min(len(r.Observations), observationBatchSize)]
 	type candidateSummary struct {
 		ID, Name, State, Detail string
 		Score                   map[string]eval.Summary
@@ -186,10 +200,11 @@ func (e *Engine) observeTurn(r *Run) error {
 - {"kind":"ask","ref":"observation ID","question":{"text":"your focused question","choices":[],"tasks":[],"blocking":true}}. Include affected task IDs when applicable. An empty task list blocks selection when blocking is true.
 - {"kind":"update_question","ref":"question ID","question":{"text":"updated focused question","choices":[],"tasks":[],"blocking":true}} or {"kind":"close_question","ref":"question ID"}.
 - {"kind":"reply_to_worker","ref":"task ID","text":"answer from the known decisions"}.
+- {"kind":"message_worker","ref":"task ID","text":"specific handoff for this worker's next turn"}. Use this to pass an interface decision or dependency finding to another active milestone. It does not resolve a question.
 - {"kind":"propose_suite","recipe":{"checks":[["command"]],"cases":[],"rule":{}}} for developer review. A case can use a known absolute driver or a self-contained interpreted program. Give its observable expectation and why it matters. Do not propose an empty policy.
 - {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Omit ref for independent work. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.\n- For a requested combination, {"kind":"combine","ref":"combination ID","text":"scoped implementation instructions","tasks":[{"id":"new-slug","worker":"profile","goal":"specific change","paths":[]}]}.
-Preserve developer decisions. Save drafts based on real evidence. Escalate product questions selectively. Available profiles: %q.
+Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval or relax an approved check. Routine progress needs no action. Available profiles: %q.
 Brief: %s
 State: %s`, r.Input.Workers, r.Input.Prompt, state)
 	return e.dispatch(r, "observe", batch[len(batch)-1].ID, job{Request: adapter.Request{Profile: r.Profiles[r.Input.Coordinator], Role: "observer", Dir: filepath.Join(e.root(*r), "coordinator"), Prompt: prompt, Session: r.ObserverSession}})
@@ -270,7 +285,12 @@ func (e *Engine) finishObservation(r *Run, turn Turn, result adapter.Result) err
 				if source < 0 {
 					return fail(errors.New("question needs a current observation"))
 				}
-				if slices.ContainsFunc(next.Inbox, func(other Question) bool { return other.State == "open" && other.Text == q.Text }) {
+				if ob := observations[source]; ob.Kind == "worker-question" && !slices.Contains(q.Tasks, ob.Ref) {
+					q.Tasks = append(q.Tasks, ob.Ref)
+				}
+				if slices.ContainsFunc(next.Inbox, func(other Question) bool {
+					return other.State == "open" && other.Text == q.Text && slices.Equal(other.Tasks, q.Tasks) && other.Blocking == q.Blocking
+				}) {
 					continue
 				}
 				q.ID, q.State, q.Answer, q.Source, q.Revision = uid(), "open", "", action.Ref, 1
@@ -281,6 +301,9 @@ func (e *Engine) finishObservation(r *Run, turn Turn, result adapter.Result) err
 					return fail(errors.New("question already resolved"))
 				}
 				old.State = "superseded"
+				if q.Tasks == nil {
+					q.Tasks = slices.Clone(old.Tasks)
+				}
 				q.ID, q.State, q.Answer, q.Source, q.Revision = uid(), "open", "", old.Source, old.Revision+1
 				next.Inbox = append(next.Inbox, *q)
 			}
@@ -296,6 +319,20 @@ func (e *Engine) finishObservation(r *Run, turn Turn, result adapter.Result) err
 				return fail(errors.New("worker question already resolved"))
 			}
 			t.State, t.Question, t.Reply = "pending", "", action.Text
+		case "message_worker":
+			t := taskByID(&next, action.Ref)
+			note := strings.TrimSpace(action.Text)
+			if t == nil || note == "" || len(note) > 6000 {
+				return fail(errors.New("worker message needs a known milestone and 1 to 6,000 bytes of text"))
+			}
+			// A recipient may finish while the coordinator is composing its response.
+			if next.State == "working" && slices.ContainsFunc(next.activeTasks(), func(active Task) bool { return active.ID == t.ID }) &&
+				slices.Contains([]string{"pending", "running", "question"}, t.State) {
+				note = "Coordinator: " + note
+				if !slices.Contains(t.Notes, note) {
+					t.Notes = append(t.Notes, note)
+				}
+			}
 		case "propose_suite":
 			if action.Recipe == nil {
 				return fail(errors.New("missing suite proposal"))
@@ -580,18 +617,13 @@ func (e *Engine) experimentCommand(ctx context.Context, r *Run, action Command) 
 		if q == nil || q.State != "open" || strings.TrimSpace(action.Text) == "" {
 			return true, errors.New("question is no longer open or answer is empty")
 		}
-		q.State, q.Answer = "answered", action.Text
+		r.recordInboxAnswer(q, action.Text)
 		if q.Source == "plan" && (r.State == "question" || r.State == "stopped" && resumePhase(r) == "question") {
 			r.Question, r.Answer = "", action.Text
 			if r.State == "stopped" {
 				r.StoppedFrom = "planning"
 			} else {
 				r.State = "planning"
-			}
-		}
-		for _, id := range q.Tasks {
-			if t := taskByID(r, id); t != nil && t.State == "question" {
-				t.State, t.Question, t.Reply = "pending", "", action.Text
 			}
 		}
 		r.observe("developer-answer", q.ID, action.Text)

@@ -12,6 +12,7 @@ if sys.argv[1] == "--version":
     raise SystemExit
 request = json.load(sys.stdin)
 prompt = request["prompt"]
+context = json.loads(prompt.split("\n", 1)[0].removeprefix("Run context: ")) if prompt.startswith("Run context: ") else {}
 session = request.get("session") or "fixture-" + request["role"]
 
 
@@ -30,6 +31,12 @@ elif request["role"] == "observer":
     state = json.loads(prompt.split("\nState: ", 1)[1])
     actions = []
     for event in state["Observations"]:
+        if event["kind"] == "worker-question" and event["ref"] == "team-format":
+            answer = next(d["answer"] for d in context["planning_decisions"] if d["question"] == "Which date format?")
+            actions.extend([
+                {"id": "answer-format", "kind": "reply_to_worker", "ref": "team-format", "text": answer},
+                {"id": "tell-verifier", "kind": "message_worker", "ref": "team-check", "text": "Verify the " + answer + " field."},
+            ])
         if event["kind"] == "developer-feedback":
             revisions = [case["revision"] for case in state["Cases"] if case["id"] == "saved-case"]
             actions.extend([
@@ -61,6 +68,21 @@ elif request["role"] == "chat":
 elif request["role"] == "coordinator":
     if "integrated candidate" in prompt:
         end({"task": "api", "instruction": "Repair the invalid api.txt result using the eval evidence."})
+    elif "Build the team export" in prompt:
+        decisions = {item["question"]: item["answer"] for item in context.get("planning_decisions", [])}
+        if "Which date format?" not in decisions:
+            end({"question": "Which date format?", "tasks": [task("draft", "Draft the export.")]})
+        elif "What should the export optimize?" not in decisions:
+            end({"question": "What should the export optimize?"})
+        else:
+            assert decisions == {"Which date format?": "ISO dates", "What should the export optimize?": "readability"}
+            tasks = [task("team-format", "Write the date format.", paths=["format.txt"]),
+                     task("team-view", "Write the empty-state label.", "writer-two", paths=["view.txt"]),
+                     task("team-guide", "Document the optimization goal.", "second", paths=["guide.txt"]),
+                     task("team-check", "Verify the format contract.", "verifier", depends=["team-format"], paths=["verified.txt"])]
+            check = ["python3", "-c", "from pathlib import Path; assert [Path(f).read_text() for f in "
+                     "('format.txt','view.txt','guide.txt','verified.txt')] == ['ISO dates','No quotes','readability','ISO dates']"]
+            end({"tasks": tasks, "recipe": {"checks": [check]}})
     elif "Delegate the report" in prompt:
         end({"tasks": [task("report", "Assemble the final report.", paths=["docs"])],
              "recipe": {"checks": [["true"]]}})
@@ -84,7 +106,7 @@ elif request["role"] == "coordinator":
             task("ui", "Implement the interface.", "writer-two", depends=["foundation"]),
         ], "recipe": {"checks": [["python3", "-c",
             "from pathlib import Path; assert Path('api.txt').read_text() == 'correct'; assert Path('ui.txt').read_text() == 'usable'"]]}})
-    elif "Human clarification: private" in prompt:
+    elif any(item["answer"] == "private" for item in context.get("planning_decisions", [])):
         end({"tasks": [task("export", "Add export.py to print open quotes only.", **{"class": "implementation"})],
              "recipe": {"checks": [["python3", "export.py"]]}})
     else:
@@ -103,6 +125,26 @@ else:
         "right": ("overlap.txt", "right"),
         "timing": ("timing.txt", "measured"),
     }
+    if milestone.startswith("team-"):
+        assert context["checks_approved"] and context["checks"]
+        decisions = {item["question"]: item["answer"] for item in context["planning_decisions"]}
+        reply = re.search(r"^Answer to your question: (.*)$", prompt, re.M)[1]
+        if milestone == "team-format":
+            if not reply:
+                assert any(peer["id"] == "team-check" for peer in context["peer_milestones"])
+                end({"status": "question", "message": "Which date contract should the exporter use?"})
+                raise SystemExit
+            files[milestone] = ("format.txt", reply)
+        if milestone == "team-guide":
+            files[milestone] = ("guide.txt", decisions["What should the export optimize?"])
+        if milestone == "team-view":
+            if not reply:
+                end({"status": "question", "message": "Which empty-state label should customers see?"})
+                raise SystemExit
+            files[milestone] = ("view.txt", reply)
+        if milestone == "team-check":
+            assert "Coordinator: Verify the ISO dates field." in prompt
+            files[milestone] = ("verified.txt", Path("format.txt").read_text())
     if milestone == "report":
         children = re.findall(r"refs/swarm/delegated/[a-z0-9-]+", prompt)
         if not children:

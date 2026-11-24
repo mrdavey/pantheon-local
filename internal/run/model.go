@@ -151,7 +151,7 @@ type Repair struct {
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 
 func validatePlan(plan Plan, workers []string) error {
-	if plan.Question != "" && len(plan.Tasks) == 0 {
+	if plan.Question != "" {
 		return nil
 	}
 	return validateTasks(plan.Tasks, nil, workers)
