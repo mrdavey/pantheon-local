@@ -137,7 +137,8 @@ impl Engine {
             }
             t["base"] = json!(project::head(&dir)?);
             t["workspace"] = json!(dir);
-        } else if let Ok(sha) = project::milestone(&dir, s(&t, "base"))
+        } else if num(&t["handoff_retries"]) == 0
+            && let Ok(sha) = project::milestone(&dir, s(&t, "base"))
             && s(&t, "reply").is_empty()
             && a(&t["notes"]).len() == num(&t["delivered"]) as usize
         {
@@ -188,6 +189,9 @@ impl Engine {
         if !s(&t, "conflict").is_empty() {
             prompt +=
                 "\nResolve the merge in progress. Preserve both requirements and commit the merge.";
+        }
+        if num(&t["handoff_retries"]) > 0 {
+            prompt += "\nContinue from your current checkout and session. Your last turn ended without a readable milestone receipt. Collect any pending review, check the existing changes, and return the worker JSON above. If finished, report the existing commit or the reviewed files. If you need help, use question or blocked.";
         }
         let req = json!({"role":"worker","profile":r["profiles"][s(&t,"worker")],"dir":cwd,"prompt":prompt,"session":s(&t,"session")});
         t["state"] = json!("running");
@@ -295,7 +299,25 @@ impl Engine {
                 }
                 bail!("{}", s(res, "error"));
             }
-            let outcome = adapter::decode_typed_outcome("worker", s(res, "text"))?;
+            let outcome = match adapter::decode_typed_outcome("worker", s(res, "text")) {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    let task = &mut r["tasks"][i];
+                    let retries = num(&task["handoff_retries"]);
+                    if retries >= 2 || s(task, "session").is_empty() {
+                        return Err(
+                            err.context("worker did not return a readable milestone receipt")
+                        );
+                    }
+                    task["handoff_retries"] = json!(retries + 1);
+                    task["state"] = json!("pending");
+                    task["finding"] = json!("Waiting for the worker to finish its handoff.");
+                    return Ok(());
+                }
+            };
+            if let Some(fields) = r["tasks"][i].as_object_mut() {
+                fields.remove("handoff_retries");
+            }
             let message = s(&outcome, "message");
             r["tasks"][i]["finding"] = json!(message);
             match s(&outcome, "status") {

@@ -278,3 +278,30 @@ fn suite_revision_approved_while_paused_is_evaluated_after_resume() -> Result<()
     assert_eq!(resumed["candidates"][1]["state"], "queued");
     Ok(())
 }
+
+#[test]
+fn incomplete_handoffs_resume_the_session_and_stop_after_two_retries() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut run = json!({"tasks":[{"id":"store","state":"running"}]});
+    let turn = json!({"task":"store"});
+    let progress = json!({"session":"storage-session","text":"Waiting for a review."});
+    for expected in 1..=2 {
+        engine.accept_worker(&mut run, &turn, &progress)?;
+        let task = &run["tasks"][0];
+        assert_eq!(task["session"], "storage-session");
+        assert_eq!(task["state"], "pending");
+        assert_eq!(task["handoff_retries"], expected);
+    }
+    let mut completed = run.clone();
+    engine.accept_worker(&mut completed, &turn, &json!({
+        "session":"storage-session","text":r#"{"status":"blocked","message":"Read-only filesystem"}"#
+    }))?;
+    assert_eq!(completed["tasks"][0]["state"], "blocked");
+    assert_eq!(completed["tasks"][0]["finding"], "Read-only filesystem");
+    assert!(completed["tasks"][0].get("handoff_retries").is_none());
+
+    engine.accept_worker(&mut run, &turn, &progress)?;
+    assert_eq!(run["tasks"][0]["state"], "blocked");
+    assert!(s(&run["tasks"][0], "finding").contains("readable milestone receipt"));
+    Ok(())
+}
