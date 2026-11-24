@@ -695,7 +695,7 @@ mod tests {
             serde_json::json!([".gitignore", "nested/two words"])
         );
         assert!(!dir.path().join(".git").exists());
-        git(root, &["init", "--quiet"])?;
+        init(dir.path())?;
         let choices = initial_choices(path_text(&dir.path().join("nested"))?)?;
         assert_eq!(choices["root"], path_text(&fs::canonicalize(root)?)?);
         assert_eq!(choices["files"][1], "nested/two words");
