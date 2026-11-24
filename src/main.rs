@@ -9,6 +9,9 @@ mod run;
 mod service;
 mod store;
 mod supervisor;
+#[cfg(test)]
+#[path = "../tests/common/example.rs"]
+mod test_examples;
 mod wire;
 mod assets {
     include!(concat!(env!("OUT_DIR"), "/assets.rs"));

@@ -351,12 +351,59 @@ fn scoped_command(
             cmd.env(k, v);
         }
     }
+    // Describe the already-applied OS profile to checks that start sandboxed subprocesses.
+    if cfg!(target_os = "macos") {
+        cmd.env("SWARM_EVAL_SANDBOX", "macos-seatbelt");
+    }
     for k in ["HOME", "TMPDIR", "SWARM_DATA_DIR"] {
         cmd.env(k, data);
     }
     Ok(cmd)
 }
 // Each receipt is read while the program is running. Limit the output retained in memory.
+// poll works even when a fast helper has already written its receipt and exited.
+// On macOS, setting a socket timeout after the peer closes fails with EINVAL.
+fn read_receipt(mut stream: std::os::unix::net::UnixStream, deadline: Instant) -> Result<Vec<u8>> {
+    use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+    use std::os::fd::AsFd;
+    let mut bytes = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("receipt timed out")?;
+        let mut fds = [PollFd::new(stream.as_fd(), PollFlags::POLLIN)];
+        match poll(
+            &mut fds,
+            PollTimeout::try_from(remaining).unwrap_or(PollTimeout::MAX),
+        ) {
+            Err(nix::errno::Errno::EINTR) | Ok(0) => continue,
+            ready => {
+                ready.context("poll receipt socket")?;
+            }
+        }
+        let n = match stream.read(&mut buf) {
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue;
+            }
+            result => result.context("read receipt socket")?,
+        };
+        if n == 0 {
+            return Ok(bytes);
+        }
+        ensure!(
+            (bytes.len() + n) as u64 <= MAX_RECEIPT,
+            "receipt exceeds 256 KiB"
+        );
+        bytes.extend_from_slice(&buf[..n]);
+    }
+}
+
 pub(crate) fn execute(
     cmd: &mut Command,
     input: Option<&[u8]>,
@@ -364,15 +411,19 @@ pub(crate) fn execute(
     deadline: Instant,
 ) -> Result<Vec<u8>> {
     if let Some(input) = input {
-        let mut f = tempfile::tempfile()?;
-        f.write_all(input)?;
-        f.rewind()?;
+        let mut f = tempfile::tempfile().context("create input file")?;
+        f.write_all(input).context("write program input")?;
+        f.rewind().context("rewind program input")?;
         cmd.stdin(f);
     }
     // A grandchild may inherit stdout after its parent exits. Keep the read
     // deadline effective even then, and never accumulate unbounded output.
     let socket = if capture {
-        let (reader, writer) = std::os::unix::net::UnixStream::pair()?;
+        let (reader, writer) =
+            std::os::unix::net::UnixStream::pair().context("open receipt socket")?;
+        reader
+            .set_nonblocking(true)
+            .context("configure receipt reader")?;
         cmd.stdout(std::os::fd::OwnedFd::from(writer));
         Some(reader)
     } else {
@@ -381,28 +432,10 @@ pub(crate) fn execute(
     let mut child = cmd.spawn().context("launch approved program")?;
     // Command retains its configured descriptors for subsequent spawn calls.
     cmd.stdout(Stdio::null());
-    let reader = socket.map(|mut stream| {
-        std::thread::spawn(move || -> Result<Vec<u8>> {
-            let mut bytes = Vec::new();
-            let mut buf = [0u8; 8192];
-            loop {
-                let timeout = deadline.saturating_duration_since(Instant::now());
-                ensure!(!timeout.is_zero(), "receipt timed out");
-                stream.set_read_timeout(Some(timeout))?;
-                let n = stream.read(&mut buf)?;
-                if n == 0 {
-                    break;
-                }
-                ensure!(
-                    (bytes.len() + n) as u64 <= MAX_RECEIPT,
-                    "receipt exceeds 256 KiB"
-                );
-                bytes.extend_from_slice(&buf[..n]);
-            }
-            Ok(bytes)
-        })
-    });
-    let Some(status) = child.wait_timeout(deadline.saturating_duration_since(Instant::now()))?
+    let reader = socket.map(|stream| std::thread::spawn(move || read_receipt(stream, deadline)));
+    let Some(status) = child
+        .wait_timeout(deadline.saturating_duration_since(Instant::now()))
+        .context("wait for approved program")?
     else {
         let _ = child.kill();
         let _ = child.wait();
@@ -461,7 +494,7 @@ fn measure(
             sample.observed = result.observed;
             sample.values = result.metrics;
         }
-        Err(e) => sample.error = e.to_string(),
+        Err(e) => sample.error = format!("{e:#}"),
     }
     sample
 }
@@ -612,6 +645,21 @@ pub(crate) fn summarize(value: &Value, report: &Value) -> Result<(String, String
 mod tests {
     use super::*;
     #[test]
+    fn receipt_handles_closed_writer_and_enforces_one_deadline() -> Result<()> {
+        let (stream, mut writer) = std::os::unix::net::UnixStream::pair()?;
+        writer.write_all(b"final receipt")?;
+        drop(writer);
+        assert_eq!(
+            read_receipt(stream, Instant::now() + Duration::from_secs(1))?,
+            b"final receipt"
+        );
+        let (stream, mut held_writer) = std::os::unix::net::UnixStream::pair()?;
+        held_writer.write_all(b"partial")?;
+        let error = read_receipt(stream, Instant::now() + Duration::from_millis(30)).unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        Ok(())
+    }
+    #[test]
     fn requires_every_approved_sample() {
         let recipe =
             json!({"cases":[{"id":"rank","revision":2,"samples":2,"seed":10,"required":true}]});
@@ -666,7 +714,8 @@ mod tests {
         fs::create_dir(&source).unwrap();
         fs::create_dir(&data).unwrap();
         fs::write(r.path().join("token.json"), "private").unwrap();
-        let args=["/bin/sh","-c",r#"echo ok > inside && echo ok > "$SWARM_DATA_DIR/inside" && ! /bin/cat ../token.json && ! /usr/bin/touch ../outside"#].map(str::to_owned);
+        let helper = crate::test_examples::native_fixture(&source, "mock-sandbox").unwrap();
+        let args = [helper.to_str().unwrap().to_owned()];
         let output = command(&source, &data, &args, &json!({"state":r.path()}))
             .unwrap()
             .output()

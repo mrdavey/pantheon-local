@@ -2,11 +2,11 @@
 
 Use a comparison when you can describe what would make one implementation better. In **Run options**, select **Compare approaches against a baseline**. The starting Git revision is the baseline. Pantheon Local runs the approved checks against it and the alternatives.
 
-For example, the search fixture rewards relevant hits and sets a 5 ms latency limit. One implementation finds 10 hits but exceeds the limit. Another finds 7, stays within the limit and improves on the baseline’s 3. The second qualifies under that rule. [Comparison fixture](../tests/experiments.py)
+For example, the search fixture rewards relevant hits and sets a 5 ms latency limit. One implementation finds 10 hits but exceeds the limit. Another finds 7, stays within the limit and improves on the baseline’s 3. The second qualifies under that rule. [Comparison fixture](../tests/experiments.rs)
 
 ## Decide what qualifies
 
-An acceptance recipe can still contain just `checks`, a list of executable argument arrays. Add optional named `cases` and a `rule` to measure an improvement. Each case uses a trusted standalone driver. Supply its absolute path in `driver`, or put the source in `program` and select an `interpreter` such as `python3`. The coordinator can propose an evaluator this way. Review its source and criteria before approval. Pantheon Local saves a fixed copy. The driver starts in the candidate checkout and reads a JSON object with `input`, `expected`, `sample`, and `seed` on stdin. Write one JSON result to stdout. Here is a sample.
+An acceptance recipe can still contain just `checks`, a list of executable argument arrays. Add optional named `cases` and a `rule` to measure an improvement. Each case uses a trusted standalone driver. Supply its absolute path in `driver`, or put the source in `program` and select its `interpreter`. The coordinator can propose an evaluator this way. Review its source and criteria before approval. Pantheon Local saves a fixed copy. The driver starts in the candidate checkout and reads a JSON object with `input`, `expected`, `sample`, and `seed` on stdin. Write one JSON result to stdout. Here is a sample.
 
 ```json
 {"pass":true,"observed":"Expected note ranked first","metrics":{"relevance":1,"latency":23.4}}
@@ -52,7 +52,7 @@ The executable takes one argument and reads a JSON request with `operation`, `de
 | `deploy` | Promote the supplied artifact and digest. Use the operation ID for idempotency. Check the expected previous digest when the provider supports conditional updates. |
 | `rollback` | Restore the previous known digest when supported. Use the operation ID and verify the expected current digest. |
 
-Only the status, deploy and rollback phases receive the configured environment variables. Keep the adapter outside the worker checkout and make its behavior independent of mutable candidate scripts during credentialed phases. Test the adapter with a disposable destination. The [filesystem fixture](../tests/fixture-release.py) shows the protocol.
+Only the status, deploy and rollback phases receive the configured environment variables. Keep the adapter outside the worker checkout and make its behavior independent of mutable candidate scripts during credentialed phases. Test the adapter with a disposable destination. The [filesystem fixture](../examples/fixture-release.rs) shows the protocol.
 
 Choose **Auto-land and deploy** and the destination when starting a run. Use **Hold release** before promotion. Status must return both fields. Use an empty digest for a destination with no current release. If the verified artifact is already live and healthy, Pantheon Local records the match and skips promotion. After a promotion it reads the live digest and health again. A failed health check can restore the previous digest when the adapter supports it. If status is unavailable, **Check live state** reconciles the recorded attempt without starting another deployment.
 

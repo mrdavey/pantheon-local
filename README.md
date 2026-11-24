@@ -17,7 +17,7 @@ Pantheon Local coordinates command-line coding agents on a Git project from a br
 
 ### Build from source
 
-On macOS or Linux, install rustup, Node.js 24 and Git 2.39+. Cargo uses the Rust version pinned in this checkout. Python 3 runs the example checks and test fixtures. From the repository root, run
+On macOS or Linux, install rustup, Node.js 24 and Git 2.39+. Cargo uses the Rust version pinned in this checkout. Tests and example checkers use Rust. Node.js builds the React workbench. From the repository root, run
 
 ```sh
 npm --prefix web ci

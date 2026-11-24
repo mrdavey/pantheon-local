@@ -28,6 +28,13 @@ fn assets(root: &Path, dir: &Path, code: &mut String) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    // Keep compiled example evaluators within the 4 MiB driver limit in debug builds.
+    if matches!(
+        env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("linux" | "macos")
+    ) {
+        println!("cargo::rustc-link-arg-examples=-Wl,-S");
+    }
     let root = Path::new("web/dist");
     println!("cargo:rerun-if-changed=web/dist");
     let mut code = String::from(

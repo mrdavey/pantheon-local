@@ -19,11 +19,20 @@ jobs:
       - run: npm --prefix web run build
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked --examples
       - run: cargo test --locked
       - run: cargo build --locked
-      - run: python3 tests/e2e.py
-      - run: python3 tests/experiments.py
+      - name: Install matching Chrome and ChromeDriver
+        if: runner.os == 'Linux'
+        env:
+          CHROME_VERSION: '158.0.8127.37'
+        run: |
+          base="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64"
+          for component in chrome chromedriver; do
+            curl --fail --silent --show-error --location --retry 3 "$base/$component-linux64.zip" -o "$RUNNER_TEMP/$component.zip"
+            unzip -q "$RUNNER_TEMP/$component.zip" -d "$RUNNER_TEMP"
+          done
+          echo "CHROME_BIN=$RUNNER_TEMP/chrome-linux64/chrome" >> "$GITHUB_ENV"
+          echo "CHROMEDRIVER=$RUNNER_TEMP/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
       - if: runner.os == 'Linux'
-        run: npm --prefix web exec -- playwright install --with-deps chromium
-      - if: runner.os == 'Linux'
-        run: npm --prefix web test
+        run: cargo test --locked --test workbench -- --ignored --test-threads=1

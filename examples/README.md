@@ -1,19 +1,21 @@
 # Examples
 
-- **Try a first run.** Ask for `hello.txt` containing `hello` and a final newline. Paste the example recipe into **View or edit JSON** before approving the checks, or use `--recipe examples/hello-recipe.json` with `swarm start`. The check reads the resulting file and compares its entire contents. [Hello recipe](hello-recipe.json)
+Build the checkers with `cargo build --locked --release --example hello-check --example quotes-check`. The executables are in `target/release/examples`. Release archives include both under `examples`.
 
-- **Build a new application.** “Build a private quote tracker. Let me add $125 and $75 quotes, accept the first, and see $75 outstanding after restarting.” The API and interface can be separate milestones. One browser check verifies the whole workflow.
+## First run
 
-- **Extend an existing application.** “Add CSV export of open quotes. Handle client names containing commas and exclude accepted quotes.” Use the project’s usual tests and add a check that parses the export and compares the rows.
+Ask for `hello.txt` containing `hello` and one newline. The [hello recipe](hello-recipe.json) runs a Rust checker that compares the entire file. Replace `hello-check` in the recipe with the absolute path to the executable, or add its directory to your PATH before starting Pantheon Local.
 
-Set the preview command to a local app that reads `SWARM_PORT` or `PORT`, uses the available `HOST` value, and stores scratch data in `SWARM_DATA_DIR`. The workbench serves the preview from its own loopback port.
+## Quote tracker
 
-## Browser check for the quote tracker
+Ask the team to build a small Rust quote tracker. Let the API and interface workers agree on how quotes are added, accepted and persisted. The [browser checker](quotes-check.rs) compiles the candidate’s standalone `app.rs`, starts it on `SWARM_PORT` with storage in `SWARM_DATA_DIR`, and drives Chrome through a matching ChromeDriver.
 
-The example checker imports Playwright from the Pantheon Local source checkout. There, run `npm --prefix web ci` and install Chromium with `npm --prefix web exec -- playwright install chromium`. In the recipe’s `checks` list, use the following argument array with the actual paths. [Quote tracker browser check](quotes-check.mjs)
+Use this recipe with absolute paths. Use `rustup which rustc` to find the compiler.
 
 ```json
-["node", "/absolute/path/to/pantheon-local/examples/quotes-check.mjs", "/absolute/path/to/chromium"]
+{"checks":[["/path/to/quotes-check","/path/to/chrome","/path/to/chromedriver","/path/to/rustc"]]}
 ```
 
-The checker starts `python3 app.py` with `SWARM_PORT` and `SWARM_DATA_DIR`. It expects **Client** and **Amount** fields, an **Add quote** button, an **Accept** button in each open quote’s row, and a total formatted as **Outstanding: $75.00**. It restarts the app to verify persistence and saves a screenshot and trace in the check’s data directory.
+The checker fills **Client** and **Amount**, adds $125 and $75 quotes, and accepts the first. It expects **Outstanding: $75.00** before and after restarting the app, with **Accepted** in the first quote’s row. It saves a screenshot and browser performance log in the check’s data directory.
+
+On macOS, Chrome launched by this approved check inherits Pantheon’s filesystem sandbox. Chrome’s nested sandbox is disabled for that launch because macOS rejects a second profile. Standalone browser tests use Chrome’s default sandbox.

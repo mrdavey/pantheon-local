@@ -33,6 +33,10 @@ pub fn spawn(dir: &Path) -> Result<()> {
 }
 pub fn spawn_with_state(dir: &Path, state: &Path) -> Result<()> {
     let job = read_json(&dir.join("job.json"))?;
+    // A running daemon must dispatch its own supervisor protocol after an upgrade.
+    #[cfg(target_os = "linux")]
+    let mut cmd = Command::new("/proc/self/exe");
+    #[cfg(not(target_os = "linux"))]
     let mut cmd = Command::new(std::env::current_exe()?);
     cmd.arg("_supervise")
         .arg(dir)

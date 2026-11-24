@@ -352,31 +352,17 @@ pub fn decode_typed_outcome(role: &str, text: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn script(dir: &Path, body: &str) -> Result<String> {
-        let file = dir.join("agent");
-        fs::write(&file, format!("#!/bin/sh\n{body}\n"))?;
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o700))?;
-        Ok(file.to_string_lossy().into())
-    }
+    use crate::test_examples::native_fixture;
     #[test]
     fn native_adapters_decode_events_and_usage() -> Result<()> {
         let temp = tempfile::tempdir()?;
-        let body = r#"test "$1 $2 $3 $4 $5" = "exec resume --json abc -" || exit 8
-read -r prompt
-test "$prompt" = hello || exit 9
-echo '{"type":"thread.started","thread_id":"abc"}'
-echo '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
-echo '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":2}}'"#;
-        let request = json!({"profile":{"kind":"codex","executable":script(temp.path(),body)?},"session":"abc","prompt":"hello\n","dir":temp.path()});
-        let result = run(&request, None, |_| {});
-        assert_eq!(result, json!({"text":"done","session":"abc","tokens":10}));
-        let body = r#"echo '{"type":"system","session_id":"abc"}'
-echo '{"type":"result","is_error":true,"result":"sign in"}'"#;
-        let result = run(
-            &json!({"profile":{"kind":"claude","executable":script(temp.path(),body)?},"dir":temp.path()}),
-            None,
-            |_| {},
+        let request = json!({"profile":{"kind":"codex","executable":native_fixture(temp.path(),"mock-codex")?},"session":"abc","prompt":"hello\n","dir":temp.path()});
+        assert_eq!(
+            run(&request, None, |_| {}),
+            json!({"text":"done","session":"abc","tokens":10})
         );
+        let request = json!({"profile":{"kind":"claude","executable":native_fixture(temp.path(),"mock-claude")?},"dir":temp.path()});
+        let result = run(&request, None, |_| {});
         assert_eq!(result["error"], "sign in");
         assert_eq!(result["session"], "abc");
         Ok(())
@@ -384,40 +370,24 @@ echo '{"type":"result","is_error":true,"result":"sign in"}'"#;
     #[test]
     fn acp_loads_existing_session_and_refuses_permissions() -> Result<()> {
         let temp = tempfile::tempdir()?;
-        let body = r#"read -r init
-echo '{"id":1,"result":{"agentCapabilities":{"loadSession":true}}}'
-read -r load
-case "$load" in *session/load*abc*) ;; *) exit 10;; esac
-echo '{"id":2,"result":{}}'
-read -r prompt
-echo '{"id":9,"method":"session/request_permission","params":{}}'
-read -r reply
-case "$reply" in *cancelled*) ;; *) exit 11;; esac
-echo '{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"done"}}}}'
-echo '{"id":3,"result":{"stopReason":"end_turn"}}'"#;
-        let result = run(
-            &json!({"profile":{"kind":"hermes","executable":script(temp.path(),body)?},"session":"abc","dir":temp.path()}),
-            None,
-            |_| {},
+        let request = json!({"profile":{"kind":"hermes","executable":native_fixture(temp.path(),"mock-acp")?},"session":"abc","dir":temp.path()});
+        assert_eq!(
+            run(&request, None, |_| {}),
+            json!({"text":"done","session":"abc"})
         );
-        assert_eq!(result, json!({"text":"done","session":"abc"}));
         Ok(())
     }
     #[test]
     fn availability_keeps_account_information_private() -> Result<()> {
         let temp = tempfile::tempdir()?;
-        for (kind, cmd, state) in [
-            ("codex", "echo 'Logged in with ChatGPT'", "connected"),
-            ("codex", "echo 'Not logged in' >&2; exit 1", "sign-in"),
-            (
-                "claude",
-                "echo '{\"loggedIn\":true,\"email\":\"private@example.com\"}'",
-                "connected",
-            ),
-            ("claude", "echo '{}'", "sign-in-unknown"),
-            ("hermes", "exit 4", "installed"),
+        for (kind, name, state) in [
+            ("codex", "mock-logged-in", "connected"),
+            ("codex", "mock-logged-out", "sign-in"),
+            ("claude", "mock-claude-connected", "connected"),
+            ("claude", "mock-unknown", "sign-in-unknown"),
+            ("hermes", "mock-installed", "installed"),
         ] {
-            let profile = json!({"kind":kind,"executable":script(temp.path(),cmd)?});
+            let profile = json!({"kind":kind,"executable":native_fixture(temp.path(),name)?});
             assert_eq!(availability(&profile), json!({"state":state}));
         }
         Ok(())

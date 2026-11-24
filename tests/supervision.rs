@@ -1,4 +1,6 @@
 //! Exercise cancellation at the subprocess boundary, including a worker that ignores TERM.
+#[path = "common/example.rs"]
+mod example;
 use anyhow::{Context, Result, ensure};
 use nix::{
     errno::Errno,
@@ -8,7 +10,7 @@ use nix::{
 use serde_json::json;
 use std::{
     fs,
-    os::unix::{fs::PermissionsExt, process::CommandExt},
+    os::unix::process::CommandExt,
     process::Command,
     thread,
     time::{Duration, Instant},
@@ -18,12 +20,7 @@ use std::{
 fn cancellation_reaps_the_worker_group() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let dir = temp.path();
-    let worker = dir.join("worker");
-    fs::write(
-        &worker,
-        "#!/bin/sh\ntrap '' TERM\necho $$ > worker.pid\nexec sleep 30\n",
-    )?;
-    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))?;
+    let worker = example::native_fixture(dir, "mock-resistant")?;
     fs::write(
         dir.join("job.json"),
         serde_json::to_vec(
