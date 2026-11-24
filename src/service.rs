@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::{
     fmt,
     fs::{self, File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::Write,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
@@ -449,12 +449,8 @@ impl Local {
                     ("GET", ["evidence", cid]) => comparison::evidence(&run, cid, &root),
                     ("GET", ["turns", tid]) => {
                         find(&run, "turns", tid)?;
-                        let mut f = File::open(root.join("turns").join(tid).join("events.log"))?;
-                        let len = f.metadata()?.len();
-                        f.seek(SeekFrom::Start(len.saturating_sub(256 * 1024)))?;
-                        let mut raw = vec![];
-                        f.take(256 * 1024).read_to_end(&mut raw)?;
-                        Ok(String::from_utf8_lossy(&raw).into_owned().into())
+                        let path = root.join("turns").join(tid).join("events.log");
+                        Ok(crate::supervisor::log_tail(&path, 256 * 1024)?.into())
                     }
                     ("GET", ["diff", cid]) => {
                         let c = find(&run, "candidates", cid)?;

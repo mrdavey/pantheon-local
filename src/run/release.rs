@@ -217,7 +217,7 @@ pub fn supervise(job: &Value, log: &mut File) -> Result<Value> {
 }
 pub fn next_job(
     run: &mut Value,
-    all_runs: &[Value],
+    all_runs: impl FnOnce() -> Result<Vec<Value>>,
     root: &Path,
 ) -> Result<Option<(String, Value)>> {
     if run["state"] == "stopped" || run["deploy_config"].is_null() {
@@ -238,7 +238,7 @@ pub fn next_job(
             "reconcile" => (Phase::Readback, "reconciling"),
             _ => continue,
         };
-        if all_runs.iter().flat_map(|r| a(&r["releases"])).any(|e| {
+        if all_runs()?.iter().flat_map(|r| a(&r["releases"])).any(|e| {
             e["id"] != entry["id"]
                 && e["destination"] == entry["destination"]
                 && (matches!(
@@ -414,6 +414,21 @@ pub fn command(run: &mut Value, action: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn release_history_is_read_only_for_an_actionable_phase() -> Result<()> {
+        let mut run = json!({"deploy_config":{}, "releases":[
+            {"id":"held","state":"staged","held":true,"destination":"test"},
+            {"id":"done","state":"deployed","destination":"test"}
+        ]});
+        let root = Path::new(".");
+        assert!(next_job(&mut run, || panic!("idle release read other runs"), root)?.is_none());
+        run["releases"][0]["held"] = json!(false);
+        let other = json!({"releases":[{"id":"pending","state":"uncertain","destination":"test"}]});
+        assert!(next_job(&mut run, || Ok(vec![other]), root)?.is_none());
+        assert_eq!(run["releases"][0]["state"], "staged");
+        Ok(())
+    }
+
     #[test]
     fn receipt_requires_both_fields() {
         for raw in [

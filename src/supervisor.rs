@@ -7,7 +7,7 @@ use nix::{
 use serde_json::{Value, json};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufWriter, Write},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
     os::unix::{fs::OpenOptionsExt, process::CommandExt},
     path::Path,
     process::{Command, Stdio},
@@ -15,6 +15,15 @@ use std::{
     thread,
     time::Duration,
 };
+
+pub fn log_tail(path: &Path, limit: u64) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let start = file.metadata()?.len().saturating_sub(limit);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.take(limit).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
 
 pub fn write_json(path: &Path, value: &Value) -> Result<()> {
     let mut f = tempfile::NamedTempFile::new_in(path.parent().context("missing job directory")?)?;
@@ -183,5 +192,21 @@ pub fn stop_job(dir: &Path) -> Result<()> {
     match killpg(pid, Signal::SIGTERM) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
         Err(e) => bail!("cannot stop job: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_requested_log_tail_even_with_partial_utf8() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("events.log");
+        fs::write(&path, "prefix…ok")?;
+        assert_eq!(log_tail(&path, 100)?, "prefix…ok");
+        assert_eq!(log_tail(&path, 3)?, "�ok");
+        assert_eq!(log_tail(&path, 0)?, "");
+        Ok(())
     }
 }

@@ -234,7 +234,7 @@ impl Engine {
         if !a(&r["releases"]).is_empty() {
             let before = r["releases"].clone();
             let root = self.root(r);
-            if let Some((id, job)) = release::next_job(r, &self.store.list()?, &root)? {
+            if let Some((id, job)) = release::next_job(r, || self.store.list(), &root)? {
                 return self.dispatch(r, "release", &id, job);
             }
             if r["releases"] != before {
@@ -385,7 +385,7 @@ impl Engine {
     }
     fn repair(&self, r: &mut Value) -> Result<()> {
         let c = &r["candidates"][index(&r["candidates"], s(r, "repair_id"))?];
-        let log = fs::read(s(c, "log")).unwrap_or_default();
+        let log = supervisor::log_tail(Path::new(s(c, "log")), 12_000).unwrap_or_default();
         let prompt = format!(
             "Revise the integrated candidate {}. Select a worker by milestone ID and return only JSON {{\"task\":\"milestone-id\",\"instruction\":\"specific implementation goal\"}}. Make a normal commit on this candidate.\nBrief: {}\nDeveloper request: {}\nMilestones: {}\nEval error: {}\nEval log:\n{}",
             s(c, "commit"),
@@ -393,7 +393,7 @@ impl Engine {
             s(r, "revision_goal"),
             r["tasks"],
             s(c, "detail"),
-            String::from_utf8_lossy(&log[log.len().saturating_sub(12000)..])
+            log
         );
         let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"coordinator","dir":self.integration(r),"prompt":prompt,"session":s(r,"session")});
         self.agent_turn(r, "repair", "", req)

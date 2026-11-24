@@ -6,7 +6,7 @@ One Rust executable contains the CLI, loopback service, turn supervisor and comp
 
 Each model turn or check has a durable job directory. Its supervisor owns the process group and writes a final result to disk. After a restart, the daemon consumes each completed result once or records an uncertain outcome. Pausing cancels active process groups. Resuming reuses saved sessions where available.
 
-The scheduler restores active runs from SQLite. It starts every ready milestone in its own Git clone. A worker can use native subagents within its scope and must review and commit their work. The service verifies the reported commit and changed tree, then imports the commit for dependent workers. Uncommitted files stay in the worker’s checkout. Recovery without a reported commit requires a clean checkout.
+The scheduler restores active runs from SQLite. It starts every ready milestone in its own Git clone. A worker can use native subagents within its scope and must review and commit their work. The service verifies the reported commit and changed tree, then imports the commit for dependent workers. Uncommitted files stay in the worker’s checkout. Recovery without a reported commit requires a clean checkout. Repair prompts include the last 12,000 bytes of the check log. The full log stays in the job directory.
 
 Each alternative gets a separate candidate. Conflict repairs must preserve both histories and cleanly merged files. A worker combining approaches gets Git refs for its donors. The service pins each candidate before testing it. Landing requires a local fast-forward and a clean target checkout. A moved target requires fresh checks.
 
