@@ -300,9 +300,7 @@ impl Engine {
             a(&r["candidates"]).iter().rev().filter(current).find(|c| {
                 !yes(&c["baseline"]) && !s(c, "commit").is_empty() && c["state"] == "failed"
             })
-            && !a(&r["tasks"])
-                .iter()
-                .any(|t| !s(t, "repair_base").is_empty())
+            && !active(r).iter().any(|t| !s(t, "repair_base").is_empty())
         {
             let id = c["id"].clone();
             r["state"] = json!("repairing");
@@ -369,9 +367,15 @@ impl Engine {
         let base = s(&c, "base");
         let sha = s(&c, "commit");
         if actual != base && actual != sha {
+            let round = c["round"].clone();
+            let policy = c["policy"].clone();
             if let Some(cs) = r["candidates"].as_array_mut() {
                 for c in cs {
-                    if c["base"] != actual && c["state"] == "passed" {
+                    if c["round"] == round
+                        && c["policy"] == policy
+                        && c["base"] != actual
+                        && matches!(s(c, "state"), "passed" | "inconclusive" | "cancelled")
+                    {
                         c["state"] = json!("stale");
                         c["detail"] =
                             json!("the target moved; rebuilding against its current head");

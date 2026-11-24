@@ -16,7 +16,7 @@ Use stderr for diagnostics. A required case must pass every sample. A missing, d
 
 To compare previews using human judgment, set a `rubric` and a `preview` command in the recipe. Start **Blind review**, open both previews, then record a preference, tie or skip. A rubric calls for a human selection.
 
-Use **Eval suite** to approve a case or rule revision. A threshold change can reuse matching samples. Changes to what was measured require new evidence. **Measurements** shows how metrics vary across samples or rounds. Use **Compare case results** to inspect observations and errors behind the scores.
+Use **Eval suite** to approve a case or rule revision. If you revise the suite from the CLI while review is paused, checks wait until you resume. A threshold change can reuse matching samples. Changes to what was measured require new evidence. **Measurements** shows how metrics vary across samples or rounds. Use **Compare case results** to inspect observations and errors behind the scores.
 
 When you spot a missed edge case, send feedback in **Experiment**. The coordinator can save it under **Project eval cases**. It becomes part of a run’s checks when you approve a suite that references it.
 
@@ -24,7 +24,7 @@ When you spot a missed edge case, send feedback in **Experiment**. The coordinat
 
 Open the **Experiment** view to see the recommendation and which implementation landed. **Select** lets you choose another eligible candidate. **Keep current version** records a decision to retain the target. To borrow a strong feature from another candidate, choose **Combine aspects**, select the starting implementation and donors, and describe what should carry over. The resulting commit has its own checks and measurements.
 
-After automatic landing, use **Improve this version** to create a follow-up on the latest target and reuse alternatives from earlier rounds. **Start another round** sends a new hypothesis or goal through the coordinator. Open an earlier round to see its measurements and the decision recorded for that round and suite revision. After keeping the baseline, you can select an eligible implementation if you change your mind. The **Work** view retains the milestone logs, diffs and preview controls.
+After automatic landing, use **Improve this version** to create a follow-up on the latest target and reuse alternatives from earlier rounds. **Start another round** sends a new hypothesis or goal through the coordinator. Repairs and requested changes apply to the current round. Earlier rounds keep their results and decisions. After keeping the baseline, you can select an eligible implementation if you change your mind. The **Work** view retains the milestone logs, diffs and preview controls.
 
 Set **Delivery** to **Auto-land** to let the approved rule or a single passing implementation advance a clean target. Use **Hold auto-land** before landing or **Require review** to lower authority for the current run. An unresolved conflict stays in a private checkout. If the target moves, Pantheon Local rebuilds and checks against the new revision.
 

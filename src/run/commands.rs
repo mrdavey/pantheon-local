@@ -26,12 +26,30 @@ pub(super) fn resume_phase(r: &Value) -> &str {
             _ => {}
         }
     }
+    if !s(r, "repair_id").is_empty() {
+        return "repairing";
+    }
     if active(r).is_empty() {
         "planning"
     } else if !yes(&r["recipe_approved"]) {
         "checks"
     } else {
         "working"
+    }
+}
+
+fn supersede_candidates(r: &mut Value) {
+    let round = r["round"].clone();
+    let policy = r["policy"].clone();
+    if let Some(candidates) = r["candidates"].as_array_mut() {
+        for c in candidates {
+            if c["round"] == round
+                && c["policy"] == policy
+                && matches!(s(c, "state"), "passed" | "inconclusive" | "cancelled")
+            {
+                c["state"] = json!("superseded")
+            }
+        }
     }
 }
 
@@ -128,7 +146,7 @@ impl Engine {
             "add milestones when the run is working or ready for review"
         );
         let mut tasks = a(&msg["tasks"]).to_vec();
-        if let Some(repair) = a(&r["tasks"])
+        if let Some(repair) = active(r)
             .iter()
             .rev()
             .find(|t| !s(t, "repair_base").is_empty())
@@ -147,18 +165,12 @@ impl Engine {
         for check in a(&msg["checks"]) {
             push(&mut r["input"]["recipe"]["checks"], check.clone())
         }
+        supersede_candidates(r);
         if !a(&msg["checks"]).is_empty() {
             r["policy"] = json!(num(&r["policy"]) + 1);
             policy(r)
         }
         experiment::archive_selection(r);
-        if let Some(cs) = r["candidates"].as_array_mut() {
-            for c in cs {
-                if c["state"] == "passed" {
-                    c["state"] = json!("superseded")
-                }
-            }
-        }
         r["state"] = json!("working");
         r["conversation"][i]["proposal_state"] = json!("added");
         Ok(())
@@ -349,6 +361,12 @@ impl Engine {
                     r["state"] = json!(resume_phase(&r));
                     r["stopped_from"] = json!("");
                     if r["state"] == "evaluating" {
+                        if !a(&r["candidates"])
+                            .iter()
+                            .any(|c| c["round"] == r["round"] && c["policy"] == r["policy"])
+                        {
+                            self.candidates(&mut r)?;
+                        }
                         for i in 0..a(&r["candidates"]).len() {
                             let c = &r["candidates"][i];
                             if c["round"] == r["round"]
@@ -379,17 +397,15 @@ impl Engine {
                         "select a reviewed candidate and describe the change"
                     );
                     let j = index(&r["candidates"], s(&action, "candidate"))?;
+                    let candidate = &r["candidates"][j];
                     ensure!(
-                        r["candidates"][j]["state"] == "passed",
-                        "select a passing candidate"
+                        candidate["state"] == "passed"
+                            && candidate["round"] == r["round"]
+                            && candidate["policy"] == r["policy"]
+                            && r["combination"].is_null(),
+                        "select a passing candidate from the current round and suite"
                     );
-                    if let Some(cs) = r["candidates"].as_array_mut() {
-                        for c in cs {
-                            if c["state"] == "passed" {
-                                c["state"] = json!("superseded")
-                            }
-                        }
-                    }
+                    supersede_candidates(&mut r);
                     r["state"] = json!("repairing");
                     r["repair_id"] = action["candidate"].clone();
                     r["revision_goal"] = json!(text)
@@ -414,9 +430,17 @@ impl Engine {
         Ok(r)
     }
     fn update_suite(&self, r: &mut Value, action: &Value) -> Result<()> {
+        let paused = r["state"] == "stopped";
+        let phase = if paused {
+            resume_phase(r)
+        } else {
+            s(r, "state")
+        };
+        let rebuild =
+            matches!(phase, "evaluating" | "review") || (phase == "blocked" && committed(r));
         ensure!(
             s(r, "landing").is_empty()
-                && !matches!(s(r, "state"), "landed" | "planning" | "question" | "checks")
+                && !matches!(phase, "landed" | "planning" | "question" | "checks")
                 && r["combination"].is_null(),
             "the eval suite cannot change during this stage"
         );
@@ -437,10 +461,12 @@ impl Engine {
         r["input"]["recipe"] = pinned;
         r["suite_proposal"] = Value::Null;
         policy(r);
-        if matches!(s(r, "state"), "evaluating" | "review")
-            || r["state"] == "blocked" && committed(r)
-        {
-            self.candidates(r)?
+        if rebuild {
+            if paused {
+                r["stopped_from"] = json!("evaluating");
+            } else {
+                self.candidates(r)?
+            }
         }
         Ok(())
     }
@@ -475,6 +501,8 @@ impl Engine {
         r["generation"] = json!(num(&r["generation"]) + 1);
         for key in [
             "detail",
+            "repair_id",
+            "revision_goal",
             "question",
             "answer",
             "observer_error",

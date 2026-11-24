@@ -183,3 +183,97 @@ fn invalid_release_authority_never_initializes_project() -> Result<()> {
     assert!(engine.store.list()?.is_empty());
     Ok(())
 }
+
+#[test]
+fn follow_up_changes_only_affect_the_current_round_and_suite() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut run = json!({
+        "id":"follow-up","state":"review","round":2,"policy":2,"task_start":1,
+        "input":{"workers":["writer"]},
+        "tasks":[{"id":"prior-repair","worker":"writer","state":"committed","repair_base":"old"}],
+        "candidates":[
+            {"id":"previous-round","state":"passed","round":1,"policy":2},
+            {"id":"previous-suite","state":"passed","round":2,"policy":1},
+            {"id":"current","state":"passed","round":2,"policy":2},
+            {"id":"no-evidence","state":"inconclusive","round":2,"policy":2}
+        ],
+        "conversation":[{"id":"proposal","proposal_state":"pending","tasks":[
+            {"id":"docs","worker":"writer","goal":"Document this round"}
+        ]}]
+    });
+    engine.save(&mut run, "seed")?;
+    for candidate in ["previous-round", "previous-suite"] {
+        assert!(
+            engine
+                .command(
+                    "follow-up",
+                    json!({"kind":"change","candidate":candidate,"text":"Update it"})
+                )
+                .is_err()
+        );
+    }
+    let revised = engine.command(
+        "follow-up",
+        json!({"kind":"change","candidate":"current","text":"Update it"}),
+    )?;
+    assert_eq!(revised["repair_id"], "current");
+    assert_eq!(a(&revised["candidates"])[..2], a(&run["candidates"])[..2]);
+    run["state"] = json!("review");
+    engine.save(&mut run, "seed proposal")?;
+    let extended = engine.command(
+        "follow-up",
+        json!({"kind":"accept-proposal","task":"proposal"}),
+    )?;
+    assert!(a(&extended["tasks"][1]["depends"]).is_empty());
+    assert_eq!(a(&extended["candidates"])[..2], a(&run["candidates"])[..2]);
+    assert_eq!(extended["candidates"][2]["state"], "superseded");
+    assert_eq!(extended["candidates"][3]["state"], "superseded");
+    Ok(())
+}
+
+#[test]
+fn later_round_can_repair_and_resume_at_its_token_target() -> Result<()> {
+    let (dir, engine) = fixture()?;
+    let mut run = json!({"id":"repair","state":"evaluating","round":2,"policy":1,"task_start":1,
+        "recipe_approved":true,"input":{"token_target":5},"tokens":5,
+        "tasks":[{"id":"old","repair_base":"earlier-failure","state":"committed"},{"id":"current","state":"committed"}],
+        "candidates":[{"id":"failed","state":"failed","commit":"this-failure","round":2,"policy":1}]
+    });
+    engine.save(&mut run, "seed")?;
+    engine.tick()?;
+    assert_eq!(engine.store.get("repair")?["state"], "repairing");
+    engine.tick()?;
+    assert_eq!(engine.store.get("repair")?["state"], "budget");
+    engine.command("repair", json!({"kind":"stop"}))?;
+    drop(engine);
+    let engine = Engine {
+        dir: dir.path().into(),
+        store: Store::open(dir.path())?,
+    };
+    let resumed = engine.command("repair", json!({"kind":"resume","tokens":10}))?;
+    assert_eq!(resumed["state"], "repairing");
+    assert_eq!(resumed["repair_id"], "failed");
+    Ok(())
+}
+
+#[test]
+fn suite_revision_approved_while_paused_is_evaluated_after_resume() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut run = json!({"id":"paused","state":"review","policy":1,"round":1,
+        "recipe_approved":true,"input":{"recipe":{"checks":[["original"]]}},
+        "repo":{"Head":"base"},"tasks":[{"id":"api","state":"committed"}],
+        "candidates":[{"id":"old","state":"passed","round":1,"policy":1}]
+    });
+    engine.save(&mut run, "seed")?;
+    engine.command("paused", json!({"kind":"stop"}))?;
+    let updated = engine.command(
+        "paused",
+        json!({"kind":"update-suite","recipe":{"checks":[["updated"]]}}),
+    )?;
+    assert_eq!(updated["state"], "stopped");
+    let resumed = engine.command("paused", json!({"kind":"resume"}))?;
+    assert_eq!(resumed["state"], "evaluating");
+    assert_eq!(resumed["candidates"][1]["policy"], 2);
+    assert_eq!(resumed["candidates"][1]["state"], "queued");
+    Ok(())
+}
