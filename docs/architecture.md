@@ -1,12 +1,14 @@
 # Architecture
 
-The service owns Git operations, SQLite state, candidate checks, and landing. The browser and CLI contact the same authenticated loopback API. A daemon lock permits one writer per state directory. The launcher either starts the service or authenticates to the existing loopback session before opening it in the browser. First-launch checks call native local login status commands for Codex and Claude Code and report executable discovery for the other adapters. Each transaction records the updated run and a numbered event. On opening the workbench, the browser reads current runs and their event cursor in one SQLite transaction. It then requests events after that cursor and fetches turn logs on demand.
+The browser and CLI use the same authenticated loopback service for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand.
 
 ## Process and Git lifetimes
 
-Each model turn or check gets a durable job directory before the daemon launches its supervisor. The supervisor owns a process group and writes events and a final result to disk. After a daemon restart, the service reconciles receipts or records an uncertain outcome. The daemon consumes a completed receipt once. Stops cancel active process groups, and subsequent resumes reuse saved sessions where available.
+Each model turn or check has a durable job directory. Its supervisor owns the process group and writes a final result to disk. After a restart, the daemon consumes each completed result once or records an uncertain outcome. Pausing cancels active process groups. Resuming reuses saved sessions where available.
 
-The scheduler rebuilds its list of active runs from SQLite after restart. A stopped run with no outstanding job, or a landed run with no pending work, stays off the polling loop until a committed change wakes it. The scheduler starts all ready milestones without a per-run worker limit. Each milestone gets its own clone and Git refs from the assigned base. A worker can delegate within that milestone through its harness and is responsible for waiting, reviewing, and committing the result. The harness controls child sessions and their limits. Its milestone becomes reusable when the service verifies the reported SHA, confirms a changed tree, and imports the SHA into a daemon-owned ref. The service retains uncommitted files in the worker’s checkout and integrates the reported commit. Recovery without a report uses a clean checkout. A dependent worker receives imported commits in its checkout. Integration builds separate candidates for alternatives. A conflict repair must preserve both incoming histories and the files Git already merged cleanly. Workers borrowing from another implementation receive its full local Git ref. Within a candidate, the service combines relevant commits and pins the result before launching checks. After all checks pass, the developer can review that revision and request a local fast-forward. A changed target forces a newly tested candidate. A dirty checkout remains available for the developer’s own work.
+The scheduler restores active runs from SQLite. It starts every ready milestone in its own Git clone. A worker can use native subagents within its scope and must review and commit their work. The service verifies the reported commit and changed tree, then imports the commit for dependent workers. Uncommitted files stay in the worker’s checkout. Recovery without a reported commit requires a clean checkout.
+
+Each alternative gets a separate candidate. Conflict repairs must preserve both histories and cleanly merged files. A worker combining approaches gets Git refs for its donors. The service pins each candidate before testing it. Landing requires a local fast-forward and a clean target checkout. A moved target requires fresh checks.
 
 ## Native adapters
 
@@ -28,15 +30,11 @@ Omit usage when a harness has no reliable receipt. Use the result's `error` fiel
 
 ## Worker routing and conversation
 
-The coordinator assigns each milestone to a worker. When it delegates part of a milestone, the child inherits the parent’s allowed files, prerequisites and experiment variant. Once the children finish, the parent gets their commit refs to review and integrate.
+Each agent turn receives saved planning answers, the round goal and approved criteria. Workers see the IDs, goals and file scopes of active peers in the same approach. A planning question takes precedence over tasks in the same response. Delegated milestones inherit the parent’s file scope, prerequisites and variant. Their commits return to the parent for integration.
 
-During a run, the coordinator and workers receive saved planning answers, the current round goal and approved checks, scoring rules and review criteria. Workers also see active peer milestone IDs and scopes within their approach. A planning question takes precedence over tasks drafted in the same response.
+While workers are busy, routine completions share a coordinator turn. Questions, findings, developer input or a full batch trigger review. After review the scheduler creates one scoped inbox item for a worker still awaiting an answer, unless it already has one or is waiting on delegated work. A worker must process guidance received during a turn before its commit can be accepted.
 
-Routine completions share an observer turn while other workers are busy. An explicit worker question, finding, developer input or full batch makes the observations ready for review. The coordinator can reply, send a note to another active milestone, delegate, or ask the developer. If a worker still has no answer, delegated work or linked inbox item after review, the scheduler creates one scoped question. A worker that receives new guidance during its turn must process it before its commit can be accepted.
-
-Benchmark routing is opt-in. When enabled, the service captures one benchmark snapshot for the run. If two or more selected profiles have comparable results for a milestone’s category, it can use those results to assign the worker. The milestone records the reason and the evidence used. If evidence is missing, the coordinator’s choice stands.
-
-Conversation uses a separate native session under the selected coordinator and shares the run's durable event history and token accounting. Replies can propose additional milestones. A human approval revalidates their IDs, dependencies, and workers against the current graph, adds any approved checks, and invalidates older passing candidates.
+Benchmark-enabled runs retain one snapshot and the reason for each assignment. Conversation uses a separate native session. Accepting a proposal revalidates the milestones against the current graph, adds approved checks and invalidates older passing candidates. [Routing settings and conversation commands](model-routing.md)
 
 ## Local execution
 
