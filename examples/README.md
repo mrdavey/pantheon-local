@@ -1,13 +1,19 @@
 # Examples
 
-The smallest complete change adds `hello.txt` containing `hello` and a final newline. Pass `examples/hello-recipe.json` as the accepted recipe. The checker lives in the command itself, so it is independent of files the agent writes.
+- **Try a first run.** Ask for `hello.txt` containing `hello` and a final newline. Paste the example recipe into **View or edit JSON** before approving the checks, or use `--recipe examples/hello-recipe.json` with `swarm start`. The check reads the resulting file and compares its entire contents. [Hello recipe](hello-recipe.json)
 
-For a new application, use “Build a private quote tracker. Let me add $125 and $75 quotes, accept the first, and see $75 outstanding after restarting.” Select an advisor if you want help refining the brief. Review the acceptance recipe before approving it. A browser check can be an executable script that starts the candidate, opens a browser, tests the workflow, and exits nonzero if an assertion fails.
+- **Build a new application.** “Build a private quote tracker. Let me add $125 and $75 quotes, accept the first, and see $75 outstanding after restarting.” The API and interface can be separate milestones. One browser check verifies the whole workflow.
 
-For an existing application, use “Add CSV export of open quotes. Verify names containing commas and exclude quotes in every other status.” Start from the repository’s current committed revision and use its established test commands. The accepted recipe can include a separate CLI assertion that parses the exported CSV.
+- **Extend an existing application.** “Add CSV export of open quotes. Handle client names containing commas and exclude accepted quotes.” Use the project’s usual tests and add a check that parses the export and compares the rows.
 
 Set the preview command to a local app that reads `SWARM_PORT` or `PORT`, uses the available `HOST` value, and stores scratch data in `SWARM_DATA_DIR`. The workbench serves the preview from its own loopback port.
 
 ## Browser check for the quote tracker
 
-`node /absolute/path/to/examples/quotes-check.mjs` is a reusable independent check. Install the web dependencies and Playwright Chromium first. Add it to the accepted eval as an argument list. The example brief needs an `app.py` start command, `SWARM_PORT` and `SWARM_DATA_DIR` support, **Client** and **Amount** field labels, an **Add quote** button, table rows with **Accept** actions, and text formatted as **Outstanding: $75.00**. An optional argument specifies a Chromium executable. The check exercises a restart and keeps a screenshot and trace under the eval’s data directory.
+The example checker imports Playwright from the Pantheon Local source checkout. There, run `npm --prefix web ci` and install Chromium with `npm --prefix web exec -- playwright install chromium`. In the recipe’s `checks` list, use the following argument array with the actual paths. [Quote tracker browser check](quotes-check.mjs)
+
+```json
+["node", "/absolute/path/to/pantheon-local/examples/quotes-check.mjs", "/absolute/path/to/chromium"]
+```
+
+The checker starts `python3 app.py` with `SWARM_PORT` and `SWARM_DATA_DIR`. It expects **Client** and **Amount** fields, an **Add quote** button, an **Accept** button in each open quote’s row, and a total formatted as **Outstanding: $75.00**. It restarts the app to verify persistence and saves a screenshot and trace in the check’s data directory.

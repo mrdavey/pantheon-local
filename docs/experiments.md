@@ -1,8 +1,8 @@
 # Run a product experiment
 
-Start a run from an empty folder or an existing project. Pick a coordinator and describe the outcome. Open **Run options** and choose **Compare approaches against a baseline** if you want competing implementations measured against the starting revision. For a first build, leave this off and approve checks for the first working user journey.
+Use a comparison when you can describe what would make one implementation better. In **Run options**, select **Compare approaches against a baseline**. The starting Git revision is the baseline. Pantheon Local runs the approved checks against it and the alternatives.
 
-Use **Needs you** when the coordinator asks for a decision. It can answer worker questions on its own, assign more work and save examples as eval cases. A milestone delegated to a child inherits the parent’s allowed files, prerequisites and experiment variant. The parent gets the child commit refs when its children finish. Other ready milestones can continue. Add feedback in **Experiment** when you notice an edge case worth keeping. Open **Project eval cases** to see what the coordinator saved and why. Draft cases become part of a run's active suite when you approve a suite that references them.
+For example, the search fixture rewards relevant hits and sets a 5 ms latency limit. One implementation finds 10 hits but exceeds the limit. Another finds 7, stays within the limit and improves on the baseline’s 3. The second qualifies under that rule. [Comparison fixture](../tests/experiments.py)
 
 ## Decide what qualifies
 
@@ -14,9 +14,11 @@ An acceptance recipe can still contain just `checks`, a list of executable argum
 
 Use stderr for diagnostics. A required case must pass every sample. A missing, duplicate, or mismatched sample makes the comparison inconclusive and holds automatic selection. Declared metrics have a unit, a direction of `higher` or `lower`, and an aggregation of `mean`, `median`, or `p95`. Set `min_samples` and, for noisy results, a minimum improvement over the baseline and a minimum lead over the next candidate. Set hard limits using the metric's direction. With a held-back partition, the rule uses that partition for scores and still enforces all required checks. Keep private data and expected answers in the driver input. Pass only the product input to candidate code.
 
-For an example, see [the comparison fixture](../tests/experiments.py). To compare previews using human judgment, set a `rubric` and a `preview` command in the recipe. Start **Blind review** in the experiment, open both previews, then record a preference, tie or skip. A rubric calls for a human selection.
+To compare previews using human judgment, set a `rubric` and a `preview` command in the recipe. Start **Blind review**, open both previews, then record a preference, tie or skip. A rubric calls for a human selection.
 
-Use **Eval suite** to approve a case or rule revision. Results from prior candidates remain available. A threshold change can reuse matching samples. Changes to what was measured require new evidence. The timing chart shows ranges and sample counts. Use **Compare case results** to inspect observations and errors behind the scores.
+Use **Eval suite** to approve a case or rule revision. A threshold change can reuse matching samples. Changes to what was measured require new evidence. **Measurements** shows how metrics vary across samples or rounds. Use **Compare case results** to inspect observations and errors behind the scores.
+
+When you spot a missed edge case, send feedback in **Experiment**. The coordinator can save it under **Project eval cases**. It becomes part of a run’s checks when you approve a suite that references it.
 
 ## Choose and refine
 

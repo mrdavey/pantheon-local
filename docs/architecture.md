@@ -28,7 +28,9 @@ Omit usage when a harness has no reliable receipt. Use the result's `error` fiel
 
 ## Worker routing and conversation
 
-The service captures one benchmark snapshot per run. The coordinator assigns a category and fallback worker to each milestone. The service can route it to an already-selected worker when it finds comparable evidence, then saves the reason and provenance with the milestone. Refreshes apply to subsequent runs.
+The coordinator assigns each milestone to a worker. When it delegates part of a milestone, the child inherits the parent’s allowed files, prerequisites and experiment variant. Once the children finish, the parent gets their commit refs to review and integrate.
+
+Benchmark routing is opt-in. When enabled, the service captures one benchmark snapshot for the run. If two or more selected profiles have comparable results for a milestone’s category, it can use those results to assign the worker. The milestone records the reason and the evidence used. If evidence is missing, the coordinator’s choice stands.
 
 Conversation uses a separate native session under the selected coordinator and shares the run's durable event history and token accounting. Replies can propose additional milestones. A human approval revalidates their IDs, dependencies, and workers against the current graph, adds any approved checks, and invalidates older passing candidates.
 
@@ -42,4 +44,4 @@ SQLite schema 2 adds project identities keyed by Git common directory and revisi
 
 Candidate evaluation pins an independent driver and runs baseline and variants in separate checkouts. The same supervisor records structured observations and checks the checkout before and after the run. Measurements use one candidate at a time on the daemon. The evaluator trust boundary depends on local filesystem and native harness permissions. Keep untrusted repositories and eval executables off this service account.
 
-Git landing uses the platform installation. The daemon serializes writes and verifies the expected target before landing. Automatic delivery uses the selected candidate and the explicitly configured release adapter. The adapter builds and verifies an artifact, then promotes its exact digest. The daemon journals each attempt and checks the destination after deployment or rollback. Existing CI stays available. See the [experiment guide](experiments.md) for recipe and adapter contracts.
+Landing advances the local Git branch to the tested candidate. The daemon serializes writes and verifies the expected target. Auto-land uses the same Git checks. **Auto-land and deploy** additionally requires a configured release adapter. The adapter builds and verifies an artifact, then promotes its exact digest. The daemon journals each attempt and checks the destination after deployment or rollback. [Experiment and release adapter contracts](experiments.md)

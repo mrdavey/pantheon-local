@@ -2,15 +2,13 @@
 
 ## Open the workbench
 
-1. Download and extract the [macOS archive](https://github.com/mrdavey/pantheon-local/releases/latest). For other platforms or an Intel Mac, follow [Build from source](../README.md#build-from-source).
-2. On a Mac, double-click **Open Pantheon Local.command** in the extracted folder. Your default browser opens the workbench. Keep the Terminal window open while you use it.
-3. From a terminal, you can open the same workbench with `./swarm open` from the extracted folder. If the browser does not open, use the link printed in Terminal.
+On an Apple Silicon Mac, extract the archive and double-click **Open Pantheon Local.command**, or run `./swarm open` from the extracted folder. Keep Terminal open while you work. If the browser doesn't open, use the link printed in Terminal. [Download the macOS archive](https://github.com/mrdavey/pantheon-local/releases/latest)
 
-Open the launcher again to reconnect to a running instance. Closing the browser tab leaves your runs visible when you reopen it. Use **Pause run** to pause a run. **Resume** returns to the open question, review, or work in progress. You can answer a planning question in **Needs you** while paused. Work continues with that answer when you resume. A check interrupted by a pause runs again. To stop the local service, press Control-C in its Terminal window.
+On Linux or an Intel Mac, follow the source build instructions. [Build from source](../README.md#build-from-source)
 
 ## Connect an agent
 
-The first screen checks for Git and lists local agent profiles, with usable profiles first. Use **Check again** after installing Git or signing in. One signed-in CLI can coordinate and do the work in separate sessions. You can add more agents later.
+**Agent setup** checks for Git and lists local agent profiles. One configured CLI can coordinate and run several worker sessions at once, within your provider’s limits. Workers can also delegate within a milestone if their CLI supports subagents. Use **Check again** after installing Git or signing in.
 
 | Agent | How to connect |
 | --- | --- |
@@ -19,23 +17,22 @@ The first screen checks for Git and lists local agent profiles, with usable prof
 | Hermes | [Install Hermes](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart). In Terminal, run `hermes model`. Select your provider and model, then finish setup in Hermes. Choose the Hermes profile in Pantheon Local. |
 | Antigravity | [Install the CLI](https://antigravity.google/docs/cli-getting-started) and run `agy` in Terminal. Finish its setup and sign in there. |
 
-Complete sign-in in the agent’s own CLI. With Hermes, Antigravity, or a custom adapter, the setup screen can confirm that the executable is installed. Use the agent’s own setup to confirm provider access. The listed adapters differ in the amount of native testing they have received. [Agent qualification](../README.md#what-runs-where)
+For Hermes, Antigravity and custom adapters, **Installed** means Pantheon Local found the executable. Confirm provider access in the CLI. [Agent testing status](../README.md#what-runs-where)
 
 ## Start and review your first run
 
-1. Select **Use** for your chosen agent. Pantheon Local fills in the coordinator and worker for the draft run. You can change them before starting.
-2. Enter the full path to a folder on this computer. Use an empty folder for a new project or pick an existing Git checkout. On macOS, drag the folder from Finder into Terminal to see its path.
-3. Describe what you want. For a quick test, use an empty folder and ask for “a hello.txt file containing hello and a final newline.” Use **Improve brief** if you want help shaping the request.
-4. Select **Start run**. Answer any questions and review the acceptance commands. Open **View or edit JSON** to inspect the full recipe or make changes before approving it.
-5. Review the checks and diff. If the change has a web preview, select **Start preview**, then open it. The landing button names the target branch. The run shows the exact commit once the update succeeds.
+1. In **Agent setup**, select **Use** beside your agent profile to fill both roles. You can change the coordinator or workers before starting.
+2. Enter the full path to an empty folder for a new project, or to an existing Git checkout. Workers start from a commit. Commit any edits you want them to use. Other local edits stay in your checkout.
+3. Give the run a goal you can check. For a first run in an empty folder, try “Create `hello.txt` containing the word `hello` followed by a single newline.” Use **Improve brief** if you want help refining the goal, then select **Start run**.
+4. Review the coordinator’s proposed checks. For the example, the check should read the file and verify its exact contents. Use **View or edit JSON** to change the recipe, then select **Approve checks**.
+5. In **Work**, open **View checks** and **View diff**. Use **Start preview** if the recipe includes a web preview. Choose **Request change** for another revision or land the passing commit on the named branch. A checked-out target must be clean to land. The workbench shows the landed commit.
 
-Use **Conversation** to ask the coordinator about a run or propose more work. With multiple workers, **Worker routing** lets you opt into benchmark comparisons. [Model routing and conversation](model-routing.md)
+## While a run is open
 
-Ready milestones can run in parallel, including multiple sessions with the same worker profile. Workers can use native subagents when their harness supports delegation and their settings allow it. Provider usage limits and the machine's resources still apply. For Codex, see its [subagent settings](https://developers.openai.com/codex/subagents).
-
-For existing projects, commit any edits you want the agents to build on before starting. Use **Agent setup** in the sidebar whenever you install another harness or need to recheck sign-in.
-
-Open **Needs you** for coordinator questions across runs. For comparisons, open **Experiment** to see the selected candidate, browse eval evidence, and request a combination of approaches. **Run options** contains automatic delivery settings. [Experiments and delivery](experiments.md)
+- **Needs you** collects open questions across runs. Use **Conversation** to ask about a decision or request more work. [Coordinator conversation and worker routing](model-routing.md)
+- **Pause run** interrupts active work. You can answer a planning question while paused. Select **Resume** to continue. An interrupted check runs again.
+- Closing the tab leaves the service running. Open the launcher again to reconnect. To stop the service, press Control-C in its Terminal window.
+- For a comparison, enable **Compare approaches against a baseline** in **Run options** before starting. Open **Experiment** to review the results. [Experiments and delivery](experiments.md)
 
 ## If setup gets stuck
 
