@@ -220,7 +220,7 @@ impl Engine {
             sha
         };
         ensure!(
-            sha == reported,
+            project::matches_commit_id(dir, reported, &sha)?,
             "reported commit does not match worker HEAD"
         );
         let scopes = strings(&t["paths"]);

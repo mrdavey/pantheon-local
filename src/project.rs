@@ -390,6 +390,23 @@ pub fn commit_handoff(
     head(dir)
 }
 
+/// Accept an abbreviated object ID only when Git resolves it to this commit alone.
+pub fn matches_commit_id(dir: &str, reported: &str, expected: &str) -> Result<bool> {
+    if expected.eq_ignore_ascii_case(reported) {
+        return Ok(true);
+    }
+    if !(4..expected.len()).contains(&reported.len())
+        || !reported.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Ok(false);
+    }
+    let prefix = reported.to_ascii_lowercase();
+    if !expected.starts_with(&prefix) {
+        return Ok(false);
+    }
+    Ok(git(dir, &["rev-parse", &format!("--disambiguate={prefix}")])? == expected)
+}
+
 pub fn reported_milestone(dir: &str, base: &str) -> Result<String> {
     let head = head(dir)?;
     ensure!(
@@ -622,6 +639,23 @@ mod tests {
         }
         Ok(dir)
     }
+    #[test]
+    fn recognizes_only_object_ids_for_the_reported_commit() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let dir = init(tmp.path())?;
+        git(dir, &["commit", "--allow-empty", "-m", "Base"])?;
+        let base = head(dir)?;
+        git(dir, &["commit", "--allow-empty", "-m", "Milestone"])?;
+        let sha = head(dir)?;
+        let short = git(dir, &["rev-parse", "--short", "HEAD"])?;
+        assert!(matches_commit_id(dir, &sha, &sha)?);
+        assert!(matches_commit_id(dir, &short, &sha)?);
+        for invalid in [&base[..7], &sha[..3], "HEAD", "main", "HEAD^", "--all"] {
+            assert!(!matches_commit_id(dir, invalid, &sha)?);
+        }
+        Ok(())
+    }
+
     #[test]
     fn isolate_milestones_and_preserve_dirty_index() -> Result<()> {
         let home = tempfile::tempdir()?;
