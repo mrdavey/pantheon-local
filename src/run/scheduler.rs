@@ -88,13 +88,20 @@ impl Engine {
         let landing = s(r, "landing");
         if !landing.is_empty() {
             let c = r["candidates"][index(&r["candidates"], landing)?].clone();
-            let head = project::target_head(s(&r["repo"], "Root"), s(&r["repo"], "Target"))?;
+            let head = match project::target_head(s(&r["repo"], "Root"), s(&r["repo"], "Target")) {
+                Ok(head) => head,
+                Err(error) => return self.landing_wait(r, error),
+            };
             r["landing"] = json!("");
             if c["commit"] == head {
                 candidate::mark_landed(r, &c);
                 return self.save(r, "landing-recovered");
             }
             r["held"] = json!(true);
+            if r["state"] == "blocked" {
+                r["state"] = json!("review");
+            }
+            r["detail"] = json!("Review the target branch before landing.");
             return self.save(r, "landing-needs-review");
         }
         let (mut workers, mut control, mut chat) = (false, false, false);
@@ -349,6 +356,14 @@ impl Engine {
         }
         Ok(())
     }
+    fn landing_wait(&self, r: &mut Value, error: anyhow::Error) -> Result<()> {
+        let message = error.to_string();
+        if r["detail"] != message {
+            r["detail"] = json!(message);
+            self.save(r, "landing-wait")?;
+        }
+        Ok(())
+    }
     fn maybe_land(&self, r: &mut Value) -> Result<()> {
         if matches!(s(&r["input"], "delivery"), "" | "review")
             || yes(&r["held"])
@@ -376,8 +391,7 @@ impl Engine {
             {
                 let id = s(sel, "candidate").to_owned();
                 if let Err(e) = self.land(r, &id) {
-                    r["detail"] = json!(e.to_string());
-                    self.save(r, "landing-wait")?
+                    return self.landing_wait(r, e);
                 }
                 Ok(())
             }

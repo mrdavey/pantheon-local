@@ -395,6 +395,13 @@ impl Engine {
         }
         r["repo"] = json!(repo);
         r["project"] = json!(self.store.project_id(&repo.common)?);
+        // Remove partial setup on error. A successful SQLite save transfers ownership to the run.
+        let runs = self.dir.join("runs");
+        fs::create_dir_all(&runs)?;
+        let pending = tempfile::Builder::new()
+            .prefix(s(&r, "id"))
+            .rand_bytes(0)
+            .tempdir_in(runs)?;
         if approved {
             r["input"]["recipe"] = self.pin_recipe(&r, input["recipe"].clone())?;
             policy(&mut r)
@@ -416,6 +423,7 @@ impl Engine {
             r["input"]["attachments"] = crate::attachments::save(&self.root(&r), attachments)?;
         }
         self.save(&mut r, "started")?;
+        let _ = pending.keep();
         Ok(r)
     }
     pub fn dispatch(&self, r: &mut Value, role: &str, task: &str, mut job: Value) -> Result<()> {

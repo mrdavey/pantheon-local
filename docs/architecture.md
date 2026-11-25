@@ -1,6 +1,6 @@
 # Architecture
 
-One Rust executable contains the CLI, loopback service, turn supervisor and compiled React workbench. The browser and CLI use the same authenticated HTTP API for Git operations, checks and landing. One daemon writes to each SQLite state directory. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand. Git operations and agent commands run outside the async HTTP executor. A single writer serializes run changes while the UI reads committed state. Deleting a stopped or landed run replaces its event history with a deletion notice for connected clients. Startup retries cleanup of its private files.
+One Rust executable contains the CLI, loopback service, turn supervisor and compiled React workbench. The browser and CLI use the same authenticated HTTP API for Git operations, checks and landing. One daemon writes to each SQLite state directory. If run setup returns an error, it discards the new run’s private files. On startup the browser reads the runs and event cursor in one transaction, then follows numbered events and loads turn logs on demand. Git operations and agent commands run outside the async HTTP executor. A single writer serializes run changes while the UI reads committed state. Deleting a stopped or landed run replaces its event history with a deletion notice for connected clients. Startup retries cleanup of its private files.
 
 ## Process and Git lifetimes
 
@@ -8,7 +8,7 @@ Each model turn or check has a durable job directory. Its supervisor owns the pr
 
 The scheduler restores active runs from SQLite. It starts every ready milestone in its own Git clone. A worker can use native subagents within its scope and must review and commit their work. The service resolves a full or unique abbreviated commit ID, verifies the changed tree, then imports the commit for dependent workers. If a sandbox prevents a Git commit, a worker can return `ready` with an exact list of reviewed files. The service checks the milestone scope and commits those files in its private checkout. Other uncommitted files stay there. Merge repairs need a commit with both parents. Recovery without a reported commit requires a clean checkout. Repair prompts include the last 12,000 bytes of the check log. The full log stays in the job directory.
 
-Each alternative gets a separate candidate. Conflict repairs must preserve both histories and cleanly merged files. A worker combining approaches gets Git refs for its donors. The service pins each candidate before testing it. Landing requires a local fast-forward and a clean target checkout. A moved target requires fresh checks.
+Each alternative gets a separate candidate. Conflict repairs must preserve both histories and cleanly merged files. A worker combining approaches gets Git refs for its donors. The service pins each candidate before testing it. Landing requires a local fast-forward and a clean target checkout. A moved target requires fresh checks. If the target is unavailable during landing, the scheduler records the error once and checks again. After an interrupted landing it verifies the branch before recording success or returning the decision to you.
 
 ## Native adapters
 

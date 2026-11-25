@@ -330,3 +330,88 @@ fn inbox_dismissal_preserves_decisions_and_retries_surface_new_blockers() -> Res
     assert_eq!(resumed["tasks"][0]["state"], "pending");
     Ok(())
 }
+
+fn committed_project(dir: &Path) -> Result<&str> {
+    let root = dir.to_str().unwrap();
+    project::git(root, &["init", "-b", "main"])?;
+    for (key, value) in [
+        ("user.name", "Fixture"),
+        ("user.email", "test@example.invalid"),
+        ("commit.gpgsign", "false"),
+    ] {
+        project::git(root, &["config", key, value])?;
+    }
+    project::git(root, &["commit", "--allow-empty", "-m", "Base"])?;
+    Ok(root)
+}
+
+#[test]
+fn missing_landing_target_records_one_error_and_recovers_when_restored() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let project = tempfile::tempdir()?;
+    let root = committed_project(project.path())?;
+    let base = project::head(root)?;
+    project::git(root, &["commit", "--allow-empty", "-m", "Candidate"])?;
+    let commit = project::head(root)?;
+    for (id, landing) in [("before", ""), ("after", "first"), ("held", "first")] {
+        let target = format!("refs/heads/{id}");
+        let mut run = json!({"id":id,"state":"review","landing":landing,"round":1,"policy":1,
+            "repo":{"Root":root,"Target":target},"input":{"delivery":"auto"},
+            "selection":{"state":"selected","candidate":"first","round":1,"policy":1},
+            "candidates":[{"id":"first","state":"passed","base":base,"commit":commit,"round":1,"policy":1}]});
+        if id == "before" {
+            project::clone_repo(
+                root,
+                &engine.integration(&run),
+                &commit,
+                "swarm-integration",
+            )?;
+        }
+        engine.save(&mut run, "selected")?;
+    }
+    engine.tick()?;
+    let after_first_tick = engine.store.snapshot()?;
+    for id in ["before", "after"] {
+        assert!(!s(&engine.store.get(id)?, "detail").is_empty());
+    }
+    engine.tick()?;
+    assert_eq!(
+        after_first_tick["cursor"],
+        engine.store.snapshot()?["cursor"]
+    );
+    assert_eq!(engine.store.get("after")?["landing"], "first");
+    for (branch, head) in [("before", &base), ("after", &commit), ("held", &base)] {
+        project::git(root, &["branch", branch, head])?;
+    }
+    engine.tick()?;
+    for id in ["before", "after"] {
+        assert_eq!(engine.store.get(id)?["state"], "landed");
+        assert_eq!(project::git(root, &["rev-parse", id])?, commit);
+    }
+    let held = engine.store.get("held")?;
+    assert_eq!(held["held"], true);
+    assert_eq!(held["state"], "review");
+    assert_eq!(project::git(root, &["rev-parse", "held"])?, base);
+    Ok(())
+}
+
+#[test]
+fn rejected_start_removes_its_pinned_inputs_without_touching_other_runs() -> Result<()> {
+    let (state, engine) = fixture()?;
+    let runs = state.path().join("runs");
+    fs::create_dir_all(runs.join("existing"))?;
+    let project = tempfile::tempdir()?;
+    let root = committed_project(project.path())?;
+    let profile = json!({"worker":{"kind":"custom","executable":std::env::current_exe()?}});
+    let input = json!({"path":root,"prompt":"Test","coordinator":"worker","workers":["worker"],
+        "recipe":{"cases":[{"id":"one","program":"example evaluator","interpreter":"no-such-pantheon-interpreter"}]}});
+    let error = engine.start(input, profile).unwrap_err();
+    assert!(
+        error.to_string().contains("interpreter unavailable"),
+        "{error}"
+    );
+    assert!(engine.store.list()?.is_empty());
+    assert_eq!(fs::read_dir(&runs)?.count(), 1);
+    assert!(runs.join("existing").is_dir());
+    Ok(())
+}
