@@ -2,7 +2,7 @@ import { ImplementationDetails, ExperimentHelp, implementationLabel } from "./im
 import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { Dialog } from "./dialog.jsx";
-import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
+import { runTitle, shortSummary, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
 import React, { useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
@@ -53,7 +53,7 @@ function InboxItem({ run, issue, type, act, open, busy }) {
     </> : <>
       <h2>{issue.title || issue.id}</h2><p>Blocked · {issue.worker}</p>
       {issue.finding && <Markdown>{issue.finding}</Markdown>}
-      <div className="actions"><button disabled={busy} onClick={() => act(run, { kind: "resume", task: issue.id, tokens: run.input.token_target })}>Retry milestone</button>{dismiss}</div>
+      <div className="actions">{canRetryMilestone(run, issue) && <button disabled={busy} onClick={() => act(run, { kind: "resume", task: issue.id, tokens: retryTokens(run) })}>Retry milestone</button>}{dismiss}</div>
     </>}
   </article>;
 }
@@ -118,20 +118,27 @@ function Charts({ run, candidates, rule, policy, includeSuperseded }) {
   </section>;
 }
 
-function Cases({ run, candidates, api, perform }) {
+function Cases({ run, candidates, api }) {
   const [reports, setReports] = useState(null);
   const [filter, setFilter] = useState("All cases");
   const withEvidence = candidates.filter((c) => c.evidence);
   const [failed, setFailed] = useState(0);
-  const load = () => perform(async () => {
-    const results = await Promise.allSettled(withEvidence.map(async (c) =>
-      [c, await api("/runs/" + run.id + "/evidence/" + c.id)]));
-    const available = results.filter((result) => result.status === "fulfilled");
-    setReports(available.map((result) => result.value));
-    setFailed(results.length - available.length);
-  }, "Loading case results…");
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const results = await Promise.allSettled(withEvidence.map(async (c) =>
+        [c, await api("/runs/" + run.id + "/evidence/" + c.id)]));
+      const available = results.filter((result) => result.status === "fulfilled");
+      setReports(available.map((result) => result.value));
+      setFailed(results.length - available.length);
+    } finally {
+      setLoading(false);
+    }
+  };
   if (!withEvidence.length) return null;
-  if (!reports) return <button onClick={load}>Compare case results</button>;
+  if (!reports) return <button disabled={loading} onClick={load}>{loading ? "Loading case results…" : "Compare case results"}</button>;
   const keys = [...new Set(reports.flatMap(([, report]) => (report.samples || []).map((s) => s.case)))];
   const rows = keys.map((name) => {
     const cells = reports.map(([, report]) => (report.samples || []).filter((s) => s.case === name));
@@ -148,7 +155,7 @@ function Cases({ run, candidates, api, perform }) {
     <h3>Case results</h3>
     {failed > 0 && <div className="notice">
       <p role="status">Couldn’t load case results for {failed} {failed === 1 ? "implementation" : "implementations"}.</p>
-      <button onClick={load}>Reload case results</button>
+      <button disabled={loading} onClick={load}>Reload case results</button>
     </div>}
     {keys.length > 0 && <label>Show<select value={filter} onChange={(event) => setFilter(event.target.value)}>
       <option>All cases</option><option>Improvements</option><option>Regressions</option>
@@ -177,8 +184,12 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   const [target, setTarget] = useState("");
   const [detail, setDetail] = useState("");
   const [savedCases, setSavedCases] = useState(null);
+  const [loadingCases, setLoadingCases] = useState(false);
+  const [casesError, setCasesError] = useState("");
   const [ab, setAB] = useState({});
   const [history, setHistory] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [inspected, setInspected] = useState("");
   const [expandedGroup, setExpandedGroup] = useState("");
   const [round, setRound] = useState(0);
@@ -203,14 +214,37 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     (!q.tasks?.length || q.tasks.some((task) => winner?.tasks?.includes(task))));
   const rule = run.policies?.find((entry) => entry.revision === latestPolicy)?.rule ||
     (latestPolicy === run.policy ? run.input.recipe.rule : null);
-  const loadCases = (before = "") => perform(async () => {
-    const batch = await api("/runs/" + run.id + "/cases" + (before ? "?before=" + before : ""));
-    setSavedCases(before ? [...savedCases, ...batch] : batch);
-  });
-  const loadHistory = (before = "") => perform(async () => {
-    const batch = await api("/runs/" + run.id + "/history" + (before ? "?before=" + before : ""));
-    setHistory(before ? [...history, ...batch] : batch);
-  });
+  const loadCases = async (before = "") => {
+    if (loadingCases) return;
+    setLoadingCases(true);
+    setCasesError("");
+    try {
+      const batch = await api("/runs/" + run.id + "/cases" + (before ? "?before=" + before : ""));
+      setSavedCases((current) => before && current ? [...current, ...batch] : batch);
+    } catch (problem) {
+      setCasesError(problem.message);
+    } finally {
+      setLoadingCases(false);
+    }
+  };
+  const loadHistory = async (before = "") => {
+    if (loadingHistory) return;
+    setLoadingHistory(true);
+    setHistoryError("");
+    try {
+      const batch = await api("/runs/" + run.id + "/history" + (before ? "?before=" + before : ""));
+      setHistory((current) => before && current ? [...current, ...batch] : batch);
+    } catch (problem) {
+      setHistoryError(problem.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+  const evalRunning = (run.turns || []).some((t) => t.state === "running" && (t.role === "eval" || (t.role === "worker" && run.state === "evaluating")));
+  const canUpdateSuite = !run.landing && !run.combination && !evalRunning && (
+    ["working", "evaluating", "review", "blocked", "repairing", "budget"].includes(run.state) ||
+    (run.state === "stopped" && !["landed", "planning", "question", "checks"].includes(run.stopped_from))
+  );
   const headline = winner && title(winner);
   const inspectedCandidate = all.find(c => c.id === inspected);
   const group = visibleRound + ":" + latestPolicy;
@@ -339,21 +373,23 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     </div>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
       <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"
-        busy={busy || !["review", "working", "blocked"].includes(run.state)}
+        busy={busy || !canUpdateSuite}
         onApprove={async (recipe) => { const ok = await act({ kind: "update-suite", recipe }); if (ok) setDetail(""); return ok; }} />
     </Dialog>}
     {detail === "cases" && <Dialog title="Project eval cases" onClose={() => setDetail("")}>
-      {!savedCases && (busy ? <p role="status">Loading cases…</p> : <button onClick={() => loadCases()}>Reload cases</button>)}
+      {casesError && <p role="alert" className="notice error">{casesError}</p>}
+      {!savedCases && (loadingCases ? <p role="status">Loading cases…</p> : <button onClick={() => loadCases()}>Reload cases</button>)}
       {savedCases && !savedCases.length && <p>No saved cases for this project.</p>}
       {savedCases?.map((entry) => <article className="row" key={entry.cursor}><strong>{entry.scenario}</strong>
         <p>Expected · {entry.expected}</p><Markdown>{entry.why}</Markdown><small>{entry.active ? "Active in this suite" : entry.state} · Revision {entry.revision} · {entry.author}</small></article>)}
-      {savedCases?.length >= 100 && savedCases.length % 100 === 0 && <button onClick={() => loadCases(savedCases.at(-1).cursor)}>Load older revisions</button>}
+      {savedCases?.length >= 100 && savedCases.length % 100 === 0 && <button disabled={loadingCases} onClick={() => loadCases(savedCases.at(-1).cursor)}>Load older revisions</button>}
     </Dialog>}
     {detail === "history" && <Dialog title="Project run history" onClose={() => setDetail("")}>
-      {!history && (busy ? <p role="status">Loading history…</p> : <button onClick={() => loadHistory()}>Reload history</button>)}
+      {historyError && <p role="alert" className="notice error">{historyError}</p>}
+      {!history && (loadingHistory ? <p role="status">Loading history…</p> : <button onClick={() => loadHistory()}>Reload history</button>)}
       <ul>{history?.map((entry) => <li key={entry.id}><button disabled={entry.id === run.id}
         onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</button></li>)}</ul>
-      {history?.length >= 20 && history.length % 20 === 0 && <button onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
+      {history?.length >= 20 && history.length % 20 === 0 && <button disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
     </Dialog>}
     <form className="form-card" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
@@ -372,25 +408,32 @@ const releaseLabels = {
   "needs-rollback": "Rollback needed", "rolling-back": "Rolling back", "verify-rollback": "Awaiting rollback check",
   "checking-rollback": "Checking rollback", uncertain: "Needs live check", reconcile: "Awaiting live check",
   reconciling: "Checking live state", deployed: "Live and healthy", failed: "Failed", "rolled-back": "Rolled back",
-  superseded: "Superseded",
+  superseded: "Superseded", cancelled: "Canceled",
 };
 
 export function ReleaseList({ run, act, busy }) {
   if (!run.releases?.length) return null;
   return <section>
     <h2>Releases</h2>
-    {run.releases.map((release) => <article key={release.id} className="row">
-      <header><strong>{release.destination}</strong><span className={`state ${release.state === "deployed" ? "passed" : release.state === "failed" ? "failed" : release.state === "uncertain" || release.held ? "question" : ""}`}>
-        {release.held ? "On hold" : releaseLabels[release.state] || release.state}
-      </span></header>
-      <p><code>{release.commit}</code></p>
-      {release.digest && <p>Artifact <code>{release.digest}</code></p>}
-      {release.observed && <p>Live artifact <code>{release.observed}</code></p>}
-      {release.detail && <p>{release.detail}</p>}
-      {release.at && <p>{when(release.at)}</p>}
-      {["queued", "building", "built", "reading-baseline", "staged"].includes(release.state) &&
-        <button disabled={busy} onClick={() => act({ kind: release.held ? "resume-release" : "hold-release", task: release.id })}>{release.held ? "Resume release" : "Hold release"}</button>}
-      {release.state === "uncertain" && <button disabled={busy} onClick={() => act({ kind: "reconcile-release", task: release.id })}>Check live state</button>}
-    </article>)}
+    {run.releases.map((release) => {
+      const running = (run.turns || []).some((t) => t.state === "running" && t.role === "release" && t.task === release.id);
+      return <article key={release.id} className="row">
+        <header><strong>{release.destination}</strong><span className={`state ${release.state === "deployed" ? "passed" : release.state === "failed" ? "failed" : release.state === "uncertain" || release.held ? "question" : ""}`}>
+          {release.held ? "On hold" : releaseLabels[release.state] || release.state}
+        </span></header>
+        <p><code>{release.commit}</code></p>
+        {release.digest && <p>Artifact <code>{release.digest}</code></p>}
+        {release.observed && <p>Live artifact <code>{release.observed}</code></p>}
+        {release.detail && <p>{release.detail}</p>}
+        {release.at && <p>{when(release.at)}</p>}
+        <div className="actions">
+          {["queued", "building", "built", "reading-baseline", "staged"].includes(release.state) &&
+            <button disabled={busy} onClick={() => act({ kind: release.held ? "resume-release" : "hold-release", task: release.id })}>{release.held ? "Resume release" : "Hold release"}</button>}
+          {!running && ["queued", "built", "staged"].includes(release.state) &&
+            <button disabled={busy} onClick={() => act({ kind: "cancel-release", task: release.id })}>Cancel release</button>}
+          {release.state === "uncertain" && <button disabled={busy} onClick={() => act({ kind: "reconcile-release", task: release.id })}>Check live state</button>}
+        </div>
+      </article>;
+    })}
   </section>;
 }

@@ -7,7 +7,7 @@ import "./style.css";
 import "./work.css";
 import { DiffExplorer, TurnOutput } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
-import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
+import { runTitle, shortSummary, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
 import { AgentSetup } from "./setup.jsx";
 import { Brief } from "./brief.jsx";
 import { Experiment, Inbox, ReleaseList, title } from "./experiments.jsx";
@@ -169,7 +169,7 @@ function Milestone({ task, run, busy, act, order, explain }) {
   const added = new Date(task.assigned_at);
   const hasDate = Boolean(task.assigned_at) && Number.isFinite(added.getTime());
   const date = hasDate && <time dateTime={task.assigned_at} title={added.toLocaleString()}>{added.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>;
-  const retry = ["blocked", "interrupted"].includes(task.state);
+  const retry = canRetryMilestone(run, task);
   return <li className="milestone">
     <button className="milestone-link" data-task={task.id} onClick={() => setOpen(true)} aria-haspopup="dialog">
       <span className="milestone-order" aria-label={"Milestone " + order}>{order}</span>
@@ -177,7 +177,7 @@ function Milestone({ task, run, busy, act, order, explain }) {
       <span className="milestone-owner">{task.worker}{task.variant && " · " + task.variant}</span>
       <Status state={task.state} />
     </button>
-    {retry && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: run.input.token_target })}>Retry milestone</button>}
+    {retry && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}>Retry milestone</button>}
     {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
     {open && <Dialog title={task.id.replace(/[-_]+/g, " ")} className="work-detail-dialog" onClose={() => setOpen(false)}>
       <div className="work-details">
@@ -319,7 +319,7 @@ function decisionInputs(run, command) {
     return JSON.stringify((command.text === "question" ? run.inbox : run.tasks)?.find(item => item.id === command.task));
   }
   if (command.kind === "answer-inbox") return JSON.stringify(run.inbox?.find((q) => q.id === command.task));
-  if (["hold-release", "resume-release"].includes(command.kind)) {
+  if (["hold-release", "resume-release", "cancel-release"].includes(command.kind)) {
     return JSON.stringify(run.releases?.find((release) => release.id === command.task));
   }
   const candidates = (run.candidates || []).filter((c) =>
@@ -411,7 +411,7 @@ function App() {
   };
   const send = (run, body) => perform(async () => {
     const guarded = ["dismiss-issue", "restore-issue", "answer-inbox", "select", "keep-baseline", "combine", "new-round", "land", "hold", "unhold",
-      "hold-release", "resume-release", "update-suite"].includes(body.kind);
+      "hold-release", "resume-release", "cancel-release", "update-suite"].includes(body.kind);
     const path = "/runs/" + run.id;
     const id = crypto.randomUUID();
     const original = guarded ? decisionInputs(run, body) : "";
@@ -433,16 +433,18 @@ function App() {
     const controller = new AbortController();
     let timer;
     const sync = async () => {
+      let delay = 750;
       try {
         const latest = await api("/events?after=" + cursor.current, undefined, controller.signal);
         if (controller.signal.aborted) return;
         for (const update of latest) { apply(update.run); cursor.current = update.number; }
+        if (latest.length >= 100) delay = 0;
         setConnectionError(null);
       } catch (problem) {
         if (!controller.signal.aborted) setConnectionError(problem);
         if (problem.status === 401) return;
       }
-      if (!controller.signal.aborted) timer = setTimeout(sync, 750);
+      if (!controller.signal.aborted) timer = setTimeout(sync, delay);
     };
     Promise.all([api("/setup", undefined, controller.signal), api("/snapshot", undefined, controller.signal)]).then(([config, snapshot]) => {
       if (controller.signal.aborted) return;

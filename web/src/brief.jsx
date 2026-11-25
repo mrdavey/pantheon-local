@@ -27,8 +27,18 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
   const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState("");
   const [importError, setImportError] = useState("");
+  const [briefNotice, setBriefNotice] = useState("");
+  const [briefError, setBriefError] = useState("");
   const [picking, setPicking] = useState(false);
   const [dragging, setDragging] = useState(false);
+  async function runBriefTask(fn, message) {
+    if (briefNotice) return;
+    setBriefError("");
+    setBriefNotice(message);
+    try { await fn(); }
+    catch (error) { setBriefError(error.message); }
+    finally { setBriefNotice(""); }
+  }
   function addFiles(additions) {
     try { setFiles(addAttachments(files, additions)); setFileError(""); }
     catch (error) { setFileError(error.message); }
@@ -67,7 +77,8 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
       setLoadingDestinations(false);
     }
   }
-  const ready = !busy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
+  const formBusy = busy || Boolean(briefNotice);
+  const ready = !formBusy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
   const create = (event) => {
     event.preventDefault();
     if (!ready) return;
@@ -91,10 +102,12 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
         <textarea id="run-goal" required rows={4} value={prompt} placeholder="Describe the change you want to make…" onChange={event => setPrompt(event.target.value)} />
         <FileList names={files.map(file => file.name)} remove={i => setFiles(current => current.filter((_, index) => i !== index))} />
         {fileError && <p role="alert" className="notice error">{fileError}</p>}
+        {briefError && <p role="alert" className="notice error">{briefError}</p>}
+        {briefNotice && <p role="status" className="notice">{briefNotice}</p>}
         <div className="composer-tools">
-          <AttachmentButton add={addFiles} busy={busy} />
-          <button type="button" className="text-button" disabled={busy || !prompt.trim() || !advisorName}
-            onClick={() => perform(async () => setSuggestion(await api("/advice", { profile: advisorName, prompt, attachments: await encodeAttachments(files) })), "Improving brief…")}>Improve brief</button>
+          <AttachmentButton add={addFiles} busy={formBusy} />
+          <button type="button" className="text-button" disabled={formBusy || !prompt.trim() || !advisorName}
+            onClick={() => runBriefTask(async () => setSuggestion(await api("/advice", { profile: advisorName, prompt, attachments: await encodeAttachments(files) })), "Improving brief…")}>Improve brief</button>
           <button className="primary start-run" aria-label="Start run" type="submit" disabled={!ready}>Start run <span aria-hidden="true">↑</span></button>
         </div>
       </div>
@@ -108,7 +121,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
         <label htmlFor="project-folder">Project folder</label>
         <div className="path-controls">
           <input id="project-folder" required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => changePath(event.target.value)} placeholder="/path/to/project" />
-          <button type="button" disabled={busy} onClick={() => perform(async () => {
+          <button type="button" disabled={formBusy} onClick={() => runBriefTask(async () => {
             const folder = await api("/project-folder", {});
             if (folder) changePath(folder);
           }, "Choosing a folder…")}>Browse…</button>

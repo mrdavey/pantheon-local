@@ -21,8 +21,28 @@ export function runTitle(run) {
 }
 
 export function blockedTasks(run) {
-  return run.state === "working" || run.state === "blocked"
-    ? (run.tasks || []).slice(run.task_start || 0).filter((task) => task.state === "blocked") : [];
+  if (run.state === "working" || run.state === "blocked") {
+    return (run.tasks || []).slice(run.task_start || 0).filter((task) => task.state === "blocked");
+  }
+  if (run.state === "evaluating" || run.state === "review") {
+    return (run.tasks || []).slice(run.task_start || 0).filter((task) => task.state === "blocked" && task.conflict);
+  }
+  return [];
+}
+
+export function overTokenTarget(run) {
+  return run.state === "budget" || ((run.input?.token_target || 0) > 0 && (run.tokens || 0) >= run.input.token_target);
+}
+
+export function canRetryMilestone(run, task) {
+  if (!["blocked", "interrupted"].includes(task.state)) return false;
+  if (run.state === "stopped" && (run.turns || []).some((t) => t.state === "running")) return false;
+  if (["stopped", "blocked", "budget", "working"].includes(run.state)) return true;
+  return Boolean(task.conflict) && ["evaluating", "review"].includes(run.state);
+}
+
+export function retryTokens(run) {
+  return overTokenTarget(run) ? 0 : run.input.token_target;
 }
 
 export function shortSummary(value, limit = 120) {

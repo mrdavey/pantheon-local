@@ -6,6 +6,7 @@ struct Client<'a, F> {
     emit: &'a F,
     session: String,
     text: String,
+    previous_text: String,
     message_id: String,
     id: u64,
 }
@@ -61,10 +62,17 @@ impl<F: Fn(Value)> Client<'_, F> {
                         if let Some(id) = update["messageId"].as_str()
                             && id != self.message_id
                         {
+                            if !self.text.is_empty() {
+                                self.previous_text = std::mem::take(&mut self.text);
+                            }
                             self.message_id = id.to_owned();
-                            self.text.clear();
                         }
                         self.text.push_str(text);
+                    } else if kind == "tool_call"
+                        && self.message_id.is_empty()
+                        && !self.text.is_empty()
+                    {
+                        self.previous_text = std::mem::take(&mut self.text);
                     }
                     (self.emit)(
                         json!({"type":kind,"session":self.session,"text":text,"raw":event["params"]}),
@@ -206,6 +214,7 @@ pub(super) fn exchange(
         emit,
         session: field(r, "session").into(),
         text: String::new(),
+        previous_text: String::new(),
         message_id: String::new(),
         id: 0,
     };
@@ -247,16 +256,26 @@ pub(super) fn exchange(
         )?;
     }
     c.text.clear();
+    c.previous_text.clear();
     let result = c.call(
         "session/prompt",
         json!({"sessionId":c.session,"prompt":[{"type":"text","text":field(r,"prompt")}]}),
     );
+    if c.text.is_empty() && !c.previous_text.is_empty() {
+        c.text = std::mem::take(&mut c.previous_text);
+    }
     match result {
         Ok(result) if result["stopReason"] == "end_turn" && !c.text.is_empty() => {
-            if r["role"] == "worker"
-                && let Some(receipt) = worker_receipt(&c.text)
-            {
-                c.text = serde_json::to_string(&receipt)?;
+            if r["role"] == "worker" && super::decode_typed_outcome("worker", &c.text).is_err() {
+                if let Some(receipt) = worker_receipt(&c.text) {
+                    c.text = serde_json::to_string(&receipt)?;
+                } else if !c.previous_text.is_empty() {
+                    let combined =
+                        format!("{}\n\n{}", c.previous_text.trim_end(), c.text.trim_start());
+                    if let Some(receipt) = worker_receipt(&combined) {
+                        c.text = serde_json::to_string(&receipt)?;
+                    }
+                }
             }
             Ok(json!({"session":c.session,"text":c.text}))
         }
@@ -315,6 +334,48 @@ mod tests {
             format!("{original}\nunexpected prose"),
         ] {
             assert!(worker_receipt(&invalid).is_none());
+        }
+        Ok(())
+    }
+    #[test]
+    fn acp_worker_handles_unkeyed_tool_boundaries_and_split_verifier_messages() -> Result<()> {
+        for script in [
+            // Unkeyed progress before a tool call followed by unkeyed JSON receipt without newline.
+            concat!(
+                "read _init\n",
+                "echo '{\"id\":1,\"result\":{\"agentCapabilities\":{\"loadSession\":true}}}'\n",
+                "read _load\n",
+                "echo '{\"id\":2,\"result\":{}}'\n",
+                "read _prompt\n",
+                "echo '{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"text\":\"Inspecting files.\"}}}}'\n",
+                "echo '{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call\",\"title\":\"git\"}}}'\n",
+                "echo '{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"text\":\"{\\\"status\\\":\\\"committed\\\",\\\"commit\\\":\\\"abc\\\",\\\"message\\\":\\\"Done\\\"}\"}}}}'\n",
+                "echo '{\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}'\n",
+            ),
+            // Keyed JSON receipt followed by a separate messageId verifier warning.
+            concat!(
+                "read _init\n",
+                "echo '{\"id\":1,\"result\":{\"agentCapabilities\":{\"loadSession\":true}}}'\n",
+                "read _load\n",
+                "echo '{\"id\":2,\"result\":{}}'\n",
+                "read _prompt\n",
+                "echo '{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"messageId\":\"m1\",\"content\":{\"text\":\"{\\\"status\\\":\\\"committed\\\",\\\"commit\\\":\\\"abc\\\",\\\"message\\\":\\\"Done\\\"}\"}}}}'\n",
+                "echo '{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"messageId\":\"m2\",\"content\":{\"text\":\"⚠️ File-mutation verifier: 1 edit failed\\n  • scratch: denied\"}}}}'\n",
+                "echo '{\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}'\n",
+            ),
+        ] {
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()?;
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let req = json!({"role":"worker","session":"s1","dir":".","prompt":"test","profile":{"kind":"hermes"}});
+            let out = exchange(&req, stdin, stdout, &|_| {})?;
+            let _ = child.wait();
+            let decoded = super::super::decode_typed_outcome("worker", field(&out, "text"))?;
+            assert_eq!(decoded["commit"], "abc");
         }
         Ok(())
     }

@@ -91,11 +91,12 @@ pub fn preview(dir: &Path) -> io::Result<String> {
 // A chunk may end inside a JSON escape or a UTF-16 surrogate pair.
 fn reply_prefix(raw: &str) -> Option<String> {
     let raw = raw.trim_start();
-    let mut input = raw
-        .strip_prefix("```json\n")
-        .unwrap_or(raw)
-        .trim_start()
-        .strip_prefix('{')?;
+    let unfenced = raw
+        .strip_prefix("```json")
+        .or_else(|| raw.strip_prefix("```"))
+        .filter(|rest| rest.starts_with('\n') || rest.starts_with("\r\n"))
+        .unwrap_or(raw);
+    let mut input = unfenced.trim_start().strip_prefix('{')?;
     loop {
         let mut key = serde_json::Deserializer::from_str(input).into_iter::<String>();
         let name = key.next()?.ok()?;
@@ -176,6 +177,10 @@ mod tests {
         assert_eq!(
             reply_prefix(r#"{"reply":"Hello "#).as_deref(),
             Some("Hello ")
+        );
+        assert_eq!(
+            reply_prefix("```\r\n{\"reply\":\"Fenced\"}\r\n```").as_deref(),
+            Some("Fenced")
         );
         assert_eq!(reply_prefix("private thoughts"), None);
     }
