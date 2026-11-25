@@ -8,7 +8,7 @@ use std::{
     env,
     fs::{self, File},
     io::{Read, Seek, Write},
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -19,6 +19,14 @@ const MAX_DRIVER: u64 = 4 << 20;
 const MAX_RECEIPT: u64 = 256 << 10;
 const TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
+fn null_default<'de, D, T>(deserializer: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct Recipe {
@@ -26,45 +34,61 @@ struct Recipe {
     checks: Option<Vec<Vec<String>>>,
     preview: Option<Vec<String>>,
     rule: Option<Rule>,
+    #[serde(deserialize_with = "null_default")]
     rubric: String,
 }
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct Case {
+    #[serde(deserialize_with = "null_default")]
     id: String,
+    #[serde(deserialize_with = "null_default")]
     revision: u32,
+    #[serde(deserialize_with = "null_default")]
     driver: String,
+    #[serde(deserialize_with = "null_default")]
     program: String,
+    #[serde(deserialize_with = "null_default")]
     interpreter: String,
+    #[serde(deserialize_with = "null_default")]
     digest: String,
     input: Value,
     expected: Value,
+    #[serde(deserialize_with = "null_default")]
     samples: u32,
+    #[serde(deserialize_with = "null_default")]
     seed: i64,
+    #[serde(deserialize_with = "null_default")]
     required: bool,
+    #[serde(deserialize_with = "null_default")]
     holdback: bool,
 }
 #[derive(Deserialize)]
 struct Rule {
+    #[serde(default, deserialize_with = "null_default")]
     metrics: Vec<Metric>,
+    #[serde(default, deserialize_with = "null_default")]
     objective: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     minimum: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     min_lead: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     min_samples: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     tie_break: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     limits: BTreeMap<String, f64>,
 }
 #[derive(Deserialize)]
 struct Metric {
+    #[serde(default, deserialize_with = "null_default")]
     name: String,
+    #[serde(default, deserialize_with = "null_default")]
     unit: String,
+    #[serde(default, deserialize_with = "null_default")]
     direction: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     aggregate: String,
 }
 #[derive(Deserialize)]
@@ -102,6 +126,16 @@ impl Recipe {
     }
 }
 fn recipe(value: &Value) -> Result<Recipe> {
+    if value["rule"]
+        .as_object()
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        let mut copy = value.clone();
+        if let Some(obj) = copy.as_object_mut() {
+            obj.remove("rule");
+        }
+        return Ok(Recipe::deserialize(copy)?);
+    }
     Ok(Recipe::deserialize(value)?)
 }
 
@@ -201,6 +235,13 @@ pub fn pin(value: &Value, dir: &Path) -> Result<Value> {
     validate(value)?;
     let r = recipe(value)?;
     let mut pinned = value.clone();
+    if pinned["rule"]
+        .as_object()
+        .is_some_and(serde_json::Map::is_empty)
+        && let Some(obj) = pinned.as_object_mut()
+    {
+        obj.remove("rule");
+    }
     for (i, c) in r.cases().iter().enumerate() {
         let mut bytes = vec![];
         if c.driver.is_empty() {
@@ -287,6 +328,27 @@ pub fn inputs(value: &Value, commit: &str) -> Result<String> {
     crate::compat::inputs_digest(&frozen, commit, &json!(binaries))
 }
 
+fn resolve_sandbox_path(p: &Path) -> Result<PathBuf> {
+    if let Ok(canon) = p.canonicalize() {
+        return Ok(canon);
+    }
+    let mut suffix = Vec::new();
+    let mut cur = p;
+    while let Some(parent) = cur.parent() {
+        if let Some(name) = cur.file_name() {
+            suffix.push(name);
+        }
+        if let Ok(mut base) = parent.canonicalize() {
+            for part in suffix.into_iter().rev() {
+                base.push(part);
+            }
+            return Ok(base);
+        }
+        cur = parent;
+    }
+    Ok(p.to_owned())
+}
+
 pub fn command(dir: &Path, data: &Path, args: &[String], scope: &Value) -> Result<Command> {
     scoped_command(dir, data, args, scope, None)
 }
@@ -301,12 +363,17 @@ fn scoped_command(
     let mut cmd = if cfg!(target_os = "macos") {
         fn quoted(p: &Path) -> Result<String> {
             Ok(serde_json::to_string(
-                &p.canonicalize()
-                    .unwrap_or_else(|_| p.to_owned())
+                resolve_sandbox_path(p)?
                     .to_str()
                     .context("invalid sandbox path")?,
             )?)
         }
+        let dir_resolved = resolve_sandbox_path(dir)?;
+        let data_resolved = resolve_sandbox_path(data)?;
+        ensure!(
+            dir_resolved != Path::new("/") && data_resolved != Path::new("/"),
+            "invalid sandbox directory"
+        );
         let outside = format!(
             "(require-not (subpath {})) (require-not (subpath {}))",
             quoted(dir)?,
@@ -315,15 +382,29 @@ fn scoped_command(
         let mut policy = format!(
             "(version 1) (allow default) (deny file-write* (require-all {outside} (require-not (literal \"/dev/null\")))) "
         );
-        let mut blocked: Vec<PathBuf> = ["repository", "state"]
+        let mut blocked: Vec<PathBuf> = ["repository", "common", "state"]
             .iter()
             .filter_map(|k| scope[*k].as_str())
             .filter(|s| !s.is_empty())
             .map(PathBuf::from)
             .collect();
+        for var in ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "HERMES_HOME"] {
+            if let Some(p) = env::var_os(var)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+            {
+                blocked.push(p);
+            }
+        }
         if let Some(home) = env::var_os("HOME") {
-            for name in [".codex", ".claude", ".hermes", ".gemini"] {
-                blocked.push(Path::new(&home).join(name));
+            let home = Path::new(&home);
+            for name in [".codex", ".claude", ".claude.json", ".hermes", ".gemini"] {
+                blocked.push(home.join(name));
+            }
+            if let Ok(suffix) = env::var("HERMES_DATA_DIR_SUFFIX")
+                && !suffix.is_empty()
+            {
+                blocked.push(home.join(format!(".hermes{suffix}")));
             }
         }
         let except = match driver {
@@ -337,7 +418,7 @@ fn scoped_command(
             );
         }
         let mut cmd = Command::new("/usr/bin/sandbox-exec");
-        cmd.arg("-p").arg(policy).arg(exe);
+        cmd.arg("-p").arg(policy).arg("--").arg(exe);
         cmd
     } else {
         Command::new(exe)
@@ -429,7 +510,20 @@ pub(crate) fn execute(
     } else {
         None
     };
-    let mut child = cmd.spawn().context("launch approved program")?;
+    let mut child = cmd
+        .process_group(0)
+        .spawn()
+        .context("launch approved program")?;
+    let pgid = nix::unistd::Pid::from_raw(child.id() as i32);
+    struct GroupGuard(nix::unistd::Pid);
+    impl Drop for GroupGuard {
+        fn drop(&mut self) {
+            let _ = nix::sys::signal::killpg(self.0, nix::sys::signal::Signal::SIGKILL);
+            crate::supervisor::set_active_child_group(0);
+        }
+    }
+    crate::supervisor::set_active_child_group(pgid.as_raw());
+    let _group = GroupGuard(pgid);
     // Command retains its configured descriptors for subsequent spawn calls.
     cmd.stdout(Stdio::null());
     let reader = socket.map(|stream| std::thread::spawn(move || read_receipt(stream, deadline)));
@@ -437,6 +531,7 @@ pub(crate) fn execute(
         .wait_timeout(deadline.saturating_duration_since(Instant::now()))
         .context("wait for approved program")?
     else {
+        let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
         let _ = child.kill();
         let _ = child.wait();
         bail!("approved program timed out");
@@ -505,6 +600,14 @@ pub fn supervise(jobdir: &Path, job: &Value, log: &mut File) -> Result<()> {
     let dir = job["request"]["dir"]
         .as_str()
         .context("missing eval directory")?;
+    if let Some(checkout) = job["checkout"].as_str().filter(|s| !s.is_empty()) {
+        let expected =
+            crate::project::subdir(Path::new(checkout), job["subdir"].as_str().unwrap_or("."))?;
+        ensure!(
+            Path::new(dir).canonicalize()? == expected,
+            "eval directory escaped checkout"
+        );
+    }
     let commit = job["expected_commit"]
         .as_str()
         .context("missing eval commit")?;
@@ -730,5 +833,28 @@ mod tests {
                 && data.join("inside").exists()
                 && !r.path().join("outside").exists()
         );
+        assert!(command(Path::new("/"), &data, &args, &json!({})).is_err());
+    }
+    #[test]
+    fn empty_rule_and_explicit_nulls_normalize_cleanly() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = json!({
+            "checks": [["true"]],
+            "cases": [],
+            "rubric": null,
+            "rule": {}
+        });
+        validate(&raw)?;
+        let pinned = pin(&raw, dir.path())?;
+        assert!(pinned["rule"].is_null());
+        let alias = dir.path().join("link");
+        let real = dir.path().join("real");
+        fs::create_dir(&real)?;
+        std::os::unix::fs::symlink(&real, &alias)?;
+        assert_eq!(
+            resolve_sandbox_path(&alias.join("missing/.codex"))?,
+            real.canonicalize()?.join("missing/.codex")
+        );
+        Ok(())
     }
 }

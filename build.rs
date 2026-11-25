@@ -2,6 +2,7 @@ use std::{env, fs, io, path::Path};
 
 fn assets(root: &Path, dir: &Path, code: &mut String) -> io::Result<()> {
     if dir.exists() {
+        println!("cargo:rerun-if-changed={}", dir.display());
         let mut entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
@@ -9,6 +10,7 @@ fn assets(root: &Path, dir: &Path, code: &mut String) -> io::Result<()> {
             if path.is_dir() {
                 assets(root, &path, code)?;
             } else {
+                println!("cargo:rerun-if-changed={}", path.display());
                 let route = path.strip_prefix(root).unwrap().to_string_lossy();
                 let mime = match path.extension().and_then(|v| v.to_str()) {
                     Some("html") => "text/html; charset=utf-8",

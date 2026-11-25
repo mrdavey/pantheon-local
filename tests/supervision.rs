@@ -19,7 +19,9 @@ use std::{
 #[test]
 fn cancellation_reaps_the_worker_group() -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let dir = temp.path();
+    let nested = temp.path().join("résumé turn ");
+    fs::create_dir(&nested)?;
+    let dir = nested.as_path();
     let worker = example::native_fixture(dir, "mock-resistant")?;
     fs::write(
         dir.join("job.json"),

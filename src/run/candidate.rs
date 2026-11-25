@@ -176,8 +176,16 @@ impl Engine {
                 }
             }
         }
+        let cwd = match project::subdir(Path::new(dir), s(&r["repo"], "Subdir")) {
+            Ok(path) => path,
+            Err(e) => {
+                r["candidates"][i]["state"] = json!("failed");
+                r["candidates"][i]["detail"] = json!(e.to_string());
+                return self.save(r, "eval-subdir-unavailable");
+            }
+        };
         c["state"] = json!("evaluating");
-        let job = json!({"request":{"dir":Path::new(dir).join(s(&r["repo"],"Subdir"))},"recipe":recipe,"expected_commit":c["commit"],"inputs":s(&c,"inputs"),"scope":{"repository":r["repo"]["Root"],"state":self.dir}});
+        let job = json!({"request":{"dir":cwd},"checkout":dir,"subdir":s(&r["repo"],"Subdir"),"recipe":recipe,"expected_commit":c["commit"],"inputs":s(&c,"inputs"),"scope":{"repository":r["repo"]["Root"],"common":r["repo"]["Common"],"state":self.dir}});
         r["candidates"][i] = c.clone();
         self.dispatch(r, "eval", s(&c, "id"), job)
     }

@@ -8,13 +8,25 @@ use serde_json::{Value, json};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, BufWriter, Read, Seek, SeekFrom, Write},
-    os::unix::{fs::OpenOptionsExt, process::CommandExt},
+    os::unix::{
+        fs::{OpenOptionsExt, PermissionsExt},
+        process::CommandExt,
+    },
     path::Path,
     process::{Command, Stdio},
-    sync::Mutex,
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicI32, Ordering},
+    },
     thread,
     time::Duration,
 };
+
+static ACTIVE_CHILD_PGID: AtomicI32 = AtomicI32::new(0);
+
+pub(crate) fn set_active_child_group(pgid: i32) {
+    ACTIVE_CHILD_PGID.store(pgid, Ordering::Release);
+}
 
 pub fn log_tail(path: &Path, limit: u64) -> io::Result<String> {
     let mut file = File::open(path)?;
@@ -68,31 +80,57 @@ pub fn supervise(dir: &Path) -> Result<()> {
     let own_group = getpgid(None)? == Pid::this();
     let mut signals = signal_hook::iterator::Signals::new([signal_hook::consts::SIGTERM])?;
     let signal_handle = signals.handle();
+    let done = Arc::new((Mutex::new(false), Condvar::new()));
+    let done_wait = done.clone();
     let watchdog = thread::spawn(move || {
-        if signals.forever().next().is_some() && own_group {
-            thread::sleep(Duration::from_millis(750));
-            let _ = killpg(Pid::this(), Signal::SIGKILL);
+        if signals.forever().next().is_some() {
+            let child = ACTIVE_CHILD_PGID.load(Ordering::Acquire);
+            if child > 1 {
+                let _ = killpg(Pid::from_raw(child), Signal::SIGTERM);
+            }
+            if own_group {
+                let (lock, cvar) = &*done_wait;
+                let guard = lock.lock().unwrap();
+                let (guard, _) = cvar
+                    .wait_timeout_while(guard, Duration::from_millis(750), |finished| !*finished)
+                    .unwrap();
+                if !*guard {
+                    let child = ACTIVE_CHILD_PGID.load(Ordering::Acquire);
+                    if child > 1 {
+                        let _ = killpg(Pid::from_raw(child), Signal::SIGKILL);
+                    }
+                    let _ = killpg(Pid::this(), Signal::SIGKILL);
+                }
+            }
         }
     });
-    let mut claim = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.join("claim"))?;
-    writeln!(claim, "{}", std::process::id())?;
-    claim.sync_all()?;
-    drop(claim);
+    let mut pending_claim = tempfile::NamedTempFile::new_in(dir)?;
+    pending_claim
+        .as_file()
+        .set_permissions(fs::Permissions::from_mode(0o600))?;
+    writeln!(pending_claim, "{}", std::process::id())?;
+    pending_claim.as_file().sync_all()?;
+    fs2::FileExt::try_lock_exclusive(pending_claim.as_file()).context("claim already held")?;
+    let claim = pending_claim
+        .persist_noclobber(dir.join("claim"))
+        .map_err(|e| e.error)?;
     let result = match execute(dir) {
         Ok(v) => v,
         Err(e) => json!({"error":e.to_string()}),
     };
     let written = write_json(&dir.join("result.json"), &result);
+    {
+        let (lock, cvar) = &*done;
+        *lock.lock().unwrap() = true;
+        cvar.notify_all();
+    }
     signal_handle.close();
+    let _ = watchdog.join();
+    drop(claim);
     // A cancelled job can finish while ignored children remain in its group.
     if own_group && dir.join("stop").is_file() {
         let _ = killpg(Pid::this(), Signal::SIGKILL);
     }
-    let _ = watchdog.join();
     written
 }
 fn execute(dir: &Path) -> Result<Value> {
@@ -142,26 +180,33 @@ fn execute(dir: &Path) -> Result<Value> {
     Ok(result)
 }
 fn identity(dir: &Path) -> Result<Option<Pid>> {
-    let raw = match fs::read_to_string(dir.join("claim")) {
-        Ok(s) => s,
+    let mut file = match File::open(dir.join("claim")) {
+        Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
     };
+    let active = match fs2::FileExt::try_lock_shared(&file) {
+        Ok(()) => {
+            let _ = fs2::FileExt::unlock(&file);
+            false
+        }
+        Err(e)
+            if e.kind() == io::ErrorKind::WouldBlock
+                || e.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+        {
+            true
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if !active {
+        return Ok(None);
+    }
+    let mut raw = String::new();
+    file.read_to_string(&mut raw)?;
     let raw: i32 = raw.trim().parse().context("invalid process identity")?;
     ensure!(raw > 1, "invalid process identity");
     let pid = Pid::from_raw(raw);
-    if getpgid(Some(pid)) != Ok(pid) {
-        return Ok(None);
-    }
-    let output = Command::new("ps")
-        .args(["-ww", "-p", &raw.to_string(), "-o", "command="])
-        .output()?;
-    let suffix = format!(" _supervise {}", dir.display());
-    Ok((output.status.success()
-        && String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .ends_with(&suffix))
-    .then_some(pid))
+    Ok((getpgid(Some(pid)) == Ok(pid)).then_some(pid))
 }
 pub fn reception(dir: &Path) -> Option<Value> {
     receive(dir, || identity(dir).ok().flatten().is_some())
@@ -235,6 +280,9 @@ mod tests {
         assert_eq!(log_tail(&path, 100)?, "prefix…ok");
         assert_eq!(log_tail(&path, 3)?, "�ok");
         assert_eq!(log_tail(&path, 0)?, "");
+        assert_eq!(identity(dir.path())?, None);
+        fs::write(dir.path().join("claim"), "")?;
+        assert_eq!(identity(dir.path())?, None);
         Ok(())
     }
 }

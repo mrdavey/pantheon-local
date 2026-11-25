@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::{
     env, fs,
     io::{self, BufRead, BufReader, Read, Seek, Write},
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     thread,
@@ -59,10 +59,17 @@ pub fn installed(name: &str) -> bool {
     env::var_os("PATH")
         .is_some_and(|paths| env::split_paths(&paths).any(|p| executable(p.join(name))))
 }
-fn inspect(p: &Value, args: &[&str], timeout: u64, combined: bool) -> Result<(bool, String)> {
+fn inspect(
+    p: &Value,
+    args: &[&str],
+    timeout: u64,
+    combined: bool,
+    state: Option<&Path>,
+) -> Result<(bool, String)> {
     let mut capture = tempfile::tempfile()?;
     let mut cmd = Command::new(binary(p).as_ref());
     cmd.args(args)
+        .process_group(0)
         .stdin(Stdio::null())
         .stdout(capture.try_clone()?);
     if combined {
@@ -70,15 +77,21 @@ fn inspect(p: &Value, args: &[&str], timeout: u64, combined: bool) -> Result<(bo
     } else {
         cmd.stderr(Stdio::null());
     }
+    if let Some(state) = state {
+        crate::run::release::scrub_worker(&mut cmd, state)?;
+    }
     let mut child = cmd.spawn()?;
+    let pgid = nix::unistd::Pid::from_raw(child.id() as i32);
     let status = match child.wait_timeout(Duration::from_secs(timeout))? {
         Some(s) => s,
         None => {
+            let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
             let _ = child.kill();
             let _ = child.wait();
             bail!("agent status probe timed out")
         }
     };
+    let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
     capture.rewind()?;
     let mut out = Vec::new();
     capture.take(64 * 1024).read_to_end(&mut out)?;
@@ -87,25 +100,25 @@ fn inspect(p: &Value, args: &[&str], timeout: u64, combined: bool) -> Result<(bo
         String::from_utf8_lossy(&out).trim().into(),
     ))
 }
-pub fn probe(p: &Value) -> Result<String> {
+pub fn probe(p: &Value, state: Option<&Path>) -> Result<String> {
     validate(p)?;
-    let (ok, version) = inspect(p, &["--version"], 5, true)?;
+    let (ok, version) = inspect(p, &["--version"], 5, true, state)?;
     ensure!(ok, "{} version probe failed", binary(p));
     Ok(version)
 }
-pub fn availability(p: &Value) -> Value {
+pub fn availability(p: &Value, state: Option<&Path>) -> Value {
     let state = if validate(p).is_err() {
         "invalid"
     } else if !installed(&binary(p)) {
         "missing"
     } else {
         match field(p, "kind") {
-            "codex" => match inspect(p, &["login", "status"], 2, true) {
+            "codex" => match inspect(p, &["login", "status"], 2, true, state) {
                 Ok((_, s)) if s.to_lowercase().starts_with("not logged in") => "sign-in",
                 Ok((true, s)) if s.to_lowercase().starts_with("logged in") => "connected",
                 _ => "sign-in-unknown",
             },
-            "claude" => match inspect(p, &["auth", "status", "--json"], 2, false)
+            "claude" => match inspect(p, &["auth", "status", "--json"], 2, false, state)
                 .ok()
                 .and_then(|(_, s)| serde_json::from_str::<Value>(&s).ok())
                 .and_then(|v| v["loggedIn"].as_bool())
@@ -201,8 +214,11 @@ fn line(input: &mut impl BufRead, buf: &mut Vec<u8>) -> Result<bool> {
 struct Process(Child);
 impl Drop for Process {
     fn drop(&mut self) {
+        let pgid = nix::unistd::Pid::from_raw(self.0.id() as i32);
+        let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
         let _ = self.0.kill();
         let _ = self.0.wait();
+        crate::supervisor::set_active_child_group(0);
     }
 }
 pub fn run(r: &Value, state: Option<&Path>, emit: impl Fn(Value) + Sync) -> Value {
@@ -217,6 +233,7 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
     let mut cmd = Command::new(binary(p).as_ref());
     cmd.args(args(r))
         .current_dir(field(r, "dir"))
+        .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -227,7 +244,9 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
         cmd.spawn()
             .with_context(|| format!("start {}", binary(p)))?,
     );
+    crate::supervisor::set_active_child_group(proc.0.id() as i32);
     let child = &mut proc.0;
+    let pgid = nix::unistd::Pid::from_raw(child.id() as i32);
     let stderr = child.stderr.take().context("missing stderr")?;
     let stdin = child.stdin.take().context("missing stdin")?;
     let stdout = child.stdout.take().context("missing stdout")?;
@@ -258,9 +277,11 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
             stream(r, stdin, stdout, emit)
         };
         if acp || codex_chat || result.is_err() {
+            let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
             let _ = child.kill();
         }
         let status = child.wait()?;
+        let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
         let result = result?;
         ensure!(
             acp || codex_chat || status.success() || !field(&result, "error").is_empty(),
@@ -364,11 +385,14 @@ fn stream(
 }
 pub fn decode_outcome(text: &str) -> Result<Value> {
     let text = text.trim();
-    let text = text
-        .strip_prefix("```json\n")
-        .and_then(|v| v.strip_suffix("\n```"))
+    let unfenced = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```"))
+        .filter(|rest| rest.starts_with('\n') || rest.starts_with("\r\n"))
+        .and_then(|rest| rest.trim_start_matches(['\r', '\n']).strip_suffix("```"))
+        .map(str::trim)
         .unwrap_or(text);
-    Ok(serde_json::from_str(text)?)
+    Ok(serde_json::from_str(unfenced)?)
 }
 
 pub fn decode_typed_outcome(role: &str, text: &str) -> Result<Value> {
@@ -475,7 +499,7 @@ mod tests {
             ("hermes", "mock-installed", "installed"),
         ] {
             let profile = json!({"kind":kind,"executable":native_fixture(temp.path(),name)?});
-            assert_eq!(availability(&profile), json!({"state":state}));
+            assert_eq!(availability(&profile, None), json!({"state":state}));
         }
         Ok(())
     }
@@ -485,7 +509,7 @@ mod tests {
         let profile =
             json!({"kind":"codex","executable":native_fixture(temp.path(), "mock-hanging-login")?});
         let started = std::time::Instant::now();
-        assert_eq!(availability(&profile)["state"], "sign-in-unknown");
+        assert_eq!(availability(&profile, None)["state"], "sign-in-unknown");
         assert!(started.elapsed() < Duration::from_secs(10));
         Ok(())
     }

@@ -5,6 +5,7 @@ use std::{
     collections::HashSet,
     path::Path,
     sync::{Mutex, MutexGuard},
+    time::Duration,
 };
 
 pub struct Store(Mutex<Database>);
@@ -28,15 +29,19 @@ fn scheduled(run: &Value) -> bool {
     {
         return true;
     }
+    let over_budget = run["input"]["token_target"]
+        .as_i64()
+        .is_some_and(|limit| limit > 0 && run["tokens"].as_i64().unwrap_or(0) >= limit);
+    let can_observe = !over_budget && run["observer_error"].as_str().is_none_or(str::is_empty);
     match run["state"].as_str() {
         Some("stopped") => false,
         Some("landed") => {
             any("releases", |r| {
                 !matches!(
                     r["state"].as_str(),
-                    Some("deployed" | "rolled-back" | "failed" | "superseded")
+                    Some("deployed" | "rolled-back" | "failed" | "superseded" | "cancelled")
                 )
-            }) || any("observations", |_| true)
+            }) || (can_observe && any("observations", |_| true))
                 || any("conversation", |m| m["state"] == "queued")
         }
         _ => true,
@@ -50,6 +55,7 @@ impl Store {
     }
     pub fn open(dir: &Path) -> Result<Self> {
         let mut conn = Connection::open(dir.join("swarm.sqlite"))?;
+        conn.busy_timeout(Duration::from_secs(5))?;
         let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(
             version <= 2,
@@ -165,7 +171,7 @@ impl Store {
                 .flatten()
                 .all(|r| matches!(
                     r["state"].as_str(),
-                    Some("deployed" | "rolled-back" | "failed" | "superseded")
+                    Some("deployed" | "rolled-back" | "failed" | "superseded" | "cancelled")
                 )),
             "finish or reconcile the release before deleting this run"
         );
@@ -225,6 +231,10 @@ impl Store {
         tx.execute(
             "INSERT INTO events(run_id,kind,body) VALUES (?,?,?)",
             params![id, kind, body],
+        )?;
+        tx.execute(
+            "DELETE FROM events WHERE run_id=? AND number<>?",
+            params![id, tx.last_insert_rowid()],
         )?;
         for entry in cases {
             let project = r["project"].as_str().context("missing project")?;
@@ -356,6 +366,22 @@ mod tests {
         assert!(db.scheduled_runs()?.is_empty());
         drop(db);
         assert_eq!(Store::open(dir.path())?.get("team")?, r);
+        Ok(())
+    }
+
+    #[test]
+    fn save_compacts_superseded_run_events_and_skips_blocked_landed_observers() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db = Store::open(dir.path())?;
+        let mut r = json!({"id":"r1","state":"landed","tokens":10,"input":{"token_target":10},"observations":[{"id":"o1"}]});
+        db.save(&mut r, "first", &[])?;
+        assert!(db.scheduled_runs()?.is_empty());
+        r["detail"] = json!("second");
+        db.save(&mut r, "second", &[])?;
+        let events = db.events(0)?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["number"], 2);
+        assert_eq!(events[0]["run"]["detail"], "second");
         Ok(())
     }
 }

@@ -172,6 +172,7 @@ impl Session {
 pub fn workbench_link(origin: &str, token: &str) -> String {
     let mut link = format!("{origin}/#{token}");
     if let Ok(cwd) = std::env::current_dir()
+        && cwd != Path::new("/")
         && let Some(path) = cwd.to_str()
     {
         let encoded = url::form_urlencoded::Serializer::new(String::new())
@@ -211,25 +212,66 @@ fn recipe(path: &Path) -> Result<Value> {
     Ok(v)
 }
 
-pub fn execute() -> Result<()> {
-    // Retain the original single-dash long options for existing shell scripts.
-    let mut args: Vec<_> = std::env::args_os().collect();
+fn normalize_args<I: IntoIterator<Item = std::ffi::OsString>>(raw: I) -> Vec<std::ffi::OsString> {
+    const VALUE_FLAGS: &[&str] = &[
+        "listen",
+        "path",
+        "prompt",
+        "coordinator",
+        "worker",
+        "import",
+        "delivery",
+        "destination",
+        "target",
+        "tokens",
+        "routing",
+        "recipe",
+        "before",
+        "donor",
+        "id",
+        "revision",
+        "task",
+        "text",
+        "candidate",
+    ];
+    let mut args: Vec<_> = raw.into_iter().collect();
     let mut options = true;
+    let mut expect_value = false;
     for a in args.iter_mut().skip(1) {
+        if expect_value {
+            expect_value = false;
+            continue;
+        }
+        if !options {
+            continue;
+        }
         if *a == "--" {
             options = false;
             continue;
         }
         if let Some(v) = a.to_str().filter(|s| {
-            options
-                && s.starts_with('-')
+            s.starts_with('-')
                 && !s.starts_with("--")
                 && s.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
                 && s.len() > 2
         }) {
             *a = format!("-{v}").into();
         }
+        if let Some(flag) = a
+            .to_str()
+            .and_then(|s| s.strip_prefix("--"))
+            .filter(|s| !s.contains('='))
+            && VALUE_FLAGS.contains(&flag)
+        {
+            expect_value = true;
+        }
     }
+    args
+}
+
+pub fn execute() -> Result<()> {
+    // Retain the original single-dash long options for existing shell scripts.
+    let args = normalize_args(std::env::args_os());
     let kind = args
         .get(1)
         .and_then(|v| v.to_str())
@@ -274,7 +316,7 @@ pub fn execute() -> Result<()> {
             for (name, p) in setup["profiles"].as_object().context("invalid profiles")? {
                 println!(
                     "{name}: {}",
-                    adapter::probe(p).unwrap_or_else(|e| e.to_string())
+                    adapter::probe(p, Some(&dir)).unwrap_or_else(|e| e.to_string())
                 );
             }
             return Ok(());
@@ -364,4 +406,43 @@ pub fn execute() -> Result<()> {
         print!("{output}")
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_dash_options_preserve_flag_values_starting_with_hyphens() {
+        let input = [
+            "swarm",
+            "start",
+            "-prompt",
+            "-support negative numbers",
+            "-compare",
+            "--text",
+            "-keep leading dash",
+            "--",
+            "-literal",
+        ]
+        .map(std::ffi::OsString::from);
+        let got: Vec<_> = normalize_args(input)
+            .into_iter()
+            .map(|s| s.into_string().unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "swarm",
+                "start",
+                "--prompt",
+                "-support negative numbers",
+                "--compare",
+                "--text",
+                "-keep leading dash",
+                "--",
+                "-literal",
+            ]
+        );
+    }
 }

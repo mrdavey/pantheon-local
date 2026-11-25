@@ -105,6 +105,7 @@ pub fn setup(dir: &Path) -> Result<Value> {
     cfg["cwd"] = json!(
         std::env::current_dir()
             .ok()
+            .filter(|p| p != Path::new("/"))
             .and_then(|p| p.into_os_string().into_string().ok())
     );
     Ok(cfg)
@@ -118,6 +119,13 @@ fn write_local(path: &Path, value: &Value) -> Result<()> {
     file.persist(path)?;
     Ok(())
 }
+struct Preview {
+    owner: String,
+    pgid: nix::unistd::Pid,
+    child: Child,
+    source: PathBuf,
+    data: PathBuf,
+}
 struct Local {
     dir: PathBuf,
     host: String,
@@ -126,7 +134,8 @@ struct Local {
     engine: Engine,
     writes: Mutex<()>,
     profiles: Mutex<()>,
-    previews: Mutex<Vec<(String, Child)>>,
+    picker: Mutex<()>,
+    previews: Mutex<Vec<Preview>>,
     shutdown: AtomicBool,
 }
 impl Local {
@@ -188,6 +197,7 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
         },
         writes: Mutex::new(()),
         profiles: Mutex::new(()),
+        picker: Mutex::new(()),
         previews: Mutex::new(vec![]),
         shutdown: AtomicBool::new(false),
     });
@@ -239,20 +249,17 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
         .join()
         .map_err(|_| anyhow::anyhow!("scheduler thread terminated unexpectedly"))?;
     if let Ok(mut children) = state.previews.lock() {
-        for (_, child) in children.iter_mut() {
-            stop_preview(child)
+        for preview in children.iter_mut() {
+            stop_preview(preview)
         }
     }
     Ok(result?)
 }
-fn stop_preview(child: &mut Child) {
-    if matches!(child.try_wait(), Ok(None)) {
-        let _ = nix::sys::signal::killpg(
-            nix::unistd::Pid::from_raw(child.id() as i32),
-            nix::sys::signal::Signal::SIGKILL,
-        );
-        let _ = child.wait();
-    }
+fn stop_preview(preview: &mut Preview) {
+    let _ = nix::sys::signal::killpg(preview.pgid, nix::sys::signal::Signal::SIGKILL);
+    let _ = preview.child.wait();
+    let _ = fs::remove_dir_all(&preview.source);
+    let _ = fs::remove_dir_all(&preview.data);
 }
 async fn handle(State(state): State<Arc<Local>>, req: Request) -> Response {
     let address = req
@@ -371,9 +378,17 @@ impl Local {
         };
         match (method.as_str(), path.as_slice()) {
             ("POST", ["project-folder"]) => {
+                let _guard = self
+                    .picker
+                    .try_lock()
+                    .map_err(|_| anyhow::anyhow!("A file or folder dialog is already open."))?;
                 Ok(json!(crate::folder_picker::choose(&self.shutdown)?))
             }
             ("POST", ["pick-initial-files"]) => {
+                let _guard = self
+                    .picker
+                    .try_lock()
+                    .map_err(|_| anyhow::anyhow!("A file or folder dialog is already open."))?;
                 let input = decode(body, "initial-files")?;
                 Ok(json!(crate::folder_picker::choose_initial(
                     input["path"].as_str().context("Select a project folder")?,
@@ -392,7 +407,7 @@ impl Local {
                 let profiles = cfg["profiles"].as_object().context("invalid profiles")?;
                 let mut statuses = serde_json::Map::new();
                 for (name, p) in profiles {
-                    statuses.insert(name.clone(), adapter::availability(p));
+                    statuses.insert(name.clone(), adapter::availability(p, Some(&self.dir)));
                 }
                 Ok(json!({"setup":cfg,"profiles":statuses,"git":adapter::installed("git")}))
             }
@@ -489,9 +504,9 @@ impl Local {
                         .lock()
                         .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
                     let deleted = engine.store.delete(id, revision)?;
-                    previews.retain_mut(|(owner, child)| {
-                        if owner == id {
-                            stop_preview(child);
+                    previews.retain_mut(|preview| {
+                        if preview.owner == *id {
+                            stop_preview(preview);
                             false
                         } else {
                             true
@@ -501,9 +516,22 @@ impl Local {
                     Ok(deleted)
                 })
             }
-            ("POST", ["runs", id]) => Ok(experiment::public(
-                self.mutate(|e| e.command(id, decode(body, "command")?))?,
-            )),
+            ("POST", ["runs", id]) => {
+                let run = self.mutate(|e| e.command(id, decode(body, "command")?))?;
+                if run["state"] == "stopped"
+                    && let Ok(mut previews) = self.previews.lock()
+                {
+                    previews.retain_mut(|preview| {
+                        if preview.owner == *id {
+                            stop_preview(preview);
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                }
+                Ok(experiment::public(run))
+            }
             ("POST", ["advice"]) => {
                 let mut v = decode(body, "advice")?;
                 let files = crate::attachments::unpack(&mut v)?;
@@ -581,7 +609,13 @@ impl Local {
                     ("GET", ["turns", tid]) => {
                         find(&run, "turns", tid)?;
                         let path = root.join("turns").join(tid).join("events.log");
-                        Ok(crate::supervisor::log_tail(&path, 256 * 1024)?.into())
+                        match crate::supervisor::log_tail(&path, 256 * 1024) {
+                            Ok(log) => Ok(log.into()),
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                Ok(String::new().into())
+                            }
+                            Err(e) => Err(e.into()),
+                        }
                     }
                     ("GET", ["diff", cid]) => {
                         let c = find(&run, "candidates", cid)?;
@@ -617,11 +651,11 @@ impl Local {
     fn preview(&self, r: &Value, root: &Path, id: &str) -> Result<Value> {
         use std::os::unix::process::CommandExt;
         let owner = r["id"].as_str().context("missing run ID")?;
-        let mut previews = self
-            .previews
-            .lock()
-            .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
-        self.engine.store.get(owner)?;
+        let latest = self.engine.store.get(owner)?;
+        ensure!(
+            latest["state"] != "stopped",
+            "resume the run before starting a preview"
+        );
         let c = find(r, "candidates", id)?;
         let sha = c["commit"]
             .as_str()
@@ -643,49 +677,97 @@ impl Local {
             sha,
             "swarm-preview",
         )?;
-        let addr = TcpListener::bind("127.0.0.1:0")?.local_addr()?;
         let data = tempfile::Builder::new()
             .prefix("preview-")
             .tempdir_in(root.join("previews"))?
             .keep();
-        let cwd = source.join(r["repo"]["Subdir"].as_str().unwrap_or("."));
-        let mut cmd = eval::command(
-            &cwd,
-            &data,
-            &args,
-            &json!({"repository":r["repo"]["Root"],"state":self.dir}),
-        )?;
-        let log = File::create(data.join("preview.log"))?;
-        let mut child = cmd
-            .env("SWARM_PORT", addr.port().to_string())
-            .env("PORT", addr.port().to_string())
-            .env("HOST", "127.0.0.1")
-            .stdout(log.try_clone()?)
-            .stderr(log)
-            .process_group(0)
-            .spawn()?;
-        let now = Instant::now();
-        loop {
-            if let Some(s) = child.try_wait()? {
-                bail!(
-                    "preview exited ({s}). See {}",
-                    data.join("preview.log").display()
-                )
+        let start = (|| -> Result<(SocketAddr, Preview)> {
+            let cwd = project::subdir(&source, r["repo"]["Subdir"].as_str().unwrap_or("."))?;
+            let mut cmd = eval::command(
+                &cwd,
+                &data,
+                &args,
+                &json!({"repository":r["repo"]["Root"],"common":r["repo"]["Common"],"state":self.dir}),
+            )?;
+            let addr = TcpListener::bind("127.0.0.1:0")?.local_addr()?;
+            let log = File::create(data.join("preview.log"))?;
+            let child = cmd
+                .env("SWARM_PORT", addr.port().to_string())
+                .env("PORT", addr.port().to_string())
+                .env("HOST", "127.0.0.1")
+                .stdout(log.try_clone()?)
+                .stderr(log)
+                .process_group(0)
+                .spawn()?;
+            let pgid = nix::unistd::Pid::from_raw(child.id() as i32);
+            let mut preview = Preview {
+                owner: owner.to_owned(),
+                pgid,
+                child,
+                source: source.clone(),
+                data: data.clone(),
+            };
+            let now = Instant::now();
+            loop {
+                if let Some(s) = preview.child.try_wait()? {
+                    let log_path = preview.data.join("preview.log");
+                    let _ =
+                        nix::sys::signal::killpg(preview.pgid, nix::sys::signal::Signal::SIGKILL);
+                    let _ = fs::remove_dir_all(&preview.source);
+                    bail!("preview exited ({s}). See {}", log_path.display())
+                }
+                if TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok() {
+                    return Ok((addr, preview));
+                }
+                if self.shutdown.load(Ordering::Acquire) || now.elapsed() > Duration::from_secs(12)
+                {
+                    let log_path = preview.data.join("preview.log");
+                    let _ =
+                        nix::sys::signal::killpg(preview.pgid, nix::sys::signal::Signal::SIGKILL);
+                    let _ = preview.child.wait();
+                    let _ = fs::remove_dir_all(&preview.source);
+                    bail!(
+                        "preview did not listen on SWARM_PORT. See {}",
+                        log_path.display()
+                    )
+                }
+                thread::sleep(Duration::from_millis(100));
             }
-            if TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok() {
-                previews.retain_mut(|(_, p)| matches!(p.try_wait(), Ok(None)));
-                previews.push((owner.to_owned(), child));
-                return Ok(json!({"url":format!("http://{addr}")}));
+        })();
+        let (addr, mut preview) = match start {
+            Ok(started) => started,
+            Err(err) => {
+                let _ = fs::remove_dir_all(&source);
+                return Err(err);
             }
-            if self.shutdown.load(Ordering::Acquire) || now.elapsed() > Duration::from_secs(12) {
-                stop_preview(&mut child);
-                bail!(
-                    "preview did not listen on SWARM_PORT. See {}",
-                    data.join("preview.log").display()
-                )
+        };
+        let mut previews = self
+            .previews
+            .lock()
+            .map_err(|_| anyhow::anyhow!("preview lock poisoned"))?;
+        match self.engine.store.get(owner) {
+            Ok(current) if current["state"] != "stopped" => {}
+            _ => {
+                stop_preview(&mut preview);
+                bail!("run was stopped or deleted before the preview started");
             }
-            thread::sleep(Duration::from_millis(100));
         }
+        previews.retain_mut(|existing| {
+            if matches!(existing.child.try_wait(), Ok(None)) {
+                true
+            } else {
+                stop_preview(existing);
+                false
+            }
+        });
+        while previews.iter().filter(|p| p.owner == owner).count() >= 6 {
+            if let Some(pos) = previews.iter().position(|p| p.owner == owner) {
+                let mut oldest = previews.remove(pos);
+                stop_preview(&mut oldest);
+            }
+        }
+        previews.push(preview);
+        Ok(json!({"url":format!("http://{addr}")}))
     }
 }
 fn ensure_run_id(id: &str) -> Result<()> {
@@ -711,18 +793,7 @@ fn output_folder(run: &Value, root: &Path, candidate: Option<&str>) -> Result<Pa
                 .context("missing project folder")?,
         )
     };
-    let base = base
-        .canonicalize()
-        .context("output folder is unavailable")?;
-    let folder = base
-        .join(run["repo"]["Subdir"].as_str().unwrap_or("."))
-        .canonicalize()
-        .context("project folder is unavailable")?;
-    ensure!(
-        folder.starts_with(base) && folder.is_dir(),
-        "invalid output folder"
-    );
-    Ok(folder)
+    project::subdir(&base, run["repo"]["Subdir"].as_str().unwrap_or("."))
 }
 
 fn find<'a>(run: &'a Value, key: &str, id: &str) -> Result<&'a Value> {
@@ -776,6 +847,12 @@ impl Local {
             if self.shutdown.load(Ordering::Acquire) || start.elapsed() >= Duration::from_secs(300)
             {
                 crate::supervisor::stop_job(job.path())?;
+                let stop_started = Instant::now();
+                while stop_started.elapsed() < Duration::from_millis(1500)
+                    && crate::supervisor::reception(job.path()).is_none()
+                {
+                    thread::sleep(Duration::from_millis(25));
+                }
                 bail!("advisor timed out")
             }
             thread::sleep(Duration::from_millis(100));
@@ -808,6 +885,16 @@ mod output_folder_tests {
         assert!(output_folder(&run, &root, Some("../other")).is_err());
         run["repo"]["Subdir"] = json!("..");
         assert!(output_folder(&run, &root, None).is_err());
+        let escaped = root.join("candidates/v2/source");
+        fs::create_dir_all(&escaped)?;
+        std::os::unix::fs::symlink(dir.path(), escaped.join("app"))?;
+        run["repo"]["Subdir"] = json!("app");
+        run["candidates"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"v2"}));
+        assert!(output_folder(&run, &root, Some("v2")).is_err());
+        assert!(project::subdir(&escaped, "app").is_err());
         Ok(())
     }
 }

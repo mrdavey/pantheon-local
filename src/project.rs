@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
     io::{Read, Seek},
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -210,7 +210,40 @@ fn validate_import_paths(root: &str, files: &[String]) -> Result<()> {
     Ok(())
 }
 
+pub fn subdir(base: &Path, relative: &str) -> Result<PathBuf> {
+    let base = base
+        .canonicalize()
+        .context("output folder is unavailable")?;
+    let rel = Path::new(if relative.is_empty() { "." } else { relative });
+    ensure!(
+        rel.components()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
+        "invalid output folder"
+    );
+    let folder = base
+        .join(rel)
+        .canonicalize()
+        .context("project folder is unavailable")?;
+    ensure!(
+        folder.starts_with(&base) && folder.is_dir(),
+        "invalid output folder"
+    );
+    Ok(folder)
+}
+
+pub fn within_scope(path: &str, scopes: &[String]) -> bool {
+    let clean = |s: &str| -> PathBuf {
+        Path::new(s)
+            .components()
+            .filter(|c| !matches!(c, Component::CurDir))
+            .collect()
+    };
+    let target = clean(path);
+    scopes.is_empty() || scopes.iter().any(|s| target.starts_with(clean(s)))
+}
+
 pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository> {
+    let mut initialized = None;
     let repo = match discover(path) {
         Ok(repo) => repo,
         Err(err) if initialize && err.to_string().contains("not a git repository") => {
@@ -240,56 +273,68 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
                 }
             }
             git(root, &["init", "--quiet"])?;
+            initialized = Some(canonical.join(".git"));
             discover(path)?
         }
         Err(e) => return Err(e),
     };
-    if !repo.head.is_empty() {
+    let establish = || -> Result<Repository> {
+        if !repo.head.is_empty() {
+            ensure!(
+                files.is_empty(),
+                "initial files are only accepted on an unborn branch"
+            );
+            return Ok(repo);
+        }
+        ensure!(initialize, "initialize or commit a base before starting");
         ensure!(
-            files.is_empty(),
-            "initial files are only accepted on an unborn branch"
+            git(&repo.root, &["ls-files", "-z"])?.is_empty(),
+            "create the initial commit in Git to preserve your staged work"
         );
-        return Ok(repo);
-    }
-    ensure!(initialize, "initialize or commit a base before starting");
-    ensure!(
-        git(&repo.root, &["ls-files", "-z"])?.is_empty(),
-        "create the initial commit in Git to preserve your staged work"
-    );
-    if files.is_empty() {
-        check_initial_files(
-            git_command(&repo.root),
-            &repo.root,
-            &fs::canonicalize(path)?,
-        )?;
-    }
-    let scratch = tempfile::tempdir()?;
-    let indexed = |args: &[&str]| {
-        output(
-            git_command(&repo.root)
-                .env("GIT_INDEX_FILE", scratch.path().join("index"))
-                .args(args),
-        )
+        if files.is_empty() {
+            check_initial_files(
+                git_command(&repo.root),
+                &repo.root,
+                &fs::canonicalize(path)?,
+            )?;
+        }
+        let scratch = tempfile::tempdir()?;
+        let indexed = |args: &[&str]| {
+            output(
+                git_command(&repo.root)
+                    .env("GIT_INDEX_FILE", scratch.path().join("index"))
+                    .args(args),
+            )
+        };
+        validate_import_paths(&repo.root, files)?;
+        if !files.is_empty() {
+            let mut args = vec!["--literal-pathspecs", "add", "--"];
+            args.extend(files.iter().map(String::as_str));
+            indexed(&args)?;
+        }
+        indexed(&[
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "Establish the project base",
+        ])?;
+        if !files.is_empty() {
+            let mut args = vec!["--literal-pathspecs", "reset", "--quiet", "HEAD", "--"];
+            args.extend(files.iter().map(String::as_str));
+            git(&repo.root, &args)?;
+        }
+        discover(path)
     };
-    validate_import_paths(&repo.root, files)?;
-    if !files.is_empty() {
-        let mut args = vec!["--literal-pathspecs", "add", "--"];
-        args.extend(files.iter().map(String::as_str));
-        indexed(&args)?;
+    match establish() {
+        Ok(repo) => Ok(repo),
+        Err(err) => {
+            if let Some(git_dir) = initialized {
+                let _ = fs::remove_dir_all(git_dir);
+            }
+            Err(err)
+        }
     }
-    indexed(&[
-        "commit",
-        "--quiet",
-        "--allow-empty",
-        "-m",
-        "Establish the project base",
-    ])?;
-    if !files.is_empty() {
-        let mut args = vec!["--literal-pathspecs", "reset", "--quiet", "HEAD", "--"];
-        args.extend(files.iter().map(String::as_str));
-        git(&repo.root, &args)?;
-    }
-    discover(path)
 }
 
 pub fn clone_repo(source: &str, dir: &str, base: &str, branch: &str) -> Result<()> {
@@ -375,7 +420,7 @@ pub fn commit_handoff(
             "invalid handoff path {file:?}"
         );
         ensure!(
-            scopes.is_empty() || scopes.iter().any(|scope| path.starts_with(scope)),
+            within_scope(file, scopes),
             "handoff path {file:?} is outside the assigned scope"
         );
         match fs::symlink_metadata(Path::new(dir).join(path)) {
@@ -594,9 +639,17 @@ pub fn land(repo: &str, reference: &str, base: &str, candidate: &str) -> Result<
             "target checkout changed branches"
         );
         ensure!(head(checkout)? == base, "target checkout moved");
+        let branch = reference.trim_start_matches("refs/heads/");
         git(
             checkout,
-            &["merge", "--ff-only", "--no-overwrite-ignore", candidate],
+            &[
+                "-c",
+                &format!("branch.{branch}.mergeoptions="),
+                "merge",
+                "--ff-only",
+                "--no-overwrite-ignore",
+                candidate,
+            ],
         )?;
         ensure!(
             target_head(repo, reference)? == candidate,
@@ -756,8 +809,11 @@ mod tests {
         assert_eq!(status(dir)?, before);
         git(dir, &["switch", "--detach", &repo.head])?;
         assert!(discover(dir)?.target.is_empty());
+        git(dir, &["config", "branch.main.mergeoptions", "--no-ff"])?;
         land(dir, &repo.target, &repo.head, &candidate)?;
         assert_eq!(target_head(dir, &repo.target)?, candidate);
+        assert!(within_scope("src/lib.rs", &["./src".into()]));
+        assert!(!within_scope("src-other/lib.rs", &["./src".into()]));
         Ok(())
     }
     #[test]
