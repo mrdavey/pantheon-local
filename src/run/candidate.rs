@@ -2,7 +2,11 @@ use super::*;
 fn selections(tasks: &[Value]) -> Result<Vec<Vec<String>>> {
     let tasks = &tasks[tasks
         .iter()
-        .rposition(|t| !s(t, "repair_base").is_empty() && s(t, "conflict").is_empty())
+        .rposition(|t| {
+            !s(t, "repair_base").is_empty()
+                && s(t, "conflict").is_empty()
+                && a(&t["donors"]).is_empty()
+        })
         .unwrap_or(0)..];
     let mut required = vec![];
     let mut variants: Vec<(&str, Vec<String>)> = vec![];
@@ -74,7 +78,35 @@ impl Engine {
             base = project::target_head(s(repo, "Root"), s(repo, "Target"))?;
             project::fetch(&self.integration(r), s(repo, "Root"), &base)?
         }
-        let sets = selections(active(r))?;
+        let mut sets = selections(active(r))?;
+        for ids in &mut sets {
+            for prev in a(&r["candidates"]) {
+                if prev["round"] != r["round"]
+                    || s(prev, "base") != base
+                    || a(&prev["pending"]).is_empty()
+                {
+                    continue;
+                }
+                let Some(cr) = a(&r["tasks"])
+                    .iter()
+                    .find(|t| t["conflict"] == prev["id"] && t["state"] == "committed")
+                else {
+                    continue;
+                };
+                let prev_tasks = strings(&prev["tasks"]);
+                let replaced = prev_tasks
+                    .len()
+                    .saturating_sub(a(&prev["pending"]).len())
+                    .saturating_add(1);
+                if replaced > 0
+                    && replaced <= prev_tasks.len()
+                    && ids.len() >= replaced
+                    && ids[..replaced] == prev_tasks[..replaced]
+                {
+                    ids.splice(..replaced, [s(cr, "id").to_owned()]);
+                }
+            }
+        }
         let mut rows = vec![];
         if yes(&r["input"]["compare"]) {
             rows.push(json!({"id":uid(),"round":r["round"],"policy":r["policy"],"state":"queued","base":base,"baseline":true,"name":"Baseline","tasks":[]}));
@@ -310,7 +342,11 @@ impl Engine {
             a(&r["candidates"]).iter().rev().filter(current).find(|c| {
                 !yes(&c["baseline"]) && !s(c, "commit").is_empty() && c["state"] == "failed"
             })
-            && !active(r).iter().any(|t| !s(t, "repair_base").is_empty())
+            && !active(r).iter().any(|t| {
+                !s(t, "repair_base").is_empty()
+                    && s(t, "conflict").is_empty()
+                    && a(&t["donors"]).is_empty()
+            })
         {
             let id = c["id"].clone();
             r["state"] = json!("repairing");
@@ -358,7 +394,12 @@ impl Engine {
         r["candidates"][i]["detail"] = json!("The integration repair could not finish.");
         self.save(r, "integration-blocked")
     }
-    pub(super) fn land(&self, r: &mut Value, id: &str) -> Result<()> {
+    pub(super) fn land(
+        &self,
+        r: &mut Value,
+        id: &str,
+        receipt: Option<(&str, &str)>,
+    ) -> Result<()> {
         let c = &r["candidates"][index(&r["candidates"], id)?];
         if r["state"] == "landed" && r["detail"] == c["commit"] {
             return Ok(());
@@ -402,6 +443,9 @@ impl Engine {
                     }
                 }
             }
+            if let Some((cmd_id, digest)) = receipt {
+                r["commands"][cmd_id] = json!(digest);
+            }
             return self.candidates(r);
         }
         if r["selection"]["candidate"] != id {
@@ -428,6 +472,9 @@ impl Engine {
                 self.save(r, "landing-wait")?
             }
             return Err(e);
+        }
+        if let Some((cmd_id, digest)) = receipt {
+            r["commands"][cmd_id] = json!(digest);
         }
         mark_landed(r, &c);
         self.save(r, "landed")

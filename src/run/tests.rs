@@ -543,3 +543,104 @@ fn tick_preserves_landed_state_rolls_back_failed_dispatch_and_pauses_conflicted_
     assert_eq!(resumed["state"], "evaluating");
     Ok(())
 }
+
+#[test]
+fn conflict_repairs_survive_suite_updates_allow_auto_repair_and_retry_cleanly() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut r = json!({
+        "id":"conflict-flow","state":"review","round":1,"policy":1,"recipe_approved":true,
+        "repo":{"Head":"base-sha"},
+        "input":{"recipe":{"checks":[["original"]]}},
+        "tasks":[
+            {"id":"m1","state":"committed"},
+            {"id":"m2","state":"committed"},
+            {"id":"m3","state":"committed"},
+            {"id":"cr","state":"committed","conflict":"c1","repair_base":"m1-sha"}
+        ],
+        "candidates":[
+            {"id":"c1","state":"superseded","round":1,"policy":1,"base":"base-sha","tasks":["m1","m2","m3"],"pending":["m2","m3"]},
+            {"id":"c2","state":"passed","round":1,"policy":1,"base":"base-sha","tasks":["cr","m3"],"commit":"c2-sha"}
+        ]
+    });
+    engine.save(&mut r, "seed")?;
+    let updated = engine.command(
+        "conflict-flow",
+        json!({"kind":"update-suite","recipe":{"checks":[["updated"]]}}),
+    )?;
+    assert_eq!(updated["state"], "evaluating");
+    assert_eq!(updated["candidates"][2]["tasks"], json!(["cr", "m3"]));
+
+    // Failed conflict-repaired candidate remains eligible for automatic repair.
+    let mut failed = updated;
+    failed["candidates"][2]["state"] = json!("failed");
+    failed["candidates"][2]["commit"] = json!("c3-sha");
+    engine.save(&mut failed, "eval-failed")?;
+    engine.tick()?;
+    assert_eq!(engine.store.get("conflict-flow")?["state"], "repairing");
+
+    // Retrying a blocked conflict-repair task restores the conflicted candidate.
+    let mut blocked_cr = json!({
+        "id":"retry-cr","state":"review","round":1,"policy":1,"recipe_approved":true,
+        "tasks":[
+            {"id":"m1","state":"committed"},
+            {"id":"m2","state":"committed"},
+            {"id":"cr","state":"blocked","conflict":"c1","repair_base":"m1-sha"}
+        ],
+        "candidates":[
+            {"id":"c1","state":"failed","round":1,"policy":1,"base":"base-sha","tasks":["m1","m2"],"pending":["m2"],"conflict_paths":["overlap.txt"]}
+        ]
+    });
+    engine.save(&mut blocked_cr, "seed")?;
+    let retried = engine.command("retry-cr", json!({"kind":"resume","task":"cr"}))?;
+    assert_eq!(retried["state"], "evaluating");
+    assert_eq!(retried["tasks"][2]["state"], "pending");
+    assert_eq!(retried["candidates"][0]["state"], "conflict");
+    Ok(())
+}
+
+#[test]
+fn detached_head_landing_checks_ancestry_and_allows_retry_after_dirty_checkout() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let project = tempfile::tempdir()?;
+    let root = committed_project(project.path())?;
+    let base = project::head(root)?;
+    project::git(root, &["checkout", "--orphan", "unrelated"])?;
+    project::git(root, &["commit", "--allow-empty", "-m", "Unrelated"])?;
+    project::git(root, &["switch", "--detach", &base])?;
+    project::git(root, &["commit", "--allow-empty", "-m", "Candidate"])?;
+    let candidate = project::head(root)?;
+    project::git(root, &["switch", "main"])?;
+    fs::write(project.path().join("dirty.txt"), "local")?;
+
+    let mut run = json!({
+        "id":"land-retry","state":"review","round":1,"policy":1,
+        "repo":{"Root":root,"Head":base,"Target":""},
+        "input":{"delivery":"review"},
+        "candidates":[{"id":"c1","state":"passed","base":base,"commit":candidate,"round":1,"policy":1}]
+    });
+    project::clone_repo(
+        root,
+        &engine.integration(&run),
+        &candidate,
+        "swarm-integration",
+    )?;
+    engine.save(&mut run, "seed")?;
+
+    assert!(
+        engine
+            .command(
+                "land-retry",
+                json!({"kind":"land","id":"try-unrelated","candidate":"c1","text":"unrelated"})
+            )
+            .is_err()
+    );
+    assert_eq!(s(&engine.store.get("land-retry")?["repo"], "Target"), "");
+
+    let land_main = json!({"kind":"land","id":"land-main","candidate":"c1","text":"main"});
+    assert!(engine.command("land-retry", land_main.clone()).is_err());
+    fs::remove_file(project.path().join("dirty.txt"))?;
+    let landed = engine.command("land-retry", land_main)?;
+    assert_eq!(landed["state"], "landed");
+    assert_eq!(project::target_head(root, "refs/heads/main")?, candidate);
+    Ok(())
+}

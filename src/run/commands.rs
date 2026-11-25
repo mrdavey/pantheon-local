@@ -240,17 +240,21 @@ impl Engine {
             "proposal is no longer open"
         );
         ensure!(
-            matches!(s(r, "state"), "working" | "review") && s(r, "landing").is_empty(),
+            matches!(s(r, "state"), "working" | "review")
+                && s(r, "landing").is_empty()
+                && r["combination"].is_null(),
             "add milestones when the run is working or ready for review"
         );
         let mut tasks = a(&msg["tasks"]).to_vec();
-        if let Some(repair) = active(r)
-            .iter()
-            .rev()
-            .find(|t| !s(t, "repair_base").is_empty())
-        {
+        if let Some(repair) = active(r).iter().rev().find(|t| {
+            !s(t, "repair_base").is_empty()
+                && s(t, "conflict").is_empty()
+                && a(&t["donors"]).is_empty()
+        }) {
             for t in &mut tasks {
-                if !a(&t["depends"]).contains(&repair["id"]) {
+                let compatible = (s(repair, "variant").is_empty() && s(t, "variant").is_empty())
+                    || repair["variant"] == t["variant"];
+                if compatible && !a(&t["depends"]).contains(&repair["id"]) {
                     push(&mut t["depends"], repair["id"].clone())
                 }
             }
@@ -279,7 +283,7 @@ impl Engine {
         let cmd_id = s(&action, "id");
         let text = s(&action, "text");
         let task = s(&action, "task");
-        if !cmd_id.is_empty() {
+        let receipt = if !cmd_id.is_empty() {
             ensure!(valid_id(cmd_id), "invalid command ID");
             let digest = crate::compat::command_digest(&action)?;
             if let Some(previous) = r["commands"][cmd_id].as_str() {
@@ -289,8 +293,10 @@ impl Engine {
                 );
                 return Ok(r);
             }
-            r["commands"][cmd_id] = json!(digest)
-        }
+            Some(digest)
+        } else {
+            None
+        };
         if let Some(expected) = action["expected_revision"].as_i64() {
             ensure!(
                 num(&r["revision"]) == expected,
@@ -495,7 +501,45 @@ impl Engine {
                     ensure!(target >= 0, "token target cannot be negative");
                     r["input"]["token_target"] = json!(target);
                     r["observer_error"] = json!("");
-                    r["state"] = json!(resume_phase(&r));
+                    let mut restored_conflicts = Vec::new();
+                    for i in num(&r["task_start"]) as usize..a(&r["tasks"]).len() {
+                        let t = &mut r["tasks"][i];
+                        if (task.is_empty() || t["id"] == task)
+                            && matches!(s(t, "state"), "blocked" | "interrupted")
+                        {
+                            if !s(t, "conflict").is_empty() {
+                                restored_conflicts.push(s(t, "conflict").to_owned());
+                            }
+                            t["inbox_dismissed"] = json!(false);
+                            t["state"] = json!("pending")
+                        }
+                    }
+                    let round = r["round"].clone();
+                    let pol = r["policy"].clone();
+                    for cid in &restored_conflicts {
+                        if let Some(ci) = find(&r["candidates"], cid) {
+                            let c = &mut r["candidates"][ci];
+                            if c["round"] == round
+                                && c["policy"] == pol
+                                && c["state"] == "failed"
+                                && !a(&c["pending"]).is_empty()
+                            {
+                                c["state"] = json!("conflict");
+                                c["detail"] = json!(strings(&c["conflict_paths"]).join(", "));
+                            }
+                        }
+                    }
+                    let next_phase = if !restored_conflicts.is_empty()
+                        && a(&r["candidates"]).iter().any(|c| {
+                            c["round"] == r["round"]
+                                && c["policy"] == r["policy"]
+                                && c["state"] == "conflict"
+                        }) {
+                        "evaluating"
+                    } else {
+                        resume_phase(&r)
+                    };
+                    r["state"] = json!(next_phase);
                     r["stopped_from"] = json!("");
                     if r["state"] == "evaluating" {
                         if !a(&r["candidates"])
@@ -517,15 +561,6 @@ impl Engine {
                                     json!(format!("Verification stopped. Retrying as {id}"));
                                 push(&mut r["candidates"], next)
                             }
-                        }
-                    }
-                    for i in num(&r["task_start"]) as usize..a(&r["tasks"]).len() {
-                        let t = &mut r["tasks"][i];
-                        if (task.is_empty() || t["id"] == task)
-                            && matches!(s(t, "state"), "blocked" | "interrupted")
-                        {
-                            t["inbox_dismissed"] = json!(false);
-                            t["state"] = json!("pending")
                         }
                     }
                 }
@@ -555,14 +590,26 @@ impl Engine {
                     {
                         let target =
                             format!("refs/heads/{}", text.trim_start_matches("refs/heads/"));
-                        project::target_head(s(&r["repo"], "Root"), &target)?;
+                        let root = s(&r["repo"], "Root");
+                        let head = project::target_head(root, &target)?;
+                        ensure!(
+                            project::is_ancestor(root, work_base(&r), &head),
+                            "choose a branch at or ahead of this run's starting commit"
+                        );
                         r["repo"]["Target"] = json!(target)
                     }
-                    self.land(&mut r, s(&action, "candidate"))?;
+                    self.land(
+                        &mut r,
+                        s(&action, "candidate"),
+                        receipt.as_deref().map(|d| (cmd_id, d)),
+                    )?;
                     return Ok(r);
                 }
                 _ => bail!("unknown action"),
             }
+        }
+        if let Some(digest) = receipt {
+            r["commands"][cmd_id] = json!(digest);
         }
         self.save(&mut r, kind)?;
         Ok(r)
@@ -583,9 +630,11 @@ impl Engine {
             "the eval suite cannot change during this stage"
         );
         ensure!(
-            !a(&r["turns"])
-                .iter()
-                .any(|t| t["state"] == "running" && t["role"] == "eval"),
+            !a(&r["turns"]).iter().any(|t| {
+                t["state"] == "running"
+                    && (t["role"] == "eval"
+                        || (t["role"] == "worker" && r["state"] == "evaluating"))
+            }),
             "wait for the current evaluation to finish"
         );
         let recipe = action

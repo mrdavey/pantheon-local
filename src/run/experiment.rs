@@ -665,7 +665,9 @@ pub fn command(r: &mut Value, act: &Value) -> Result<bool> {
         }
         "keep-baseline" | "select" => select(r, act)?,
         "blind-review" | "vote" => preference(r, act)?,
-        "hold-release" | "resume-release" | "reconcile-release" => release::command(r, act)?,
+        "hold-release" | "resume-release" | "cancel-release" | "reconcile-release" => {
+            release::command(r, act)?
+        }
         _ => return Ok(false),
     }
     Ok(true)

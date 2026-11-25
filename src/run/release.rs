@@ -218,7 +218,21 @@ pub fn next_job(
     }
     for i in 0..a(&run["releases"]).len() {
         let entry = &run["releases"][i];
+        let repo = &run["repo"];
+        let repo_root = s(repo, "Root");
+        let target = s(repo, "Target");
+        let commit = s(entry, "commit");
         if entry["held"] == true {
+            if matches!(s(entry, "state"), "queued" | "built" | "staged")
+                && !repo_root.is_empty()
+                && !target.is_empty()
+                && project::target_head(repo_root, target)? != commit
+            {
+                run["releases"][i]["held"] = json!(false);
+                run["releases"][i]["state"] = json!("superseded");
+                run["releases"][i]["detail"] = json!("The target moved before promotion.");
+                return Ok(None);
+            }
             continue;
         }
         let (phase, next) = match s(entry, "state") {
@@ -247,14 +261,10 @@ pub fn next_job(
                         | "uncertain"
                         | "reconcile"
                         | "reconciling"
-                ) || (e["state"] == "staged" && entry["state"] == "built"))
+                ) || (e["state"] == "staged" && e["held"] != true && entry["state"] == "built"))
         }) {
             return Ok(None);
         }
-        let repo = &run["repo"];
-        let repo_root = s(repo, "Root");
-        let target = s(repo, "Target");
-        let commit = s(entry, "commit");
         if matches!(phase, Phase::Deploy | Phase::Build)
             && project::target_head(repo_root, target)? != commit
         {
@@ -279,8 +289,7 @@ pub fn next_job(
                 commit,
                 "swarm-release",
             )?;
-            source = checkout
-                .join(s(repo, "Subdir"))
+            source = project::subdir(&checkout, s(repo, "Subdir"))?
                 .to_str()
                 .context("invalid source path")?
                 .to_owned();
@@ -345,10 +354,11 @@ pub fn finish(run: &mut Value, id: &str, result: &Value) -> Result<()> {
         "deploying" => "verify",
         "rolling-back" => "verify-rollback",
         "verifying" | "checking-rollback" | "reconciling" => {
+            let reconciling = e["state"] == "reconciling";
             let rollback = e["last_effect"] == "rollback" || e["state"] == "checking-rollback";
             if let Some(r) = receipt {
                 e["observed"] = json!(r.digest);
-                if r.digest == s(e, "digest") && r.healthy && !rollback {
+                if r.digest == s(e, "digest") && r.healthy && (!rollback || reconciling) {
                     e["at"] = json!(chrono::Utc::now());
                     "deployed"
                 } else if r.digest == s(e, "previous") && (r.digest.is_empty() || r.healthy) {
@@ -362,6 +372,10 @@ pub fn finish(run: &mut Value, id: &str, result: &Value) -> Result<()> {
                     } else {
                         "failed"
                     }
+                } else if reconciling && !r.digest.is_empty() && r.healthy {
+                    e["at"] = json!(chrono::Utc::now());
+                    e["detail"] = json!("Another healthy artifact is active on the destination.");
+                    "superseded"
                 } else {
                     e["detail"] =
                         json!("Destination reports an unexpected artifact or unhealthy rollback.");
@@ -379,7 +393,11 @@ pub fn finish(run: &mut Value, id: &str, result: &Value) -> Result<()> {
     Ok(())
 }
 pub fn command(run: &mut Value, action: &Value) -> Result<()> {
-    let i = find(&run["releases"], s(action, "task")).context("unknown release")?;
+    let id = s(action, "task");
+    let running = a(&run["turns"])
+        .iter()
+        .any(|t| t["state"] == "running" && t["role"] == "release" && t["task"] == id);
+    let i = find(&run["releases"], id).context("unknown release")?;
     let e = &mut run["releases"][i];
     match s(action, "kind") {
         "hold-release" | "resume-release" => {
@@ -391,6 +409,15 @@ pub fn command(run: &mut Value, action: &Value) -> Result<()> {
                 "promotion already started or ended"
             );
             e["held"] = json!(action["kind"] == "hold-release");
+        }
+        "cancel-release" => {
+            ensure!(
+                !running && matches!(s(e, "state"), "queued" | "built" | "staged"),
+                "promotion already started or ended"
+            );
+            e["held"] = json!(false);
+            e["state"] = json!("cancelled");
+            e["detail"] = json!("Release cancelled before promotion.");
         }
         "reconcile-release" => {
             ensure!(
@@ -443,5 +470,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r["releases"][0]["state"], "deployed");
+    }
+
+    #[test]
+    fn held_staged_release_can_be_cancelled_without_blocking_peers_and_hotfixes_reconcile()
+    -> Result<()> {
+        let mut held_peer =
+            json!({"releases":[{"id":"old","state":"staged","held":true,"destination":"prod"}]});
+        let mut active = json!({
+            "deploy_config":{"executable":"/bin/true"},
+            "releases":[{"id":"new","state":"built","destination":"prod","commit":"abc","digest":"sha256:new"}]
+        });
+        let job = next_job(&mut active, || Ok(vec![held_peer.clone()]), Path::new("."))?;
+        assert!(job.is_some());
+        assert_eq!(active["releases"][0]["state"], "reading-baseline");
+
+        command(
+            &mut held_peer,
+            &json!({"kind":"cancel-release","task":"old"}),
+        )?;
+        assert_eq!(held_peer["releases"][0]["state"], "cancelled");
+        assert_eq!(held_peer["releases"][0]["held"], false);
+
+        let mut recovered = json!({"releases":[{"id":"r","state":"reconciling","last_effect":"rollback","previous":"sha256:old","digest":"sha256:new"}]});
+        finish(
+            &mut recovered,
+            "r",
+            &json!({"text":r#"{"digest":"sha256:new","healthy":true}"#}),
+        )?;
+        assert_eq!(recovered["releases"][0]["state"], "deployed");
+
+        let mut hotfixed = json!({"releases":[{"id":"r","state":"reconciling","previous":"sha256:old","digest":"sha256:new"}]});
+        finish(
+            &mut hotfixed,
+            "r",
+            &json!({"text":r#"{"digest":"sha256:hotfix","healthy":true}"#}),
+        )?;
+        assert_eq!(hotfixed["releases"][0]["state"], "superseded");
+        Ok(())
     }
 }

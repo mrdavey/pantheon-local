@@ -61,6 +61,7 @@ enum Action {
     Vote(Change),
     HoldRelease(Change),
     ResumeRelease(Change),
+    CancelRelease(Change),
     ReconcileRelease(Change),
     #[command(name = "_supervise", hide = true)]
     Supervise {
@@ -374,6 +375,7 @@ pub fn execute() -> Result<()> {
         | Action::Vote(c)
         | Action::HoldRelease(c)
         | Action::ResumeRelease(c)
+        | Action::CancelRelease(c)
         | Action::ReconcileRelease(c) => {
             let mut value = json!({"kind":kind,"id":c.id,"expected_revision":c.revision,"task":c.task,"text":c.text,"candidate":c.candidate,"tokens":c.tokens,"donors":c.donor});
             value.as_object_mut().unwrap().retain(|_, v| !v.is_null());
