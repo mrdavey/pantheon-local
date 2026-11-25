@@ -233,3 +233,27 @@ fn rejected_parent_leaves_child_free_to_start_its_own_project() -> Result<()> {
     assert!(!parent.join(".git").exists());
     Ok(())
 }
+
+#[test]
+fn new_project_import_commits_only_the_validated_literal_selection() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let home = tmp.path().join("home");
+    fs::create_dir(&home)?;
+    fs::write(
+        home.join(".gitconfig"),
+        "[user]\nname = Test\nemail = test@example.invalid\n",
+    )?;
+    let svc = common::Service::with_env(tmp.path(), [("HOME".into(), home)].into())?;
+    let folder = tmp.path().join("project");
+    fs::create_dir(&folder)?;
+    fs::write(folder.join("notes[1]"), "wanted")?;
+    fs::write(folder.join("notes1"), "unselected")?;
+    let input = serde_json::json!({"path":folder,"prompt":"Review notes","coordinator":"first","workers":["writer"],"initial_files":["notes[1]"]});
+    svc.post("/runs", &input)?;
+    assert_eq!(common::git(&folder, &["ls-files"])?, "notes[1]");
+    assert_eq!(
+        common::git(&folder, &["status", "--porcelain"])?,
+        "?? notes1"
+    );
+    Ok(())
+}

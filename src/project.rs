@@ -147,6 +147,16 @@ fn check_initial_files(mut git: Command, root: &str, selected: &Path) -> Result<
     Ok(())
 }
 
+fn git_probe(root: &str, metadata: &Path) -> Result<Command> {
+    git(root, &["init", "--bare", "--quiet", path_text(metadata)?])?;
+    let mut cmd = git_command(root);
+    cmd.arg("--git-dir")
+        .arg(metadata)
+        .arg("--work-tree")
+        .arg(root);
+    Ok(cmd)
+}
+
 /// List the same untracked, nonignored files Git will accept for the first commit.
 pub fn initial_choices(path: &str) -> Result<serde_json::Value> {
     let selected =
@@ -168,15 +178,7 @@ pub fn initial_choices(path: &str) -> Result<serde_json::Value> {
         Err(err) if err.to_string().contains("not a git repository") => {
             let root = path_text(&selected)?;
             temp = tempfile::tempdir()?;
-            git(
-                root,
-                &["init", "--bare", "--quiet", path_text(temp.path())?],
-            )?;
-            let mut cmd = git_command(root);
-            cmd.arg("--git-dir")
-                .arg(temp.path())
-                .arg("--work-tree")
-                .arg(&selected);
+            let cmd = git_probe(root, temp.path())?;
             (root.to_owned(), cmd)
         }
         Err(err) => return Err(err),
@@ -187,6 +189,25 @@ pub fn initial_choices(path: &str) -> Result<serde_json::Value> {
         .filter(|name| !name.ends_with('/'))
         .collect();
     Ok(serde_json::json!({"root": root, "files": files}))
+}
+
+fn validate_import_paths(root: &str, files: &[String]) -> Result<()> {
+    for file in files {
+        let local = Path::new(file);
+        ensure!(
+            !file.is_empty()
+                && local
+                    .components()
+                    .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
+            "initial import requires a repo-relative file: {file}"
+        );
+        let info = fs::symlink_metadata(Path::new(root).join(local))?;
+        ensure!(
+            info.is_file() || info.is_symlink(),
+            "initial import requires a file"
+        );
+    }
+    Ok(())
 }
 
 pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository> {
@@ -204,19 +225,19 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
                 }
             }
             let root = path_text(&canonical)?;
-            // Check Git's ignore rules before creating a repository in the user's folder.
-            if files.is_empty() && fs::read_dir(&canonical)?.next().transpose()?.is_some() {
-                let probe = tempfile::tempdir()?;
-                git(
-                    root,
-                    &["init", "--bare", "--quiet", path_text(probe.path())?],
-                )?;
-                let mut cmd = git_command(root);
-                cmd.arg("--git-dir")
-                    .arg(probe.path())
-                    .arg("--work-tree")
-                    .arg(&canonical);
-                check_initial_files(cmd, root, &canonical)?;
+            if !files.is_empty() || fs::read_dir(&canonical)?.next().transpose()?.is_some() {
+                let metadata = tempfile::tempdir()?;
+                let mut probe = git_probe(root, metadata.path())?;
+                if files.is_empty() {
+                    check_initial_files(probe, root, &canonical)?;
+                } else {
+                    validate_import_paths(root, files)?;
+                    output(
+                        probe
+                            .args(["--literal-pathspecs", "add", "--dry-run", "--"])
+                            .args(files),
+                    )?;
+                }
             }
             git(root, &["init", "--quiet"])?;
             discover(path)?
@@ -250,21 +271,7 @@ pub fn open(path: &str, files: &[String], initialize: bool) -> Result<Repository
                 .args(args),
         )
     };
-    for file in files {
-        let local = Path::new(file);
-        ensure!(
-            !file.is_empty()
-                && local
-                    .components()
-                    .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
-            "initial import requires a repo-relative file: {file}"
-        );
-        let info = fs::symlink_metadata(Path::new(&repo.root).join(local))?;
-        ensure!(
-            info.is_file() || info.is_symlink(),
-            "initial import requires a file"
-        );
-    }
+    validate_import_paths(&repo.root, files)?;
     if !files.is_empty() {
         let mut args = vec!["--literal-pathspecs", "add", "--"];
         args.extend(files.iter().map(String::as_str));
@@ -753,6 +760,22 @@ mod tests {
         assert_eq!(target_head(dir, &repo.target)?, candidate);
         Ok(())
     }
+    #[test]
+    fn rejected_import_does_not_initialize_the_selected_folder() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = path_text(dir.path())?;
+        fs::write(dir.path().join(".gitignore"), "ignored\n")?;
+        fs::write(dir.path().join("ignored"), "mine")?;
+        fs::write(dir.path().join("wanted"), "keep")?;
+        fs::create_dir(dir.path().join("folder"))?;
+        for path in ["missing", "ignored", "../outside", "folder"] {
+            assert!(open(root, &["wanted".into(), path.into()], true).is_err());
+            assert!(!dir.path().join(".git").exists(), "after rejecting {path}");
+        }
+        assert_eq!(fs::read_to_string(dir.path().join("wanted"))?, "keep");
+        Ok(())
+    }
+
     #[test]
     fn existing_unborn_parent_reports_the_actual_root_without_changing_it() -> Result<()> {
         let home = tempfile::tempdir()?;

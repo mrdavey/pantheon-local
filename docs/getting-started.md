@@ -30,7 +30,7 @@ Use the gear beside a run to pause, resume, require review, or delete it. Deleti
 
 ## If setup gets stuck
 
-- **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, use **Advanced settings → Initial import files → Choose files…**. Select multiple files, choose **Add more files…** to add another batch, or remove individual entries before starting. These files become the first Git commit.
+- **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, use **Advanced settings → Initial import files → Choose files…**. Select multiple files, choose **Add more files…** to add another batch, or remove individual entries before starting. These files become the first Git commit. Pantheon checks the selection before initializing a new repository.
 - **Folder access denied on Mac.** In System Settings → Privacy & Security → Files & Folders, allow your launching terminal to access the project folder, then reopen the workbench. You can also choose a project outside the protected folder.
 - **Browse is unavailable on Linux.** Enter the project path, or install Zenity or KDialog on the computer running Pantheon Local.
 - **Git is missing.** Install Git and check `git --version`. Configure your Git name and email if the first commit asks for them.
