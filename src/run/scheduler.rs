@@ -75,11 +75,56 @@ impl Engine {
                 }
                 continue;
             }
+            let snapshot = r.clone();
             if let Err(e) = self.step(&mut r) {
                 eprintln!("run {}: {e:#}", s(&r, "id"));
-                r["state"] = json!("blocked");
-                r["detail"] = json!(e.to_string());
-                self.save(&mut r, "blocked")?
+                if r["revision"] == snapshot["revision"] {
+                    r = snapshot;
+                }
+                let message = e.to_string();
+                match s(&r, "state") {
+                    "stopped" => {
+                        if r["detail"] != message {
+                            r["detail"] = json!(message);
+                            self.save(&mut r, "stop-error")?;
+                        }
+                    }
+                    "landed" => {
+                        let mut changed = false;
+                        if let Some(releases) = r["releases"].as_array_mut() {
+                            for rel in releases {
+                                if matches!(
+                                    s(rel, "state"),
+                                    "queued" | "built" | "staged" | "needs-rollback" | "reconcile"
+                                ) && rel["held"] != true
+                                {
+                                    rel["state"] = json!("failed");
+                                    rel["detail"] = json!(message);
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !changed && r["observer_error"] != message {
+                            r["observer_error"] = json!(message);
+                            changed = true;
+                        }
+                        if changed {
+                            self.save(&mut r, "post-land-error")?;
+                        }
+                    }
+                    "blocked" => {
+                        if r["detail"] != message {
+                            r["detail"] = json!(message);
+                            self.save(&mut r, "blocked")?;
+                        }
+                    }
+                    _ => {
+                        r["state"] = json!("blocked");
+                        r["detail"] = json!(message);
+                        self.save(&mut r, "blocked")?;
+                    }
+                }
             }
         }
         Ok(())
@@ -239,19 +284,28 @@ impl Engine {
             return self.agent_turn(r, "observe", &id, req);
         }
         if !a(&r["releases"]).is_empty() {
-            let before = r["releases"].clone();
-            let root = self.root(r);
-            if let Some((id, job)) = release::next_job(r, || self.store.list(), &root)? {
-                return self.dispatch(r, "release", &id, job);
+            let mut staged = r.clone();
+            let root = self.root(&staged);
+            if let Some((id, job)) = release::next_job(&mut staged, || self.store.list(), &root)? {
+                let updated = staged["releases"].clone();
+                return self.dispatch_with(r, "release", &id, job, |r| {
+                    r["releases"] = updated;
+                });
             }
-            if r["releases"] != before {
+            if staged["releases"] != r["releases"] {
+                r["releases"] = staged["releases"].clone();
                 self.save(r, "release-updated")?
             }
         }
         let phase = Phase::read(r)?;
         match phase {
             Phase::Review => self.maybe_land(r),
-            Phase::Evaluating => self.candidate_step(r),
+            Phase::Evaluating => {
+                if !control {
+                    self.promote_worker_questions(r)?;
+                }
+                self.candidate_step(r)
+            }
             Phase::Stopped | Phase::Landed | Phase::Blocked | Phase::Question | Phase::Checks => {
                 Ok(())
             }
@@ -269,29 +323,8 @@ impl Engine {
             Phase::Planning if !control => self.plan(r),
             Phase::Repairing if !control => self.repair(r),
             Phase::Working => {
-                if !control && !s(r, "project").is_empty() {
-                    let mut additions = vec![];
-                    for t in active(r) {
-                        let id = s(t, "id");
-                        if t["state"] == "question"
-                            && !s(t, "question").trim().is_empty()
-                            && !children_pending(r, id)
-                            && !a(&r["observations"])
-                                .iter()
-                                .any(|o| o["kind"] == "worker-question" && o["ref"] == id)
-                            && !a(&r["inbox"])
-                                .iter()
-                                .any(|q| q["state"] == "open" && a(&q["tasks"]).contains(&t["id"]))
-                        {
-                            additions.push(json!({"id":uid(),"text":t["question"],"source":"worker","tasks":[id],"blocking":true,"revision":1,"state":"open"}))
-                        }
-                    }
-                    if !additions.is_empty() {
-                        for q in additions {
-                            push(&mut r["inbox"], q)
-                        }
-                        self.save(r, "worker-needs-answer")?
-                    }
+                if !control {
+                    self.promote_worker_questions(r)?;
                 }
                 for i in ready_workers(r) {
                     self.worker(r, i)?;
@@ -300,6 +333,34 @@ impl Engine {
             }
             Phase::Planning | Phase::Repairing | Phase::Budget => Ok(()),
         }
+    }
+    fn promote_worker_questions(&self, r: &mut Value) -> Result<()> {
+        if s(r, "project").is_empty() {
+            return Ok(());
+        }
+        let mut additions = vec![];
+        for t in active(r) {
+            let id = s(t, "id");
+            if t["state"] == "question"
+                && !s(t, "question").trim().is_empty()
+                && !children_pending(r, id)
+                && !a(&r["observations"])
+                    .iter()
+                    .any(|o| o["kind"] == "worker-question" && o["ref"] == id)
+                && !a(&r["inbox"])
+                    .iter()
+                    .any(|q| q["state"] == "open" && a(&q["tasks"]).contains(&t["id"]))
+            {
+                additions.push(json!({"id":uid(),"text":t["question"],"source":"worker","tasks":[id],"blocking":true,"revision":1,"state":"open"}))
+            }
+        }
+        if !additions.is_empty() {
+            for q in additions {
+                push(&mut r["inbox"], q)
+            }
+            self.save(r, "worker-needs-answer")?;
+        }
+        Ok(())
     }
     fn accept_control(&self, r: &mut Value, role: &str, res: &Value) -> Result<()> {
         ensure!(s(res, "error").is_empty(), "{}", s(res, "error"));
@@ -371,12 +432,20 @@ impl Engine {
         Ok(())
     }
     fn maybe_land(&self, r: &mut Value) -> Result<()> {
+        let pending_observations = !a(&r["observations"]).is_empty()
+            && (!budget(r)
+                || a(&r["observations"]).iter().any(|o| {
+                    !matches!(
+                        s(o, "kind"),
+                        "worker-completed" | "comparison-ready" | "eval-passed" | "eval-complete"
+                    )
+                }));
         if matches!(s(&r["input"], "delivery"), "" | "review")
             || yes(&r["held"])
             || waiting(r)
             || !r["combination"].is_null()
             || !s(r, "observer_error").is_empty()
-            || !a(&r["observations"]).is_empty()
+            || pending_observations
             || a(&r["conversation"]).iter().any(|m| {
                 matches!(s(m, "state"), "running" | "queued") || m["proposal_state"] == "pending"
             })

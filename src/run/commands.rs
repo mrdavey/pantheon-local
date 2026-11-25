@@ -26,8 +26,18 @@ pub(super) fn resume_phase(r: &Value) -> &str {
             _ => {}
         }
     }
+    if matches!(s(r, "state"), "review" | "landed" | "evaluating") {
+        return s(r, "state");
+    }
     if !s(r, "repair_id").is_empty() {
         return "repairing";
+    }
+    if a(&r["candidates"]).iter().any(|c| {
+        c["round"] == r["round"]
+            && c["policy"] == r["policy"]
+            && matches!(s(c, "state"), "queued" | "conflict" | "cancelled")
+    }) {
+        return "evaluating";
     }
     if active(r).is_empty() {
         "planning"
@@ -169,8 +179,9 @@ impl Engine {
             s(msg, "text")
         );
         let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"chat","dir":self.root(r).join("coordinator"),"prompt":prompt,"session":s(r,"chat_session")});
-        r["conversation"][i]["state"] = json!("running");
-        self.agent_turn(r, "chat", &id, req)
+        self.agent_turn_with(r, "chat", &id, req, |r| {
+            r["conversation"][i]["state"] = json!("running");
+        })
     }
     pub(super) fn finish_chat(&self, r: &mut Value, id: &str, res: &Value) {
         let Some(i) = find(&r["conversation"], id) else {
@@ -333,7 +344,9 @@ impl Engine {
             self.update_suite(&mut r, &action)?
         } else if !experiment::command(&mut r, &action)? {
             ensure!(
-                r["state"] != "landed" || matches!(kind, "land" | "chat" | "dismiss-proposal"),
+                r["state"] != "landed"
+                    || matches!(kind, "land" | "chat" | "dismiss-proposal")
+                    || (kind == "resume" && budget(&r)),
                 "run is already landed"
             );
             match kind {
@@ -388,8 +401,13 @@ impl Engine {
                 }
                 "answer" => {
                     ensure!(!text.trim().is_empty(), "answer is required");
-                    if task.is_empty() && r["state"] == "question" {
-                        r["state"] = json!("planning");
+                    let paused_question = r["state"] == "stopped" && resume_phase(&r) == "question";
+                    if task.is_empty() && (r["state"] == "question" || paused_question) {
+                        if paused_question {
+                            r["stopped_from"] = json!("planning");
+                        } else {
+                            r["state"] = json!("planning");
+                        }
                         r["question"] = json!("");
                         r["answer"] = json!(text);
                         for i in 0..a(&r["inbox"]).len() {
@@ -438,7 +456,7 @@ impl Engine {
                             }
                         }
                     }
-                    if r["state"] == "blocked" && a(&r["tasks"]).is_empty() {
+                    if r["state"] == "blocked" && active(&r).is_empty() {
                         r["state"] = json!("planning");
                         r["detail"] = json!("")
                     }
@@ -456,8 +474,16 @@ impl Engine {
                     }
                 }
                 "resume" => {
+                    let retry_conflict = !task.is_empty()
+                        && matches!(s(&r, "state"), "evaluating" | "review")
+                        && find(&r["tasks"], task).is_some_and(|j| {
+                            !s(&r["tasks"][j], "conflict").is_empty()
+                                && matches!(s(&r["tasks"][j], "state"), "blocked" | "interrupted")
+                        });
                     ensure!(
-                        matches!(s(&r, "state"), "stopped" | "blocked" | "budget" | "working"),
+                        matches!(s(&r, "state"), "stopped" | "blocked" | "budget" | "working")
+                            || budget(&r)
+                            || retry_conflict,
                         "run is already active or awaiting another action"
                     );
                     ensure!(

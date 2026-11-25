@@ -184,10 +184,12 @@ impl Engine {
                 return self.save(r, "eval-subdir-unavailable");
             }
         };
-        c["state"] = json!("evaluating");
         let job = json!({"request":{"dir":cwd},"checkout":dir,"subdir":s(&r["repo"],"Subdir"),"recipe":recipe,"expected_commit":c["commit"],"inputs":s(&c,"inputs"),"scope":{"repository":r["repo"]["Root"],"common":r["repo"]["Common"],"state":self.dir}});
-        r["candidates"][i] = c.clone();
-        self.dispatch(r, "eval", s(&c, "id"), job)
+        let cid = s(&c, "id").to_owned();
+        c["state"] = json!("evaluating");
+        self.dispatch_with(r, "eval", &cid, job, |r| {
+            r["candidates"][i] = c;
+        })
     }
     pub(super) fn candidate_step(&self, r: &mut Value) -> Result<()> {
         for i in 0..a(&r["candidates"]).len() {
@@ -333,13 +335,23 @@ impl Engine {
                     return self.save(r, "integration-repaired");
                 }
                 "abandoned" | "blocked" => {}
-                "pending" if !held(r, s(t, "id")) && !budget(r) => return self.worker(r, j),
+                "pending" if !held(r, s(t, "id")) => {
+                    if budget(r) {
+                        r["state"] = json!("budget");
+                        return self.save(r, "token-target");
+                    }
+                    return self.worker(r, j);
+                }
                 _ => return Ok(()),
             }
         } else if !a(&r["observations"]).is_empty()
             || !s(r, "observer_error").is_empty()
             || waiting(r)
         {
+            if budget(r) && s(r, "observer_error").is_empty() && !waiting(r) {
+                r["state"] = json!("budget");
+                return self.save(r, "token-target");
+            }
             return Ok(());
         }
         r["candidates"][i]["state"] = json!("failed");

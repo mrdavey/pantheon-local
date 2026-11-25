@@ -17,7 +17,7 @@ fn render(template: &str, fields: &[(&str, String)]) -> String {
     out.push_str(rest);
     out
 }
-fn awaiting_consultation(task: &Value) -> bool {
+pub(super) fn awaiting_consultation(task: &Value) -> bool {
     !s(task, "consult").trim().is_empty() && s(task, "reply").is_empty()
 }
 
@@ -95,9 +95,11 @@ impl Engine {
         if dir.is_empty() {
             if !a(&t["donors"]).is_empty()
                 && !s(&r["repo"], "Target").is_empty()
-                && a(&r["past_selections"])
-                    .last()
-                    .is_some_and(|p| !p["landed_at"].is_null())
+                && a(&r["past_selections"]).last().is_some_and(|p| {
+                    num(&p["round"]) == num(&r["round"]) - 1
+                        && !p["landed_at"].is_null()
+                        && a(&t["donors"]).first() == Some(&p["candidate"])
+                })
             {
                 let base = project::target_head(s(&r["repo"], "Root"), s(&r["repo"], "Target"))?;
                 project::fetch(&integ, s(&r["repo"], "Root"), &base)?;
@@ -137,7 +139,20 @@ impl Engine {
             for d in strings(&t["depends"]) {
                 let sha = s(&r["tasks"][index(&r["tasks"], &d)?], "commit");
                 project::fetch(&dir, &integ, sha)?;
-                project::merge(&dir, sha)?;
+                if project::merge(&dir, sha).is_err() {
+                    let paths = project::conflicted_paths(&dir).unwrap_or_default();
+                    let _ = fs::remove_dir_all(&dir);
+                    r["tasks"][i]["state"] = json!("blocked");
+                    r["tasks"][i]["finding"] = json!(if paths.is_empty() {
+                        format!("Prerequisite milestone {d} could not be merged cleanly.")
+                    } else {
+                        format!(
+                            "Prerequisite milestone {d} conflicted on {}.",
+                            paths.join(", ")
+                        )
+                    });
+                    return self.save(r, "dependency-conflict");
+                }
             }
             t["base"] = json!(project::head(&dir)?);
             t["workspace"] = json!(dir);
@@ -162,8 +177,14 @@ impl Engine {
                 delegated.push(name)
             }
         }
-        let cwd = Path::new(&dir).join(s(&r["repo"], "Subdir"));
-        fs::create_dir_all(&cwd)?;
+        let subdir = s(&r["repo"], "Subdir");
+        if !subdir.is_empty() && subdir != "." {
+            let nested = Path::new(&dir).join(subdir);
+            if fs::symlink_metadata(&nested).is_err() {
+                fs::create_dir_all(&nested)?;
+            }
+        }
+        let cwd = project::subdir(Path::new(&dir), subdir)?;
         let notes = strings(&t["notes"])
             .into_iter()
             .skip(num(&t["delivered"]) as usize)
@@ -206,9 +227,10 @@ impl Engine {
             );
         }
         let req = json!({"role":"worker","profile":r["profiles"][s(&t,"worker")],"dir":cwd,"prompt":prompt,"session":s(&t,"session")});
-        t["state"] = json!("running");
-        r["tasks"][i] = t;
-        self.agent_turn(r, "worker", &id, req)
+        self.agent_turn_with(r, "worker", &id, req, |r| {
+            t["state"] = json!("running");
+            r["tasks"][i] = t;
+        })
     }
     pub(super) fn save_commit(&self, r: &mut Value, i: usize, reported: &str) -> Result<()> {
         let t = &r["tasks"][i];
@@ -253,9 +275,7 @@ impl Engine {
             };
             for path in paths {
                 ensure!(
-                    scopes
-                        .iter()
-                        .any(|scope| Path::new(&path).starts_with(scope)),
+                    project::within_scope(&path, &scopes),
                     "milestone changed {path:?} outside its assigned scope"
                 );
             }
@@ -374,7 +394,17 @@ impl Engine {
                 }
                 "finding" => {
                     let j = index(&r["tasks"], s(&outcome, "recipient"))?;
-                    ensure!(i != j && !message.is_empty(), "invalid finding recipient");
+                    let same_variant = s(&r["tasks"][j], "variant").is_empty()
+                        || s(&r["tasks"][i], "variant").is_empty()
+                        || r["tasks"][j]["variant"] == r["tasks"][i]["variant"];
+                    ensure!(
+                        i != j
+                            && !message.is_empty()
+                            && j >= num(&r["task_start"]) as usize
+                            && same_variant
+                            && !matches!(s(&r["tasks"][j], "state"), "committed" | "abandoned"),
+                        "invalid finding recipient"
+                    );
                     push(
                         &mut r["tasks"][j]["notes"],
                         json!(format!("{id}: {message}")),

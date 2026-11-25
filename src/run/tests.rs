@@ -468,3 +468,78 @@ fn selected_candidate_waits_quietly_on_a_scoped_question() -> Result<()> {
     assert_eq!(engine.store.get("run")?, r);
     Ok(())
 }
+
+#[test]
+fn consultation_turn_preserves_queued_notes_for_implementation() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut r = json!({
+        "id":"consult","state":"working","generation":1,"round":1,"policy":1,
+        "tasks":[{"id":"api","state":"running","consult":"Confirm auth","notes":["peer: Use bearer header"],"delivered":0}]
+    });
+    engine.save(&mut r, "seed")?;
+    engine.agent_turn(&mut r, "worker", "api", json!({"prompt":"Ask"}))?;
+    assert_eq!(r["turns"][0]["messages"], 0);
+    let tid = s(&r["turns"][0], "id").to_owned();
+    supervisor::write_json(
+        &engine.jobdir(&r, &tid).join("result.json"),
+        &json!({"text":r#"{"status":"question","message":"Bearer or cookie?"}"#}),
+    )?;
+    engine.tick()?;
+    let saved = engine.store.get("consult")?;
+    assert_eq!(saved["tasks"][0]["state"], "question");
+    assert_eq!(saved["tasks"][0]["delivered"], 0);
+    Ok(())
+}
+
+#[test]
+fn tick_preserves_landed_state_rolls_back_failed_dispatch_and_pauses_conflicted_budget()
+-> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut landed = json!({
+        "id":"landed","state":"landed","detail":"abc123","deploy_config":{"executable":"/bin/true"},
+        "repo":{"Root":"/nonexistent-pantheon-repo","Target":"refs/heads/main"},
+        "releases":[{"id":"rel","state":"queued","commit":"abc123","destination":"prod"}]
+    });
+    engine.save(&mut landed, "seed")?;
+    engine.tick()?;
+    let after = engine.store.get("landed")?;
+    assert_eq!(after["state"], "landed");
+    assert_eq!(after["detail"], "abc123");
+    assert_eq!(after["releases"][0]["state"], "failed");
+    let rev = after["revision"].clone();
+    engine.tick()?;
+    assert_eq!(engine.store.get("landed")?["revision"], rev);
+
+    let mut broken = json!({
+        "id":"dispatch-fail","state":"working","recipe_approved":true,
+        "input":{"prompt":"Test","attachments":[{"name":"missing.txt","size":4,"path":"attachments/0/missing.txt"}]},
+        "conversation":[{"id":"m1","role":"user","text":"Hello","state":"queued"}]
+    });
+    engine.save(&mut broken, "seed")?;
+    engine.tick()?;
+    let broken_after = engine.store.get("dispatch-fail")?;
+    assert_eq!(broken_after["state"], "blocked");
+    assert_eq!(broken_after["conversation"][0]["state"], "queued");
+    assert!(a(&broken_after["turns"]).is_empty());
+
+    let mut round2 = json!({
+        "id":"r2","state":"blocked","round":2,"task_start":1,
+        "input":{"coordinator":"old"},"profiles":{"old":{},"new":{"kind":"codex"}},
+        "tasks":[{"id":"t1","state":"committed"}]
+    });
+    engine.save(&mut round2, "seed")?;
+    let switched = engine.command("r2", json!({"kind":"coordinator","text":"new"}))?;
+    assert_eq!(switched["state"], "planning");
+
+    let mut conflicted = json!({
+        "id":"conflict-budget","state":"evaluating","round":1,"policy":1,"tokens":5,
+        "input":{"token_target":5},"observations":[{"id":"o1","kind":"integration-conflict","ref":"c1"}],
+        "candidates":[{"id":"c1","state":"conflict","round":1,"policy":1}]
+    });
+    engine.save(&mut conflicted, "seed")?;
+    engine.tick()?;
+    assert_eq!(engine.store.get("conflict-budget")?["state"], "budget");
+    let resumed = engine.command("conflict-budget", json!({"kind":"resume","tokens":10}))?;
+    assert_eq!(resumed["state"], "evaluating");
+    Ok(())
+}

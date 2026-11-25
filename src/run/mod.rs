@@ -426,11 +426,29 @@ impl Engine {
         let _ = pending.keep();
         Ok(r)
     }
-    pub fn dispatch(&self, r: &mut Value, role: &str, task: &str, mut job: Value) -> Result<()> {
+    pub fn dispatch(&self, r: &mut Value, role: &str, task: &str, job: Value) -> Result<()> {
+        self.dispatch_with(r, role, task, job, |_| {})
+    }
+    pub fn dispatch_with(
+        &self,
+        r: &mut Value,
+        role: &str,
+        task: &str,
+        mut job: Value,
+        before_save: impl FnOnce(&mut Value),
+    ) -> Result<()> {
         let worker = find(&r["tasks"], task)
             .filter(|_| role == "worker")
             .map(|i| &r["tasks"][i]);
-        let msg_count = worker.map(|t| a(&t["notes"]).len()).unwrap_or_default();
+        let msg_count = worker
+            .map(|t| {
+                if worker::awaiting_consultation(t) {
+                    num(&t["delivered"]).max(0) as usize
+                } else {
+                    a(&t["notes"]).len()
+                }
+            })
+            .unwrap_or_default();
         let prompt = s(&job["request"], "prompt");
         if !prompt.is_empty() {
             let mut context = context(r, worker);
@@ -444,6 +462,7 @@ impl Engine {
         let dir = self.jobdir(r, &id);
         fs::create_dir_all(&dir)?;
         supervisor::write_json(&dir.join("job.json"), &job)?;
+        before_save(r);
         let turn = json!({"id":id,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
         push(&mut r["turns"], turn);
         self.save(r, "dispatched")?;
@@ -454,5 +473,15 @@ impl Engine {
     }
     fn agent_turn(&self, r: &mut Value, role: &str, task: &str, request: Value) -> Result<()> {
         self.dispatch(r, role, task, json!({"request":request}))
+    }
+    fn agent_turn_with(
+        &self,
+        r: &mut Value,
+        role: &str,
+        task: &str,
+        request: Value,
+        before_save: impl FnOnce(&mut Value),
+    ) -> Result<()> {
+        self.dispatch_with(r, role, task, json!({"request":request}), before_save)
     }
 }
