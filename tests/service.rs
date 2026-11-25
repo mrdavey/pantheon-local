@@ -37,7 +37,9 @@ fn loopback_session_protects_reads_and_writes() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let launch = || {
         let mut c = Command::new(env!("CARGO_BIN_EXE_swarm"));
-        c.env("SWARM_STATE_DIR", dir.path()).arg("serve");
+        c.env("SWARM_STATE_DIR", dir.path())
+            .env("SWARM_UPDATE_URL", "off")
+            .arg("serve");
         c
     };
     let mut daemon = Daemon(
@@ -116,6 +118,7 @@ fn daemon_can_spawn_its_own_supervisor_after_binary_replacement() -> Result<()> 
         Command::new(&installed)
             .arg("serve")
             .env("SWARM_STATE_DIR", &state)
+            .env("SWARM_UPDATE_URL", "off")
             .stdout(Stdio::null())
             .spawn()?,
     );
@@ -158,6 +161,7 @@ fn run_starts_after_launch_directory_disappears() -> Result<()> {
         Command::new(env!("CARGO_BIN_EXE_swarm"))
             .current_dir(&start)
             .env("SWARM_STATE_DIR", &state)
+            .env("SWARM_UPDATE_URL", "off")
             .arg("serve")
             .stdout(Stdio::null())
             .spawn()?,
@@ -255,5 +259,101 @@ fn new_project_import_commits_only_the_validated_literal_selection() -> Result<(
         common::git(&folder, &["status", "--porcelain"])?,
         "?? notes1"
     );
+    Ok(())
+}
+
+#[test]
+fn notifies_cli_and_workbench_when_a_newer_release_is_available() -> Result<()> {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::{TcpListener, TcpStream},
+        path::PathBuf,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+    let tmp = tempfile::tempdir()?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    let endpoint = format!("http://{addr}/releases/latest");
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_flag = stop.clone();
+    let server = thread::spawn(move || {
+        for incoming in listener.incoming() {
+            if stop_flag.load(Ordering::Acquire) {
+                break;
+            }
+            let Ok(mut sock) = incoming else {
+                break;
+            };
+            let mut reader = BufReader::new(&sock);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                    break;
+                }
+            }
+            let body = serde_json::json!({
+                "tag_name": "v9.1.0",
+                "draft": false,
+                "prerelease": false,
+                "html_url": "https://github.com/mrdavey/pantheon-local/releases/tag/v9.1.0"
+            })
+            .to_string();
+            let _ = write!(
+                sock,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+
+    let svc = common::Service::with_env(
+        tmp.path(),
+        [("SWARM_UPDATE_URL".into(), PathBuf::from(&endpoint))].into(),
+    )?;
+    let expected = serde_json::json!({
+        "current": env!("CARGO_PKG_VERSION"),
+        "latest": "9.1.0",
+        "url": "https://github.com/mrdavey/pantheon-local/releases/tag/v9.1.0"
+    });
+    let report = svc.get("/setup/status")?;
+    assert_eq!(report["setup"]["update"], expected);
+    assert_eq!(svc.get("/setup")?["update"], expected);
+
+    let status_out = Command::new(env!("CARGO_BIN_EXE_swarm"))
+        .arg("status")
+        .env("SWARM_STATE_DIR", &svc.state)
+        .env("SWARM_UPDATE_URL", &endpoint)
+        .output()?;
+    assert!(status_out.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&status_out.stdout)?,
+        serde_json::json!([])
+    );
+    let status_err = String::from_utf8(status_out.stderr)?;
+    assert!(
+        status_err.contains("Update available: Pantheon Local v9.1.0")
+            && status_err.contains("https://github.com/mrdavey/pantheon-local/releases/tag/v9.1.0"),
+        "{status_err}"
+    );
+
+    let doctor_out = Command::new(env!("CARGO_BIN_EXE_swarm"))
+        .arg("doctor")
+        .env("SWARM_STATE_DIR", &svc.state)
+        .env("SWARM_UPDATE_URL", &endpoint)
+        .output()?;
+    assert!(doctor_out.status.success());
+    let doctor_err = String::from_utf8(doctor_out.stderr)?;
+    assert!(
+        doctor_err.contains("Update available: Pantheon Local v9.1.0"),
+        "{doctor_err}"
+    );
+
+    stop.store(true, Ordering::Release);
+    let _ = TcpStream::connect(addr);
+    let _ = server.join();
     Ok(())
 }

@@ -949,6 +949,7 @@ fn open_reuses_the_listening_service() -> Result<()> {
         cmd.arg("open")
             .env("PATH", &path)
             .env("SWARM_STATE_DIR", &state)
+            .env("SWARM_UPDATE_URL", "off")
             .env("SWARM_TEST_OPENED", &opener)
             .stdout(Stdio::null());
         cmd

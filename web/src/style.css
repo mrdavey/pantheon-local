@@ -188,6 +188,8 @@ pre { overflow: auto; max-height: 360px; color: var(--ink); background: var(--wa
 .row h2, .row h3 { margin-top: .55rem; }
 .notice { margin: .75rem 0; overflow-wrap: anywhere; }
 .landed-receipt { background: var(--green-wash); display: grid; gap: .3rem; }
+.update-notice { display: flex; justify-content: space-between; align-items: center; gap: .75rem; background: var(--clay-wash); }
+.update-notice span { color: var(--ink); }
 .error { display: flex; justify-content: space-between; align-items: center; gap: .75rem; background: var(--red-wash); color: var(--red); }
 .feedback { position: sticky; top: .5rem; z-index: 2; }
 .empty-state { padding: .65rem 0; }

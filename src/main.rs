@@ -15,6 +15,7 @@ mod supervisor;
 #[cfg(test)]
 #[path = "../tests/common/example.rs"]
 mod test_examples;
+mod update;
 mod wire;
 mod assets {
     include!(concat!(env!("OUT_DIR"), "/assets.rs"));

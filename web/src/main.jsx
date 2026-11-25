@@ -368,6 +368,8 @@ function App() {
   const focusPage = useRef(false);
   const [showInboxHistory, setShowInboxHistory] = useState(false);
   const [settingsId, setSettingsId] = useState(null);
+  const [dismissedUpdate, setDismissedUpdate] = useState(() => sessionStorage.getItem("local-swarm-dismissed-update") || "");
+  const update = setup?.update && setup.update.latest !== dismissedUpdate ? setup.update : null;
   const deleted = useRef(new Set());
   const apply = (run) => {
     if (run.deleted) {
@@ -502,6 +504,10 @@ function App() {
       </>}
     </aside>
     <main ref={main} tabIndex={-1} id="main-content">
+      {update && <div className="notice update-notice" role="status">
+        <span>Update available: <strong>Pantheon Local v{update.latest}</strong> (you have v{update.current}). <a href={update.url} target="_blank" rel="noreferrer">View GitHub release ↗</a></span>
+        <button type="button" onClick={() => { sessionStorage.setItem("local-swarm-dismissed-update", update.latest); setDismissedUpdate(update.latest); }} aria-label="Dismiss update notice">×</button>
+      </div>}
       {connectionError && <div className="notice error" role="alert">
         <span>{connectionError.status === 401 ? connectionError.message : setup ? "Run updates paused. Reconnecting…" : `Couldn’t load Pantheon Local. ${connectionError.message}`}</span>
         {!setup && connectionError.status !== 401 && <button onClick={() => { setConnectionError(null); setStartup((value) => value + 1); }}>Try again</button>}

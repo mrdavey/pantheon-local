@@ -108,6 +108,9 @@ pub fn setup(dir: &Path) -> Result<Value> {
             .filter(|p| p != Path::new("/"))
             .and_then(|p| p.into_os_string().into_string().ok())
     );
+    if let Some(update) = crate::update::cached(dir) {
+        cfg["update"] = update;
+    }
     Ok(cfg)
 }
 fn write_local(path: &Path, value: &Value) -> Result<()> {
@@ -212,6 +215,15 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
     write_local(&meta.0, &json!({"url":origin,"token":token}))?;
     let link = crate::cli::workbench_link(&origin, &token);
     println!("{link}");
+    let update_dir = dir.to_path_buf();
+    thread::spawn(move || {
+        if let Some(msg) = crate::update::check(&update_dir)
+            .as_ref()
+            .and_then(crate::update::cli_message)
+        {
+            eprintln!("{msg}");
+        }
+    });
     if browser {
         thread::spawn(move || crate::cli::open_browser(&link));
     }
@@ -403,7 +415,10 @@ impl Local {
             }
             ("GET", ["setup"]) => setup(&self.dir),
             ("GET", ["setup", "status"]) => {
-                let cfg = setup(&self.dir)?;
+                let mut cfg = setup(&self.dir)?;
+                if let Some(update) = crate::update::check(&self.dir) {
+                    cfg["update"] = update;
+                }
                 let profiles = cfg["profiles"].as_object().context("invalid profiles")?;
                 let mut statuses = serde_json::Map::new();
                 for (name, p) in profiles {

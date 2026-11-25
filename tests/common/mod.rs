@@ -140,6 +140,7 @@ impl Service {
         self.child = Some(
             isolated_git_environment(&mut Command::new(binary))
                 .arg("serve")
+                .env("SWARM_UPDATE_URL", "off")
                 .envs(&self.env)
                 .env("SWARM_STATE_DIR", &self.state)
                 .stdout(Stdio::null())

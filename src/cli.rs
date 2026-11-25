@@ -270,6 +270,15 @@ fn normalize_args<I: IntoIterator<Item = std::ffi::OsString>>(raw: I) -> Vec<std
     args
 }
 
+fn notify_update(dir: &Path) {
+    if let Some(msg) = crate::update::check(dir)
+        .as_ref()
+        .and_then(crate::update::cli_message)
+    {
+        eprintln!("{msg}");
+    }
+}
+
 pub fn execute() -> Result<()> {
     // Retain the original single-dash long options for existing shell scripts.
     let args = normalize_args(std::env::args_os());
@@ -291,6 +300,7 @@ pub fn execute() -> Result<()> {
             );
             if let Some(link) = Session::running(&dir) {
                 println!("{link}");
+                notify_update(&dir);
                 open_browser(&link);
                 return Ok(());
             }
@@ -303,6 +313,7 @@ pub fn execute() -> Result<()> {
             while start.elapsed() < Duration::from_secs(3) {
                 if let Some(link) = Session::running(&dir) {
                     println!("{link}");
+                    notify_update(&dir);
                     open_browser(&link);
                     return Ok(());
                 }
@@ -320,6 +331,7 @@ pub fn execute() -> Result<()> {
                     adapter::probe(p, Some(&dir)).unwrap_or_else(|e| e.to_string())
                 );
             }
+            notify_update(&dir);
             return Ok(());
         }
         Action::Start(s) => {
@@ -407,6 +419,7 @@ pub fn execute() -> Result<()> {
     } else {
         print!("{output}")
     }
+    notify_update(&dir);
     Ok(())
 }
 
