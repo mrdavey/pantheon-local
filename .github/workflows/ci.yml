@@ -1,29 +1,103 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  rust:
-    strategy:
-      matrix:
-        os: [ubuntu-24.04, macos-latest]
-    runs-on: ${{ matrix.os }}
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      checks: ${{ steps.plan.outputs.checks }}
+      test_target: ${{ steps.plan.outputs.test_target }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+      history: ${{ steps.plan.outputs.history }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Verify release version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version v$version" >&2
+            exit 1
+          fi
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' }}
+        run: python3 scripts/ci/checks.py plan "$BASE"
+
+  rust:
+    needs: select
+    if: needs.select.outputs.platforms != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.select.outputs.platforms) }}
+    runs-on: ${{ matrix.os }}
+    env:
+      TEST_TARGET: ${{ needs.select.outputs.test_target }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm --prefix web ci
-      - run: npm --prefix web run build
-      - run: cargo fmt --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo build --locked --examples
-      - run: cargo test --locked
-      - run: cargo build --locked
+      - id: select
+        env:
+          CHECKS: ${{ needs.select.outputs.checks }}
+          HISTORY: ${{ needs.select.outputs.history }}
+        run: python3 scripts/ci/checks.py check
+      - name: ${{ steps.select.outputs.fmt || 'Format' }}
+        if: steps.select.outputs.run_fmt == 'true'
+        run: cargo fmt --check
+      - name: ${{ steps.select.outputs.package || 'Release archive' }}
+        if: steps.select.outputs.run_package == 'true'
+        run: |
+          ./scripts/package.sh
+          ./scripts/ci/verify-package.sh
+      - name: Restore embedded web assets
+        id: assets
+        if: steps.select.outputs.run_package != 'true' && (steps.select.outputs.run_tests == 'true' || steps.select.outputs.run_lint == 'true' || steps.select.outputs.run_browser == 'true')
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: web/dist
+          key: ${{ steps.select.outputs.assets }}
+      - name: Build embedded web assets
+        if: steps.assets.outcome == 'success' && steps.assets.outputs.cache-hit != 'true'
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+      - name: ${{ steps.select.outputs.lint || 'Clippy' }}
+        if: steps.select.outputs.run_lint == 'true'
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build CLI and fixtures
+        if: steps.select.outputs.run_tests == 'true' || steps.select.outputs.run_browser == 'true'
+        run: cargo build --locked --bin swarm --examples
+      - name: ${{ steps.select.outputs.tests || 'Rust tests' }}
+        if: steps.select.outputs.run_tests == 'true'
+        run: |
+          if [ -n "$TEST_TARGET" ]; then
+            cargo test --locked --test "$TEST_TARGET"
+          else
+            cargo test --locked
+          fi
       - name: Install matching Chrome and ChromeDriver
-        if: runner.os == 'Linux'
+        if: steps.select.outputs.run_browser == 'true'
         env:
           CHROME_VERSION: '158.0.8127.37'
         run: |
@@ -47,5 +121,6 @@ jobs:
           "$chrome" --headless --disable-dev-shm-usage --dump-dom about:blank
           echo "CHROME_BIN=$chrome" >> "$GITHUB_ENV"
           echo "CHROMEDRIVER=$RUNNER_TEMP/chromedriver-linux64/chromedriver" >> "$GITHUB_ENV"
-      - if: runner.os == 'Linux'
+      - name: ${{ steps.select.outputs.browser || 'Workbench' }}
+        if: steps.select.outputs.run_browser == 'true'
         run: cargo test --locked --test workbench -- --ignored --test-threads=1

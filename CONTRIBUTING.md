@@ -20,3 +20,20 @@ cargo test --locked --test workbench -- --ignored --test-threads=1
 For live qualification, set `SWARM_NATIVE_PROFILES` to your profiles file, `SWARM_NATIVE_COORDINATOR` to a profile name and `SWARM_NATIVE_WORKERS` to comma-separated worker names. Run `cargo test --locked --test native native_smoke -- --ignored --nocapture` to use those accounts. Set `SWARM_NATIVE_BROWSER` to the Chrome executable for the quote tracker scenario. [Adapter contract](docs/architecture.md#native-adapters)
 
 Build a local release archive with `scripts/package.sh` (requires jq). In the extracted archive, run `./tests/e2e` and `./tests/experiments` for the same fixture checks. Pushing a `vX.Y.Z` tag matching `Cargo.toml` triggers `.github/workflows/release.yml` to build, verify, and publish the macOS and Linux archives on GitHub Releases.
+
+## CI selection
+
+Pull requests and pushes to `main` start a small selection job. It compares the checked-out tree (the merge result for a PR) with a successfully checked base on `main`. A missing base or unsuccessful base run selects the full set. New commits to a PR cancel its superseded run.
+
+| Change | Checks |
+| --- | --- |
+| Documentation or `.gitignore` only | Selection job only |
+| Web workbench | Linux build with embedded assets and desktop/mobile browser tests |
+| Rust source or shared fixtures | Linux and macOS Clippy and tests, Linux formatting and browser tests |
+| One integration test file | Clippy and that test target on both platforms, formatting on Linux. Workbench changes also run the browser suite. |
+| Packaging scripts or release workflow | Build, extract, and test the archives on Linux and macOS |
+| CI workflow, toolchain, or unclassified build input | Full set |
+
+For mixed changes, CI combines the affected checks. Each selected check compares its Git inputs, workflow, runner image, architecture, and tool versions with successful steps from the last 20 CI runs. A matching step from a repository branch can cover a PR update, merge, or retry. A later failure or missing evidence makes the check run. The selection log shows which results were reused. GitHub caches the built web assets separately.
+
+For a release tag, the selector reuses green main CI for the tagged commit or waits up to ten minutes for a known active run. An unverified tag runs the missing code checks. Release tags build fresh archives and run the packaged fixture suites on all three release platforms before publication. To exercise the selection rules locally, run `cargo test --locked --test ci` with Python 3 and Node.js available.
