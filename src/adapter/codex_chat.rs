@@ -8,6 +8,19 @@ fn send(input: &mut ChildStdin, request: Value) -> Result<()> {
     Ok(())
 }
 
+fn thread_settings(request: &Value) -> Value {
+    let mut settings = json!({"cwd":request["dir"],"sandbox":"read-only","approvalPolicy":"never"});
+    let model = field(&request["profile"], "model");
+    if !model.is_empty() {
+        settings["model"] = model.into();
+    }
+    let previous = field(request, "session");
+    if !previous.is_empty() {
+        settings["threadId"] = previous.into();
+    }
+    settings
+}
+
 pub(super) fn exchange(
     request: &Value,
     mut input: ChildStdin,
@@ -86,39 +99,41 @@ pub(super) fn exchange(
             }
             continue;
         }
+        let id = event["id"].as_u64();
         if let Some(error) = event["error"].as_object() {
-            bail!(
-                "Codex chat: {}",
-                error
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("request failed")
-            );
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("request failed");
+            let previous = field(request, "session");
+            // Only a rejected resume is safe to recover: no turn was submitted.
+            // A fork retains history and leaves the existing writer alone.
+            if id == Some(2)
+                && !previous.is_empty()
+                && message == format!("thread {previous} already has an active writer")
+            {
+                send(
+                    &mut input,
+                    json!({"id":4,"method":"thread/fork","params":thread_settings(request)}),
+                )?;
+                continue;
+            }
+            bail!("Codex chat: {message}");
         }
-        match event["id"].as_u64() {
+        match id {
             Some(1) => {
                 send(&mut input, json!({"method":"initialized"}))?;
-                let mut settings =
-                    json!({"cwd":request["dir"],"sandbox":"read-only","approvalPolicy":"never"});
-                if let Some(model) = request["profile"]["model"]
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                {
-                    settings["model"] = model.into();
-                }
-                let previous = field(request, "session");
-                let method = if previous.is_empty() {
+                let method = if field(request, "session").is_empty() {
                     "thread/start"
                 } else {
-                    settings["threadId"] = previous.into();
                     "thread/resume"
                 };
                 send(
                     &mut input,
-                    json!({"id":2,"method":method,"params":settings}),
+                    json!({"id":2,"method":method,"params":thread_settings(request)}),
                 )?;
             }
-            Some(2) => {
+            Some(2 | 4) => {
                 session = event["result"]["thread"]["id"]
                     .as_str()
                     .context("Codex returned no chat session")?

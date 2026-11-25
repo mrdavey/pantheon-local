@@ -26,7 +26,7 @@ To add an adapter, create an executable that accepts `--version` and `turn-v1`. 
 {"result":{"session":"session-id","text":"{\"status\":\"committed\",\"commit\":\"actual-git-sha\"}","tokens":1024}}
 ```
 
-On chat turns, a custom adapter can stream the JSON response in `agent_message_chunk` events with a `text` delta. Keep the final typed result. The workbench displays only the answer in the top-level `reply` field. Codex chat uses its local app-server, Claude uses partial messages, and Hermes streams ACP message updates.
+On chat turns, a custom adapter can stream the JSON response in `agent_message_chunk` events with a `text` delta. Keep the final typed result. The workbench displays only the answer in the top-level `reply` field. Codex chat uses its local app-server, Claude uses partial messages, and Hermes streams ACP message updates. Refreshing the workbench reconnects to the saved conversation while the daemon finishes the active turn. After a Codex chat reply, the adapter closes the app-server connection so it can release its writer. If another writer holds the saved thread when a later message resumes it, the adapter forks that history before sending the message and keeps the new thread ID for subsequent replies.
 
 Omit usage when a harness has no reliable receipt. Return a failed turn in the result’s `error` field. The supervisor cancels a turn by stopping its process group.
 

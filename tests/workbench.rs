@@ -819,8 +819,29 @@ fn chat_history(h: &Harness) -> Result<()> {
             .unwrap()["state"]
             == "running"
     );
+    b.reload()?;
+    h.run_button("Quote export").click()?;
+    history.contains("The live answer")?;
+    b.text("Writing…").visible()?;
     fs::write(h.dir.path().join("chat-gate"), "")?;
     history.contains("The live answer is complete.")?;
+    b.text("Writing…").absent()?;
+    let state = h.svc.get(&path)?;
+    let messages = state["conversation"].as_array().unwrap();
+    ensure!(
+        messages
+            .iter()
+            .filter(|m| m["text"] == "Stream this answer")
+            .count()
+            == 1
+    );
+    ensure!(
+        messages
+            .iter()
+            .filter(|m| m["text"] == "The live answer is complete.")
+            .count()
+            == 1
+    );
     b.label("Message").value("")?;
     h.svc.post(&path, &json!({"kind":"stop"}))?;
     b.text("Resume the run to send a message.").visible()?;

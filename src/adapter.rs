@@ -322,7 +322,11 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
         } else {
             stream(r, stdin, stdout, emit)
         };
-        if acp || codex_chat || result.is_err() {
+        // Closing stdin lets app-server release its thread writer normally.
+        // Retain bounded cleanup for a server that never finishes shutdown.
+        let chat_still_running =
+            codex_chat && child.wait_timeout(Duration::from_secs(2))?.is_none();
+        if acp || chat_still_running || (!codex_chat && result.is_err()) {
             let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
             let _ = child.kill();
         }
@@ -516,10 +520,10 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn codex_chat_streams_and_resumes_only_assistant_messages() -> Result<()> {
+    fn codex_chat_resumes_or_forks_a_busy_thread_before_streaming_one_reply() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let executable = native_fixture(dir.path(), "mock-codex-chat")?;
-        for session in ["", "native-chat"] {
+        for session in ["", "held-chat", "native-chat"] {
             let events = std::sync::Mutex::new(Vec::new());
             let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":session,"role":"chat","prompt":"hello","dir":dir.path()});
             let result = run(&request, None, |event| events.lock().unwrap().push(event));
@@ -527,11 +531,21 @@ mod tests {
                 result,
                 json!({"session":"native-chat","text":r#"{"reply":"Good answer"}"#,"tokens":17})
             );
+            assert_eq!(
+                fs::read_to_string(dir.path().join("chat-closed"))?,
+                "released"
+            );
+            fs::remove_file(dir.path().join("chat-closed"))?;
             let events = events.into_inner().unwrap();
             assert_eq!(events.len(), 3);
             assert_eq!(events[1]["type"], "agent_message_chunk");
             assert_eq!(events[2]["text"], r#" answer"}"#);
         }
+        let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":"unavailable-chat","role":"chat","prompt":"hello","dir":dir.path()});
+        assert_eq!(
+            run(&request, None, |_| {})["error"],
+            "Codex chat: thread unavailable"
+        );
         Ok(())
     }
     #[test]

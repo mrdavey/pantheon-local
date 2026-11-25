@@ -59,7 +59,7 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 next(&mut input)?["method"] == "initialized",
                 "missing initialized"
             );
-            let session = next(&mut input)?;
+            let mut session = next(&mut input)?;
             ensure!(
                 matches!(
                     session["method"].as_str(),
@@ -77,10 +77,33 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 "wrong model"
             );
             if session["method"] == "thread/resume" {
-                ensure!(
-                    session["params"]["threadId"] == "native-chat",
-                    "wrong resumed session"
-                );
+                match session["params"]["threadId"].as_str() {
+                    Some("held-chat") => {
+                        println!(
+                            "{}",
+                            json!({"id":session["id"],"error":{"code":-32600,"message":"thread held-chat already has an active writer"}})
+                        );
+                        let fork = next(&mut input)?;
+                        ensure!(
+                            fork["method"] == "thread/fork" && fork["params"] == session["params"],
+                            "fork must preserve the thread, model and permissions"
+                        );
+                        session = fork;
+                    }
+                    Some("unavailable-chat") => {
+                        println!(
+                            "{}",
+                            json!({"id":session["id"],"error":{"code":-32600,"message":"thread unavailable"}})
+                        );
+                        ensure!(
+                            input.read_line(&mut String::new())? == 0,
+                            "unexpected retry"
+                        );
+                        return Ok(());
+                    }
+                    Some("native-chat") => (),
+                    _ => anyhow::bail!("wrong resumed session"),
+                }
             }
             println!(
                 "{}",
@@ -88,7 +111,9 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
             );
             let start = next(&mut input)?;
             ensure!(
-                start["method"] == "turn/start" && start["params"]["input"][0]["text"] == "hello",
+                start["method"] == "turn/start"
+                    && start["params"]["threadId"] == "native-chat"
+                    && start["params"]["input"][0]["text"] == "hello",
                 "missing prompt"
             );
             println!("{}", json!({"id":start["id"],"result":{"turn":{"id":"t"}}}));
@@ -115,6 +140,11 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 "turn/completed",
                 json!({"threadId":"native-chat","turn":{"id":"t","status":"completed"}}),
             );
+            ensure!(
+                input.read_line(&mut String::new())? == 0,
+                "duplicate chat turn"
+            );
+            fs::write("chat-closed", "released")?;
         }
         "mock-claude" => {
             println!("{}", json!({"type":"system","session_id":"abc"}));
