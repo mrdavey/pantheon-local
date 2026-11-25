@@ -24,6 +24,7 @@ impl Fixture {
             r#"#!/bin/sh
 case "$2" in
   *head_sha=*) cat "$FIXTURE/base" ;;
+  *status=success*) cat "$FIXTURE/green" ;;
   *workflows/ci.yml/runs*) cat "$FIXTURE/runs" ;;
   *runs/1/jobs*|*attempts/1/jobs*) cat "$FIXTURE/jobs" ;;
   *) exit 1 ;;
@@ -36,6 +37,7 @@ esac
             r#"{"workflow_runs":[{"conclusion":"success"}]}"#,
         )?;
         fs::write(dir.path().join("runs"), r#"{"workflow_runs":[]}"#)?;
+        fs::write(dir.path().join("green"), r#"{"workflow_runs":[]}"#)?;
         Ok(Self { dir, base })
     }
 
@@ -102,31 +104,75 @@ fn selects_changes_against_a_verified_base_including_deletions() -> Result<()> {
     fixture.commit("docs/notes.md", "notes")?;
     assert_eq!(fixture.plan()?["platforms"], "[]");
     fixture.commit("web/src/main.jsx", "code")?;
-    assert_eq!(fixture.plan()?["checks"], r#"["browser"]"#);
-    assert_eq!(fixture.plan()?["platforms"], r#"["ubuntu-24.04"]"#);
+    assert_eq!(fixture.plan()?["checks"], r#"["web"]"#);
+    assert_eq!(fixture.plan()?["platforms"], "[]");
     fixture.base = common::git(&fixture.dir.path().join("repo"), &["rev-parse", "HEAD"])?;
     fs::remove_file(fixture.dir.path().join("repo/web/src/main.jsx"))?;
     fixture.commit("tests/service.rs", "test")?;
     assert_eq!(fixture.plan()?["test_target"], "service");
     assert_eq!(
         fixture.plan()?["checks"],
-        r#"["browser", "fmt", "lint", "tests"]"#
+        r#"["fmt", "lint", "tests", "web"]"#
     );
     fixture.base = common::git(&fixture.dir.path().join("repo"), &["rev-parse", "HEAD"])?;
     fixture.commit("scripts/package.sh", "package")?;
     assert_eq!(fixture.plan()?["checks"], r#"["package"]"#);
     let release = fixture.run(&["plan", ""], &[("RELEASE_TAG", "true")])?;
-    assert_eq!(release["checks"], "[]");
+    assert_eq!(release["checks"], r#"["browser"]"#);
     fs::write(
         fixture.dir.path().join("base"),
         r#"{"workflow_runs":[{"conclusion":"failure"}]}"#,
     )?;
     assert_eq!(
         fixture.plan()?["checks"],
-        r#"["browser", "fmt", "lint", "package", "tests"]"#
+        r#"["browser", "fmt", "lint", "package", "tests", "web"]"#
     );
     let release = fixture.run(&["plan", ""], &[("RELEASE_TAG", "true")])?;
     assert_eq!(release["checks"], r#"["browser", "fmt", "lint", "tests"]"#);
+    Ok(())
+}
+
+#[test]
+fn web_changes_need_only_node_and_chrome_even_across_pending_pushes() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let root = fixture.dir.path();
+    fixture.commit("web/src/main.jsx", "React")?;
+    let pending = common::git(&root.join("repo"), &["rev-parse", "HEAD"])?;
+    fixture.commit("web/src/style.css", "CSS")?;
+    fs::write(
+        root.join("base"),
+        r#"{"workflow_runs":[{"status":"in_progress","conclusion":null}]}"#,
+    )?;
+    fs::write(
+        root.join("green"),
+        json!({"workflow_runs":[{"head_sha":fixture.base}]}).to_string(),
+    )?;
+    let plan = fixture.run(&["plan", &pending], &[])?;
+    assert_eq!(plan["platforms"], "[]");
+    assert_eq!(plan["checks"], r#"["web"]"#);
+    for tool in ["rustc", "cargo", "google-chrome"] {
+        let path = root.join(tool);
+        let command = if tool == "google-chrome" {
+            "echo Chrome"
+        } else {
+            "exit 99"
+        };
+        fs::write(&path, format!("#!/bin/sh\n{command}\n"))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+    }
+    let check = fixture.run(
+        &["web"],
+        &[("CHECKS", &plan["checks"]), ("CHROME_BIN", "google-chrome")],
+    )?;
+    assert_eq!(check["run_web"], "true");
+    assert_eq!(check.len(), 2);
+    fixture.commit("src/service.rs", "Rust")?;
+    let mixed = fixture.run(&["plan", &pending], &[])?;
+    assert_eq!(
+        mixed["checks"],
+        r#"["browser", "fmt", "lint", "tests", "web"]"#
+    );
+    assert_eq!(mixed["platforms"], r#"["ubuntu-24.04", "macos-latest"]"#);
     Ok(())
 }
 

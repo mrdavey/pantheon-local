@@ -23,12 +23,12 @@ Build a local release archive with `scripts/package.sh` (requires jq). In the ex
 
 ## CI selection
 
-Pull requests and pushes to `main` start a small selection job. It compares the checked-out tree (the merge result for a PR) with a successfully checked base on `main`. A missing base or unsuccessful base run selects the full set. New commits to a PR cancel its superseded run.
+Pull requests and pushes to `main` start a small selection job. It compares the checked-out tree (the merge result for a PR) with a successfully checked base on `main`. If that base is pending or failed, CI includes changes since the most recent verified ancestor it can find. Without a verified comparison it selects the full set. New commits to a PR cancel its superseded run.
 
 | Change | Checks |
 | --- | --- |
 | Documentation or `.gitignore` only | Selection job only |
-| Web workbench | Linux build with embedded assets and desktop/mobile browser tests |
+| React source, styles, or web dependencies | Linux frontend job builds with Vite and opens the production bundle in headless Chrome. The Rust matrix is skipped. |
 | Rust source or shared fixtures | Linux and macOS Clippy and tests, Linux formatting and browser tests |
 | One integration test file | Clippy and that test target on both platforms, formatting on Linux. Workbench changes also run the browser suite. |
 | Packaging scripts or release workflow | Build, extract, and test the archives on Linux and macOS |
@@ -36,4 +36,4 @@ Pull requests and pushes to `main` start a small selection job. It compares the 
 
 For mixed changes, CI combines the affected checks. Each selected check compares its Git inputs, workflow, runner image, architecture, and tool versions with successful steps from the last 20 CI runs. A matching step from a repository branch can cover a PR update, merge, or retry. A later failure or missing evidence makes the check run. The selection log shows which results were reused. GitHub caches the built web assets separately.
 
-For a release tag, the selector reuses green main CI for the tagged commit or waits up to ten minutes for a known active run. An unverified tag runs the missing code checks. Release tags build fresh archives and run the packaged fixture suites on all three release platforms before publication. To exercise the selection rules locally, run `cargo test --locked --test ci` with Python 3 and Node.js available.
+For a release tag, the selector reuses green main CI for the tagged commit or waits up to ten minutes for a known active run. Tags qualify the full daemon-backed browser suite, including changes previously checked by the frontend job alone. An unverified tag also runs the missing Rust checks. Release tags build fresh archives and run the packaged fixture suites on all three release platforms before publication. To exercise the selection rules locally, run `cargo test --locked --test ci` with Python 3 and Node.js available.

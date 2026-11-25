@@ -8,20 +8,21 @@ import sys
 import time
 from pathlib import Path
 
-ALL = {"fmt", "lint", "tests", "browser", "package"}
 RUST = {"fmt", "lint", "tests"}
-WEB = {"browser"}
-CODE = RUST | WEB
+CODE = RUST | {"browser"}
+ALL = CODE | {"web", "package"}
 DOCS = {"README.md", "CONTRIBUTING.md", "SECURITY.md", "AGENTS.md",
         "LICENSE", "NOTICE", ".gitignore", "examples/README.md"}
-RECEIPT = re.compile(r"Pass (?:fmt|lint|tests|browser|package) [0-9a-f]{64}")
+RECEIPT = re.compile(r"Pass (?:fmt|lint|tests|browser|web|package) [0-9a-f]{64}")
 
 
 def affected(path):
     if path in DOCS or path.startswith("docs/"):
         return set()
-    if path.startswith("web/"):
-        return WEB
+    if path.startswith("web/") or path == "scripts/ci/check-web.sh":
+        return {"web"}
+    if path in {"Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml"} or path.startswith(".cargo/"):
+        return CODE | {"package"}
     if path in {".github/workflows/release.yml", "scripts/package.sh",
                 "scripts/open-pantheon-local.command", "scripts/ci/verify-package.sh"}:
         return {"package"}
@@ -71,9 +72,20 @@ def plan(base):
             run = main_run(base)
             if not run or run.get("status") == "completed":
                 break
+    verified = run.get("conclusion") == "success"
+    if not verified and not release and base and base != "0" * 40:
+        # Rapid pushes can reach CI before the previous main run finishes.
+        # Include pending changes since the last green ancestor.
+        recent = api("workflows/ci.yml/runs?event=push&branch=main&status=success&per_page=100")
+        for candidate in recent.get("workflow_runs", []):
+            sha = candidate["head_sha"]
+            if subprocess.run(["git", "merge-base", "--is-ancestor", sha, base],
+                              stderr=subprocess.DEVNULL).returncode == 0:
+                base, verified = sha, True
+                break
     test_target = ""
     checks = set(ALL)
-    if run.get("conclusion") == "success":
+    if verified:
         diff = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z",
                                base, "HEAD", "--"], capture_output=True)
         if diff.returncode == 0:
@@ -87,6 +99,8 @@ def plan(base):
                     test_target = path.stem
     if release:
         checks.discard("package")  # The release verifies its own archives.
+        checks.add("browser")  # A green frontend build may not have exercised the daemon.
+        checks.discard("web")  # The real workbench exercises the production bundle.
     return sorted(checks), test_target
 
 
@@ -133,7 +147,7 @@ def inputs(path):
     if path.startswith("web/") or checks == ALL:
         checks.add("assets")
     if path.startswith("web/"):
-        checks.update({"tests", "lint"})
+        checks.update({"tests", "lint", "browser"})
     if (path.startswith(("src/", "examples/", "web/", "docs/",
                         "tests/common/", "tests/browser/"))
             or path in {"tests/e2e.rs", "tests/experiments.rs", "README.md",
@@ -150,13 +164,22 @@ def fingerprints(checks):
         # An unidentified image can only provide evidence for this attempt.
         image = f'run-{os.environ["GITHUB_RUN_ID"]}-{os.environ["GITHUB_RUN_ATTEMPT"]}'
     common = [os.environ["RUNNER_OS"], os.environ.get("ImageOS"), image, os.environ["RUNNER_ARCH"]]
-    common.extend(subprocess.check_output(cmd, text=True).strip() for cmd in
-                  (["rustc", "-vV"], ["cargo", "-V"], ["git", "--version"]))
+    common.append(subprocess.check_output(["git", "--version"], text=True).strip())
+    rust = []
+    if checks & (CODE | {"package"}):
+        rust = [subprocess.check_output(cmd, text=True).strip()
+                for cmd in (["rustc", "-vV"], ["cargo", "-V"])]
     node = [subprocess.check_output([cmd, "--version"], text=True).strip() for cmd in ("node", "npm")]
+    chrome = []
+    if "web" in checks:
+        chrome = [subprocess.check_output([os.environ.get("CHROME_BIN", "google-chrome"), "--version"],
+                                          text=True).strip()]
     hashes = {}
     for check in checks:
         target = os.environ.get("TEST_TARGET", "") if check == "tests" else ""
-        runtime = [] if check == "fmt" else node
+        runtime = node + chrome if check == "web" else node
+        if check in CODE or check == "package":
+            runtime = rust if check == "fmt" else rust + node
         hashes[check] = hashlib.sha256(json.dumps([check, target, common, runtime]).encode())
     for entry in git("ls-tree", "-rz", "HEAD").split(b"\0"):
         if entry:
@@ -176,18 +199,24 @@ if __name__ == "__main__":
         checks, test_target = plan(sys.argv[2])
         output("test_target", test_target)
         output("checks", checks)
-        platforms = ["ubuntu-24.04"] if checks else []
-        if set(checks) - {"fmt", "browser"}:
+        native = set(checks) - {"web"}
+        platforms = ["ubuntu-24.04"] if native else []
+        if native - {"fmt", "browser"}:
             platforms.append("macos-latest")
         output("platforms", platforms)
         output("history", successful_steps() if checks else [])
         print("Selected checks:", ", ".join(checks) or "none")
     else:
         checks = set(json.loads(os.environ["CHECKS"]))
+        if sys.argv[1] == "web":
+            checks &= {"web"}
+        else:
+            checks.discard("web")
+            checks.add("assets")
         if os.environ["RUNNER_OS"] != "Linux":
             checks -= {"fmt", "browser"}
         history = set(json.loads(os.environ["HISTORY"]))
-        for name, digest in fingerprints(checks | {"assets"}).items():
+        for name, digest in fingerprints(checks).items():
             if name == "assets":
                 output("assets", f"web-dist-{digest}")
                 continue
