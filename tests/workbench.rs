@@ -721,6 +721,16 @@ fn turn_activity(h: &Harness) -> Result<()> {
         .join("turns")
         .join(turn)
         .join("events.log");
+    let stored = h.svc.get(&format!("{path}/turns/{turn}/log"))?;
+    ensure!(
+        stored["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["at"].is_i64()),
+        "native output was not timestamped"
+    );
+    let two_minutes_ago = chrono::Utc::now().timestamp_millis() - 120_000;
     // The native adapters save JSON lines. The browser must read both contracts.
     let events = [
         json!({"type":"agent_thought_chunk","text":"private-fixture"}),
@@ -732,13 +742,13 @@ fn turn_activity(h: &Harness) -> Result<()> {
         json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"reply"}},"text":"storage**."}),
         json!({"type":"item.completed","raw":{"item":{"type":"command_execution",
             "command":"cargo test --locked","aggregated_output":"test restart ... ok","exit_code":0}}}),
-        json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"receipt"}},"text":"{\"status\":\"ready\",\"files\":[\"src/main.rs\"]}"}),
+        json!({"type":"agent_message_chunk","raw":{"update":{"messageId":"receipt"}},"logged_at":two_minutes_ago,"text":"{\"status\":\"ready\",\"files\":[\"src/main.rs\"]}"}),
     ];
     fs::write(
-        log,
-        events
-            .iter()
-            .map(Value::to_string)
+        &log,
+        (0..52)
+            .map(|i| format!("Earlier message {i}"))
+            .chain(events.iter().map(Value::to_string))
             .collect::<Vec<_>>()
             .join("\n"),
     )?;
@@ -751,8 +761,15 @@ fn turn_activity(h: &Harness) -> Result<()> {
     );
     h.b.xpath("//button[starts-with(.,'View activity')]")
         .click()?;
+    h.proxy.inject(Once::LogFailure);
     h.click("View log for Planning")?;
+    h.click("Try again")?;
+    let log_file = log;
     let log = h.b.label("Turn log");
+    let first = log.xpath(".//article[1]");
+    first.contains("src/main.rs")?;
+    first.contains("2 minutes ago")?;
+    first.xpath(".//time[@datetime and @title]").visible()?;
     log.xpath(".//strong[.='storage']").visible()?;
     log.xpath(".//code[.='cargo test --locked']").visible()?;
     log.xpath(".//pre[.='test restart ... ok']").visible()?;
@@ -760,13 +777,109 @@ fn turn_activity(h: &Harness) -> Result<()> {
     log.contains("src/main.rs")?;
     log.contains("Public response.")?;
     ensure!(!log.text_content()?.contains("private-fixture"));
+    log.contains("Time unavailable")?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "log-mobile.png"
+        } else {
+            "log-desktop.png"
+        }))?;
+    }
+    h.button("Older").focus()?;
+    h.b.key("\u{e007}")?;
+    first.contains("Earlier message 30")?;
+    h.click("Older")?;
+    first.contains("Earlier message 5")?;
+    log.xpath(".//button[normalize-space(.)='Older' and @disabled]")
+        .visible()?;
+    h.click("Newer")?;
+    first.contains("Earlier message 30")?;
+    h.click("Latest")?;
+    first.contains("src/main.rs")?;
     h.no_overflow()?;
     h.click("Back to activity")?;
+    h.button("View log for Planning").focused()?;
+    fs::write(log_file, "")?;
+    h.click("View log for Planning")?;
+    log.contains("This turn has no log output yet.")?;
     h.click("Close dialog")?;
     h.b.xpath("//button[starts-with(.,'View activity')]")
         .focused()
 }
 scenario!(desktop_turn_activity, mobile_turn_activity, turn_activity);
+fn live_turn_log(h: &Harness) -> Result<()> {
+    use std::io::Write;
+    let run = h.svc.post("/runs", &json!({"path":h.repo("live-log")?,"prompt":"Add quote export","coordinator":"first","workers":["writer"]}))?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.svc
+        .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
+    h.b.xpath("//button[starts-with(.,'View activity') and contains(.,'2')]")
+        .click()?;
+    h.click("View log for Conversation · Stream this answer")?;
+    let log = h.b.label("Turn log");
+    log.contains("The live answer")?;
+    let saved = h.svc.get(&path)?;
+    let turn = saved["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["role"] == "chat")
+        .context("chat turn")?;
+    let file = h
+        .svc
+        .state
+        .join("runs")
+        .join(saved["id"].as_str().unwrap())
+        .join("turns")
+        .join(turn["id"].as_str().unwrap())
+        .join("events.log");
+    let mut writer = fs::OpenOptions::new().append(true).open(file)?;
+    for i in 0..28 {
+        writeln!(
+            writer,
+            "{}",
+            json!({"type":"stdout","text":format!("Live output {i}"),"logged_at":chrono::Utc::now().timestamp_millis()})
+        )?;
+    }
+    let first = log.xpath(".//article[1]");
+    first.contains("Live output 27")?;
+    let region = h.b.role("region", "Log messages");
+    region.focus()?;
+    h.b.key("\u{e00f}")?; // Page Down
+    h.button("Go live").visible()?;
+    ensure!(
+        h.b.eval(
+            "return document.querySelector('.log-messages').scrollTop",
+            vec![]
+        )?
+        .as_f64()
+        .unwrap_or(0.)
+            > 80.,
+        "live updates reset the reading position"
+    );
+    h.click("Older")?;
+    first.contains("Live output 2")?;
+    writeln!(
+        writer,
+        "{}",
+        json!({"type":"stdout","text":"Another update","logged_at":chrono::Utc::now().timestamp_millis()})
+    )?;
+    h.click("Newer")?;
+    first.contains("Live output 27")?;
+    h.click("Go live")?;
+    first.contains("Another update")?;
+    h.click("Pause updates")?;
+    fs::write(h.dir.path().join("chat-gate"), "")?;
+    h.button("Go live").absent()?;
+    first.contains("Another update")?;
+    h.click("Latest")?;
+    log.contains("is complete.")?;
+    h.no_overflow()
+}
+scenario!(desktop_live_turn_log, mobile_live_turn_log, live_turn_log);
 fn chat_history(h: &Harness) -> Result<()> {
     let b = &h.b;
     let run = h.svc.post(

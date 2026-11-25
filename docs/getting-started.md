@@ -35,5 +35,5 @@ Use the gear beside a run to pause, resume, require review, or delete it. Deleti
 - **Browse is unavailable on Linux.** Enter the project path, or install Zenity or KDialog on the computer running Pantheon Local.
 - **Git is missing.** Install Git and check `git --version`. Configure your Git name and email if the first commit asks for them.
 - **An agent is missing.** Check its version in Terminal, then launch the workbench from the same shell.
-- **A turn fails.** Open **Work → View activity** and choose the turn’s **View log**. Check provider access in the agent CLI.
+- **A turn fails.** Open **Work → View activity** and choose the turn’s **View log**. The newest messages appear at the top with local date, time and age. During a live turn, the latest page refreshes every two seconds. Scroll down or choose **Pause updates** to hold your place. Use **Older** and **Newer** to browse, then **Latest** to return to the newest output. Earlier runs can show **Time unavailable** for messages saved without a timestamp. For provider errors, check access in the agent CLI.
 - **You need a named profile.** Run `swarm doctor` (or `./swarm doctor` in the archive folder) to locate `profiles.json`. Adapt `examples/profiles.json`, then reopen **Agent setup**.

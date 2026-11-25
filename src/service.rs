@@ -627,6 +627,29 @@ impl Local {
                         Ok(list.into())
                     }
                     ("GET", ["evidence", cid]) => comparison::evidence(&run, cid, &root),
+                    ("GET", ["turns", tid, "log"]) => {
+                        let turn = find(&run, "turns", tid)?;
+                        let mut before = None;
+                        let mut known = None;
+                        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+                            match key.as_ref() {
+                                "before" => {
+                                    before =
+                                        Some(value.parse::<u64>().context("invalid log cursor")?)
+                                }
+                                "known" => {
+                                    known = Some(value.parse::<u64>().context("invalid log size")?)
+                                }
+                                _ => (),
+                            }
+                        }
+                        crate::turn_log::page(
+                            &root.join("turns").join(tid),
+                            before,
+                            known,
+                            turn["state"] == "running",
+                        )
+                    }
                     ("GET", ["turns", tid, "reply"]) => {
                         let turn = find(&run, "turns", tid)?;
                         ensure!(turn["role"] == "chat", "this turn has no chat reply");

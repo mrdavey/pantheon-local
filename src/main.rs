@@ -16,6 +16,7 @@ mod supervisor;
 #[cfg(test)]
 #[path = "../tests/common/example.rs"]
 mod test_examples;
+mod turn_log;
 mod update;
 mod wire;
 mod assets {

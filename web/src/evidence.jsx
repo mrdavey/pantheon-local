@@ -79,7 +79,7 @@ function agentEvents(event) {
   if (raw?.usage) return [entry(label(type), raw.usage, "fields")];
   if (type === "session" || type === "thread.started") return [entry("Session started", event.session || raw?.thread_id, "plain")];
   const details = Object.fromEntries(Object.entries(item || update || raw || event).filter(([k]) =>
-    !["type", "session", "text", "raw", "sessionUpdate"].includes(k)));
+    !["type", "session", "text", "raw", "sessionUpdate", "logged_at"].includes(k)));
   return [entry(label(type || "Event"), Object.keys(details).length ? details : "", "fields")];
 }
 
@@ -115,6 +115,15 @@ function MessageBody({ text }) {
   return <Markdown>{text}</Markdown>;
 }
 
+export function LogBody({body,kind}) {
+  return <>{body !== "" && body != null && (kind === "command" ? <Command argv={body} /> :
+        kind === "terminal" ? <pre tabIndex={0}>{body}</pre> : kind === "fields" ? <Fields value={body} /> :
+        kind === "plain" ? <p>{body}</p> : <MessageBody text={body} />)}</>;
+}
+
+export function messageRows(record) {
+  return record.event ? agentEvents(record.event) : logEntries(record.line || "");
+}
 export function TurnOutput({ source, name = "Turn log" }) {
   const rows = useMemo(() => logEntries(source || ""), [source]);
   const [visible, setVisible] = useState(80);
@@ -122,9 +131,7 @@ export function TurnOutput({ source, name = "Turn log" }) {
     {!rows.length && <p>This turn has no log output yet.</p>}
     {rows.slice(0, visible).map(({ title, body, kind }, i) => <article className={'log-event log-' + kind} key={i}>
       <h4>{title}</h4>
-      {body !== "" && body != null && (kind === "command" ? <Command argv={body} /> :
-        kind === "terminal" ? <pre tabIndex={0}>{body}</pre> : kind === "fields" ? <Fields value={body} /> :
-        kind === "plain" ? <p>{body}</p> : <MessageBody text={body} />)}
+      <LogBody {...{body,kind}} />
     </article>)}
     {visible < rows.length && <Button variant="outline" onClick={() => setVisible(visible + 80)}>Show more events</Button>}
   </section>;

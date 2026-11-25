@@ -142,9 +142,11 @@ fn execute(dir: &Path) -> Result<Value> {
         .mode(0o600)
         .open(dir.join("events.log"))?;
     let result = if !spec["release"].is_null() {
-        crate::run::release::supervise(&spec["release"], &mut log)?
+        crate::turn_log::observe_output(dir, || {
+            crate::run::release::supervise(&spec["release"], &mut log)
+        })?
     } else if !spec["recipe"].is_null() {
-        crate::eval::supervise(dir, &spec, &mut log)?;
+        crate::turn_log::observe_output(dir, || crate::eval::supervise(dir, &spec, &mut log))?;
         json!({})
     } else {
         let chat = (spec["request"]["role"] == "chat")
@@ -157,7 +159,7 @@ fn execute(dir: &Path) -> Result<Value> {
             chat,
             &mut metrics,
         ));
-        let mut result = crate::adapter::run(&spec["request"], None, |event| {
+        let mut result = crate::adapter::run(&spec["request"], None, |mut event| {
             if let Ok(mut guard) = logger.lock() {
                 let (writer, error, chat, metrics) = &mut *guard;
                 if let Err(e) = metrics.event(dir, &event) {
@@ -167,6 +169,12 @@ fn execute(dir: &Path) -> Result<Value> {
                     *error = (|| -> io::Result<()> {
                         if let Some(chat) = chat {
                             chat.event(&event)?;
+                        }
+                        if let Some(obj) = event.as_object_mut() {
+                            obj.insert(
+                                "logged_at".into(),
+                                chrono::Utc::now().timestamp_millis().into(),
+                            );
                         }
                         serde_json::to_writer(&mut *writer, &event)?;
                         writer.write_all(b"\n")?;

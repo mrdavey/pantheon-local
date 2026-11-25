@@ -4,6 +4,7 @@ import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider } from "./status.jsx";
+import { TurnLog, LogTime } from "./turn-log";
 import { Metrics } from "./metrics";
 import { AssignmentMap } from "./assignment-map.jsx";
 import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
@@ -194,27 +195,37 @@ function Milestone({ task, run, busy, act, order, explain }) {
 function Activity({ run }) {
   const [open, setOpen] = useState(false);
   const [id, setId] = useState(null);
+  const back = useRef(null);
+  const origin = useRef(null);
+  const lastTurn = useRef(null);
+  useEffect(() => {
+    if (open && id) back.current?.focus();
+    if (open && !id && lastTurn.current) origin.current?.focus();
+    lastTurn.current = id;
+  }, [open, id]);
   const turns = run.turns || [];
   const turn = turns.find((t) => t.id === id);
   const turnName = (t) => {
     const candidate = t.role === "eval" && run.candidates?.find((c) => c.id === t.task);
-    return (turnLabel[t.role] || t.role) + (t.task ? " · " + (candidate ? shortSummary(title(candidate), 55) : t.task) : "");
+    const detail = t.role === "chat" ? run.conversation?.find(message => message.id === t.task)?.text :
+      candidate ? title(candidate) : t.task;
+    return (turnLabel[t.role] || t.role) + (detail ? " · " + shortSummary(detail, 55) : "");
   };
   if (!turns.length) return null;
   return <>
     <Button variant="outline" onClick={() => { setOpen(true); setId(null); }}>View activity ({turns.length})</Button>
     {open && <Dialog className="evidence-dialog" title={turn ? turnName(turn) : "Run activity"} onClose={() => setOpen(false)}>
       {turn ? <>
-        <Button variant="outline" onClick={() => setId(null)}>Back to activity</Button>
-        <Evidence key={turn.id} path={"/runs/" + run.id + "/turns/" + turn.id} refreshable={turn.state === "running"} />
+        <Button variant="outline" ref={back} onClick={() => setId(null)}>Back to activity</Button>
+        <TurnLog key={turn.id} api={api} path={"/runs/" + run.id + "/turns/" + turn.id + "/log"} running={turn.state === "running"} />
       </> : <>
         {(run.tokens > 0 || run.unknown_turns > 0) && <p className="usage-note">{[
           run.tokens > 0 && `${run.tokens.toLocaleString()} recorded tokens`,
           run.unknown_turns > 0 && `${run.unknown_turns} turns without usage`,
         ].filter(Boolean).join(" · ")}</p>}
         {[...turns].reverse().map((t) => <div className="activity activity-entry" key={t.id}>
-          <span>{turnName(t)}</span><Status state={t.state} />
-          <Button variant="outline" aria-label={"View log for " + turnName(t)} onClick={() => setId(t.id)}>View log</Button>
+          <span>{turnName(t)}{t.started && <small className="activity-start"><LogTime at={t.started} now={Date.now()} /></small>}</span><Status state={t.state} />
+          <Button variant="outline" ref={lastTurn.current === t.id ? origin : undefined} aria-label={"View log for " + turnName(t)} onClick={() => setId(t.id)}>View log</Button>
         </div>)}
       </>}
     </Dialog>}
