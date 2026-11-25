@@ -202,7 +202,7 @@ fn coordinator_delegates_within_parent_scope() -> Result<()> {
         &svc,
         &project,
         "Delegate the report",
-        json!({"workers":["writer"],"delivery":"auto","recipe":{"checks":[[example("fixture-agent")?,"check","docs/report.txt","reviewed both sections"]]}}),
+        json!({"workers":["writer"],"subagents":true,"subagent_limit":1,"delivery":"auto","recipe":{"checks":[[example("fixture-agent")?,"check","docs/report.txt","reviewed both sections"]]}}),
     )?;
     let landed = svc.wait_state(&url, "landed")?;
     let children: Vec<_> = rows(&landed["tasks"])

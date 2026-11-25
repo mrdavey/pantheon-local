@@ -90,6 +90,12 @@ struct Start {
     target: String,
     #[arg(long)]
     no_init: bool,
+    /// Keep all work with the selected primary workers.
+    #[arg(long, conflicts_with = "subagent_limit")]
+    no_subagents: bool,
+    /// Maximum concurrent delegated milestones across workers.
+    #[arg(long)]
+    subagent_limit: Option<u32>,
     #[arg(long, default_value_t = 0)]
     tokens: i64,
     #[arg(long, default_value = "")]
@@ -225,6 +231,7 @@ fn normalize_args<I: IntoIterator<Item = std::ffi::OsString>>(raw: I) -> Vec<std
         "destination",
         "target",
         "tokens",
+        "subagent-limit",
         "routing",
         "recipe",
         "before",
@@ -337,7 +344,7 @@ pub fn execute() -> Result<()> {
         Action::Start(s) => {
             let setup = service::setup(&dir)?;
             let mut input = json!({"path":std::path::absolute(s.path)?,"prompt":s.prompt,"compare":s.compare,"delivery":s.delivery,
-                "destination":s.destination,"target":s.target,"skip_init":s.no_init,"token_target":s.tokens,"routing":s.routing,"initial_files":s.import,
+                "subagents":!s.no_subagents,"subagent_limit":s.subagent_limit,"destination":s.destination,"target":s.target,"skip_init":s.no_init,"token_target":s.tokens,"routing":s.routing,"initial_files":s.import,
                 "coordinator":s.coordinator.as_deref().or_else(||setup["coordinator"].as_str()).unwrap_or(""),
                 "workers":if s.worker.is_empty(){setup["workers"].clone()}else{json!(s.worker)}});
             if let Some(path) = s.recipe {

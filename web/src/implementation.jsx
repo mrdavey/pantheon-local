@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
 import { Markdown } from "./markdown.jsx";
@@ -29,7 +30,7 @@ export function ImplementationDetails({ candidate, run, rule, decision, onClose,
         {decision?.state && <span>{decision.state}</span>}
         {candidate?.commit && <code title={candidate.commit}>{candidate.commit.slice(0, 10)}</code>}
       </div>
-        {candidate && <button className="text-button explain-context" onClick={() => { onClose(); explain("implementation", candidate.id); }}>Explain this</button>}
+        {candidate && <Button variant="outline" className="text-button explain-context" onClick={() => { onClose(); explain("implementation", candidate.id); }}>Explain this</Button>}
       </section>
       {decision?.reason && <section><h3>Why this decision?</h3><Markdown>{decision.reason}</Markdown></section>}
       {showDescription && <section><h3>Description</h3><Markdown>{description}</Markdown></section>}
@@ -54,7 +55,7 @@ export function ImplementationDetails({ candidate, run, rule, decision, onClose,
 export function ExperimentHelp() {
   const [open, setOpen] = useState(false);
   return <div className="implementation-help">
-    <button className="help-icon" aria-label="Help with experiment actions" title="Help with experiment actions" onClick={() => setOpen(true)}>?</button>
+    <Button variant="outline" className="help-icon" aria-label="Help with experiment actions" title="Help with experiment actions" onClick={() => setOpen(true)}>?</Button>
     {open && <Dialog title="Experiment actions" className="work-detail-dialog" onClose={() => setOpen(false)}>
       <dl className="experiment-glossary">
         <div><dt>Combine aspects or improve this version</dt><dd>Keep useful parts of different implementations. After landing, start from the version on your branch.</dd></div>

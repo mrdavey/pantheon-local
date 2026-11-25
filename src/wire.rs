@@ -14,13 +14,14 @@ macro_rules! request {
     };
 }
 request!(Start{
-    compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,
+    subagents:bool, subagent_limit:u32, compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,
     attachments:Vec<crate::attachments::Upload>,coordinator:String,workers:Vec<String>,initial_files:Vec<String>,skip_init:bool,target:String,token_target:i64,recipe:Recipe
 });
 request!(Command{id:String,expected_revision:i64,donors:Vec<String>,kind:String,task:String,text:String,candidate:String,tokens:i64,recipe:Recipe});
 request!(Model {
     profile: String,
     model: String,
+    effort: String,
     benchmark_model: String,
     benchmark_agent: String,
     benchmark_effort: String
@@ -55,7 +56,7 @@ request!(Metric {
 });
 
 request!(Task{
-    id:String,goal:String,consult:String,worker:String,class:String,depends:Vec<String>,paths:Vec<String>,variant:String,
+    id:String,goal:String,consult:String,worker:String,eligible_workers:Vec<String>,class:String,depends:Vec<String>,paths:Vec<String>,variant:String,
     parent:String,donors:Vec<String>,round:i64,conflict:String,route:Value,delivered:i64,alternative:String,
     state:String,workspace:String,base:String,commit:String,session:String,question:String,reply:String,
     finding:String,repair_base:String,notes:Vec<String>

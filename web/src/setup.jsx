@@ -1,3 +1,9 @@
+import { Loading } from "./status.jsx";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
+import { NativeSelectOption } from "./components/ui/native-select";
+import { Label } from "./components/ui/label";
 import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
 import "./setup.css";
@@ -58,12 +64,13 @@ export function ModelSettings({ name, profile, save, onClose }) {
   const [status, setStatus] = useState(null);
   const [saving, setSaving] = useState(false);
   const detected = profile.detected || {};
-  const passesModel = ["codex", "claude"].includes(profile.kind);
+  const passesModel = ["codex", "claude", "hermes", "antigravity"].includes(profile.kind);
   const auto = {
     model: detected.model || "",
+    effort: "",
     benchmark_model: detected.routing?.model || "",
     benchmark_agent: detected.routing?.agent || "",
-    benchmark_effort: detected.effort || "",
+    benchmark_effort: profile.effort || detected.effort || "",
   };
   const value = (key) => Object.hasOwn(draft, key) ? draft[key] ?? auto[key] : profile[key] || auto[key];
   const modelChanged = value("model") !== (profile.model || auto.model);
@@ -94,36 +101,40 @@ export function ModelSettings({ name, profile, save, onClose }) {
       setSaving(false);
     }
   }
-  const modelName = modelChanged ? value("model") : detected.label || profile.model || detected.model;
+  const modelName = modelChanged ? value("model") : profile.model || detected.label || detected.model;
   const manualModel = passesModel && !!(Object.hasOwn(draft, "model") ? draft.model : profile.model);
   return <Dialog title={`Settings for ${profileLabel(name, profile)}`} onClose={onClose}>
     <form onSubmit={submit}>
       <div className="model-identity">
         <h3>{modelName || "Agent default"}</h3>
         {modelName && <small>{manualModel ? "Pantheon model override" : detected.source}</small>}
-        {!modelChanged && detected.effort && <span title={detected.effort_source}>{detected.effort} reasoning</span>}
+        {!modelChanged && (value("effort") || detected.effort) && <span title={value("effort") ? "Pantheon override" : detected.effort_source}>{value("effort") || detected.effort} reasoning</span>}
       </div>
-      {passesModel ? <label>Model ID<input {...editable("model")} placeholder="Use the CLI default" /></label>
-        : <label>Model ID<input readOnly value={detected.model || ""} placeholder="Not reported by this agent" /></label>}
+      {passesModel ? <Label>Model ID<Input {...editable("model")} placeholder="Use the CLI default" /></Label>
+        : <Label>Model ID<Input readOnly value={detected.model || ""} placeholder="Not reported by this agent" /></Label>}
       {detected.alias && !modelChanged && <p>Claude Code resolves this alias when a session starts.</p>}
+      {passesModel && <Label>Thinking effort<NativeSelect {...editable("effort")}>
+        <NativeSelectOption value="">Harness default{detected.effort ? ` · ${detected.effort}` : ""}</NativeSelectOption>
+        {(profile.kind === "codex" ? (!modelChanged && detected.efforts?.length ? detected.efforts : ["low","medium","high","xhigh","max","ultra"]) : ["low","medium","high","xhigh","max"]).map(level => <NativeSelectOption key={level}>{level}</NativeSelectOption>)}
+      </NativeSelect></Label>}
       <p>{modelHint(profile)}</p>
       <h3>Benchmark routing</h3>
       {!Object.keys(draft).length && (detected.routing?.source
         ? <p className="model-provenance">Matched {detected.routing.source}.</p>
         : <p className="model-provenance">No matching local benchmark result.</p>)}
-      <label>Model name on the benchmark<input {...editable("benchmark_model")} placeholder="Benchmark model name" /></label>
+      <Label>Model name on the benchmark<Input {...editable("benchmark_model")} placeholder="Benchmark model name" /></Label>
       <div className="options">
-        <label>Agent name on the benchmark<input {...editable("benchmark_agent")} placeholder="Benchmark agent name" /></label>
-        <label>Benchmark effort<input {...editable("benchmark_effort")} placeholder="Optional" /></label>
+        <Label>Agent name on the benchmark<Input {...editable("benchmark_agent")} placeholder="Benchmark agent name" /></Label>
+        <Label>Benchmark effort<Input {...editable("benchmark_effort")} placeholder="Optional" /></Label>
       </div>
       <p><a href="https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard" target="_blank" rel="noreferrer">View Terminal-Bench results</a></p>
       <div className="agent-actions">
-        <button className="primary" type="submit" disabled={saving}>{saving ? "Saving model settings…" : "Save model settings"}</button>
+        <Button variant="default" className="primary" type="submit" disabled={saving}>{saving ? "Saving model settings…" : "Save model settings"}</Button>
         {(Object.keys(auto).some((key) => !!profile[key]) || Object.keys(draft).length > 0) &&
-          <button type="button" disabled={saving} onClick={() => {
-            setDraft({ model: null, benchmark_model: null, benchmark_agent: null, benchmark_effort: null });
+          <Button variant="outline" type="button" disabled={saving} onClick={() => {
+            setDraft({ model: null, effort: null, benchmark_model: null, benchmark_agent: null, benchmark_effort: null });
             setStatus(null);
-          }}>Use detected settings</button>}
+          }}>Use detected settings</Button>}
       </div>
       {status && <p role={status.error ? "alert" : "status"}>{status.text}</p>}
     </form>
@@ -134,14 +145,14 @@ function SetupCommand({ command }) {
   const [status, setStatus] = useState("");
   return <div className="setup-command">
     <code>{command}</code>
-    {navigator.clipboard && <button aria-label={`Copy ${command}`} onClick={async () => {
+    {navigator.clipboard && <Button variant="outline" aria-label={`Copy ${command}`} onClick={async () => {
       try {
         await navigator.clipboard.writeText(command);
         setStatus("Copied.");
       } catch {
         setStatus("Select the command to copy it.");
       }
-    }}>Copy</button>}
+    }}>Copy</Button>}
     <span role="status">{status}</span>
   </div>;
 }
@@ -151,11 +162,11 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
   const available = availableNames(report);
   const profiles = report?.setup.profiles || {};
   const others = Object.keys(profiles).filter((name) => !available.includes(name));
-  const refreshButton = <button type="button" aria-disabled={checking} onClick={() => { if (!checking) refresh(); }}>
+  const refreshButton = <Button variant="outline" type="button" aria-disabled={checking} onClick={() => { if (!checking) refresh(); }}>
     {checking ? "Checking agents…" : "Check again"}
-  </button>;
+  </Button>;
   const notices = <>
-    {checking && <p role="status">Checking local agents…</p>}
+    {checking && <Loading>Checking local agents…</Loading>}
     {error && <p className="notice" role="alert">Couldn’t check agents. {error}</p>}
   </>;
   return <section className="panel setup">
@@ -172,12 +183,12 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
           return <li className="configured-row" key={name}>
             <div><strong>{label}</strong><small className={"state " + (state === "connected" ? "passed" : "")}>{labels[state]}</small></div>
             <div className="agent-actions">
-              <button type="button" aria-label={`Settings for ${label}`} onClick={() => setModal({ name })}>Settings</button>
-              <button type="button" aria-label={`Use ${label}`} disabled={checking || !report.git} onClick={() => onContinue(name, report.setup)}>Use</button>
+              <Button variant="outline" type="button" aria-label={`Settings for ${label}`} onClick={() => setModal({ name })}>Settings</Button>
+              <Button variant="outline" type="button" aria-label={`Use ${label}`} disabled={checking || !report.git} onClick={() => onContinue(name, report.setup)}>Use</Button>
             </div>
           </li>;
         })}</ul> : <p>No agents configured yet.</p>}
-        <button type="button" className={available.length ? "" : "primary"} onClick={() => setModal("new")}>Set up new agent</button>
+        <Button variant="outline" type="button" className={available.length ? "" : "primary"} onClick={() => setModal("new")}>Set up new agent</Button>
       </section>
     </>}
     {modal === "new" && <Dialog title="Set up new agent" onClose={() => setModal(null)}>
@@ -193,7 +204,7 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
         </li>;
       })}</ul> : <p>All known profiles are configured. Add a profile in Hermes Desktop or <code>profiles.json</code> to connect another.</p>}
       {notices}
-      <div className="dialog-footer">{refreshButton}<button type="button" className="primary" onClick={() => setModal(null)}>Done</button></div>
+      <div className="dialog-footer">{refreshButton}<Button variant="outline" type="button" className="primary" onClick={() => setModal(null)}>Done</Button></div>
     </Dialog>}
     {modal?.name && profiles[modal.name] && <ModelSettings name={modal.name} profile={profiles[modal.name]} save={saveModel} onClose={() => setModal(null)} />}
   </section>;

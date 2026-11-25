@@ -1,3 +1,12 @@
+import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "./components/ui/table";
+import { Loading } from "./status.jsx";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { NativeSelect } from "./components/ui/native-select";
+import { NativeSelectOption } from "./components/ui/native-select";
+import { Label } from "./components/ui/label";
+import { Checkbox } from "./components/ui/checkbox";
 import { ImplementationDetails, ExperimentHelp, implementationLabel } from "./implementation.jsx";
 import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
@@ -24,7 +33,7 @@ export function Inbox({ runs, act, open, busy, initialHistory = false }) {
   return <section className="panel">
     <h1 tabIndex={-1}>Needs you</h1>
     {active.length ? active.map(card) : <p>No open questions or blockers in your inbox.</p>}
-    {past.length > 0 && <><button aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide history" : "Show history"}</button>
+    {past.length > 0 && <><Button variant="outline" aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide history" : "Show history"}</Button>
       {history && <section aria-label="Inbox history">{past.map(card)}</section>}</>}
   </section>;
 }
@@ -32,11 +41,11 @@ export function Inbox({ runs, act, open, busy, initialHistory = false }) {
 function InboxItem({ run, issue, type, act, open, busy }) {
   const [answer, setAnswer] = useState("");
   const resolved = type === "question" && issue.state !== "open";
-  const dismiss = <button type="button" disabled={busy} onClick={() => act(run, {
+  const dismiss = <Button variant="outline" type="button" disabled={busy} onClick={() => act(run, {
     kind: issue.inbox_dismissed ? "restore-issue" : "dismiss-issue", task: issue.id, text: type,
-  })}>{issue.inbox_dismissed ? "Restore to inbox" : "Dismiss"}</button>;
+  })}>{issue.inbox_dismissed ? "Restore to inbox" : "Dismiss"}</Button>;
   return <article className="row">
-    <button className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</button>
+    <Button variant="outline" className="text-button" onClick={() => open(run.id)}>{runTitle(run)}</Button>
     {type === "question" ? <>
       <h2>{issue.text}</h2>
       {resolved ? <Markdown>{issue.answer || issue.state}</Markdown> : <form onSubmit={async event => {
@@ -44,16 +53,16 @@ function InboxItem({ run, issue, type, act, open, busy }) {
         if (await act(run, {kind: "answer-inbox", task: issue.id, text: answer})) setAnswer("");
       }}>
         {issue.choices?.length > 0 && <div className="actions">{issue.choices.map((choice, i) =>
-          <button key={i} type="button" onClick={() => setAnswer(choice)}>{choice}</button>)}</div>}
-        <label>Answer<textarea required value={answer} onChange={event => setAnswer(event.target.value)} /></label>
+          <Button variant="outline" key={i} type="button" onClick={() => setAnswer(choice)}>{choice}</Button>)}</div>}
+        <Label>Answer<Textarea required value={answer} onChange={event => setAnswer(event.target.value)} /></Label>
         {issue.tasks?.length > 0 && <p>Waiting work · {issue.tasks.join(", ")}</p>}
         {issue.blocking && <p className="muted">This run needs an answer to continue.</p>}
-        <div className="actions"><button className="primary" disabled={busy || !answer.trim()}>Send answer</button>{dismiss}</div>
+        <div className="actions"><Button variant="default" className="primary" disabled={busy || !answer.trim()}>Send answer</Button>{dismiss}</div>
       </form>}
     </> : <>
       <h2>{issue.title || issue.id}</h2><p>Blocked · {issue.worker}</p>
       {issue.finding && <Markdown>{issue.finding}</Markdown>}
-      <div className="actions">{canRetryMilestone(run, issue) && <button disabled={busy} onClick={() => act(run, { kind: "resume", task: issue.id, tokens: retryTokens(run) })}>Retry milestone</button>}{dismiss}</div>
+      <div className="actions">{canRetryMilestone(run, issue) && <Button variant="outline" disabled={busy} onClick={() => act(run, { kind: "resume", task: issue.id, tokens: retryTokens(run) })}>Retry milestone</Button>}{dismiss}</div>
     </>}
   </article>;
 }
@@ -79,7 +88,7 @@ function ScorePlot({ values, metric, xMetric, yLimit, xLimit }) {
       {published.map((entry, j) => <React.Fragment key={entry.id}>
         {entry.min !== undefined && entry.max !== entry.min &&
           <span className="spread" style={{ left: x(entry.x) + "%", bottom: y(entry.min) + "%", height: (y(entry.max) - y(entry.min)) + "%" }} />}
-        <button type="button" className={`point ${entry.kind || ""}`}
+        <Button variant="outline" type="button" className={`point ${entry.kind || ""}`}
           style={{ left: x(entry.x) + "%", bottom: y(entry.y) + "%" }}
           aria-label={`${entry.name}, ${number(entry.y)} ${metric}`}
           aria-describedby={isTradeoff ? `point-${entry.id}-x` : undefined}
@@ -107,8 +116,8 @@ function Charts({ run, candidates, rule, policy, includeSuperseded }) {
   return <section className="charts-card" aria-labelledby="metrics-heading">
     <h3 id="metrics-heading">Measurements</h3>
     <div className="actions chart-controls">
-      <label>Metric<select value={y.name} onChange={(event) => setChosen(event.target.value)}>{metrics.map((m) => <option key={m.name} value={m.name}>{label(m)}</option>)}</select></label>
-      {x && <label>Compare with<select value={x.name} onChange={(event) => setSecond(event.target.value)}>{metrics.filter((m) => m !== y).map((m) => <option key={m.name} value={m.name}>{label(m)}</option>)}</select></label>}
+      <Label>Metric<NativeSelect value={y.name} onChange={(event) => setChosen(event.target.value)}>{metrics.map((m) => <NativeSelectOption key={m.name} value={m.name}>{label(m)}</NativeSelectOption>)}</NativeSelect></Label>
+      {x && <Label>Compare with<NativeSelect value={x.name} onChange={(event) => setSecond(event.target.value)}>{metrics.filter((m) => m !== y).map((m) => <NativeSelectOption key={m.name} value={m.name}>{label(m)}</NativeSelectOption>)}</NativeSelect></Label>}
     </div>
     <div className="charts">
       {showHistory && <ScorePlot metric={label(y)} values={history.map((c) => ({ id: c.id, name: title(c), x: c.round, y: c.score?.[y.name]?.value, kind: c.baseline ? "baseline" : c.id === run.selection?.candidate ? "winner" : "", ...c.score?.[y.name] }))} />}
@@ -138,7 +147,7 @@ function Cases({ run, candidates, api }) {
     }
   };
   if (!withEvidence.length) return null;
-  if (!reports) return <button disabled={loading} onClick={load}>{loading ? "Loading case results…" : "Compare case results"}</button>;
+  if (!reports) return <Button variant="outline" disabled={loading} onClick={load}>{loading ? "Loading case results…" : "Compare case results"}</Button>;
   const keys = [...new Set(reports.flatMap(([, report]) => (report.samples || []).map((s) => s.case)))];
   const rows = keys.map((name) => {
     const cells = reports.map(([, report]) => (report.samples || []).filter((s) => s.case === name));
@@ -155,21 +164,21 @@ function Cases({ run, candidates, api }) {
     <h3>Case results</h3>
     {failed > 0 && <div className="notice">
       <p role="status">Couldn’t load case results for {failed} {failed === 1 ? "implementation" : "implementations"}.</p>
-      <button disabled={loading} onClick={load}>Reload case results</button>
+      <Button variant="outline" disabled={loading} onClick={load}>Reload case results</Button>
     </div>}
-    {keys.length > 0 && <label>Show<select value={filter} onChange={(event) => setFilter(event.target.value)}>
-      <option>All cases</option><option>Improvements</option><option>Regressions</option>
-    </select></label>}
+    {keys.length > 0 && <Label>Show<NativeSelect value={filter} onChange={(event) => setFilter(event.target.value)}>
+      <NativeSelectOption>All cases</NativeSelectOption><NativeSelectOption>Improvements</NativeSelectOption><NativeSelectOption>Regressions</NativeSelectOption>
+    </NativeSelect></Label>}
     {!filtered.length && <p>{filter === "All cases" ? "No case samples available." : `No ${filter.toLowerCase()} in the loaded results.`}</p>}
     {filtered.length > 0 && <div className="table-scroll" tabIndex={0} role="region" aria-label="Case comparison">
-      <table><thead><tr><th scope="col">Case</th>{reports.map(([c]) => <th scope="col" key={c.id}>{title(c)}</th>)}</tr></thead>
-        <tbody>{filtered.map(({ name, cells }) => <tr key={name}><th scope="row">{name}</th>{cells.map((samples, i) =>
-            <td key={reports[i][0].id}>{samples.length ? <details><summary>{samples.filter((s) => s.state === "pass").length}/{samples.length} passed</summary>
+      <Table><TableHeader><TableRow><TableHead scope="col">Case</TableHead>{reports.map(([c]) => <TableHead scope="col" key={c.id}>{title(c)}</TableHead>)}</TableRow></TableHeader>
+        <TableBody>{filtered.map(({ name, cells }) => <TableRow key={name}><TableHead scope="row">{name}</TableHead>{cells.map((samples, i) =>
+            <TableCell key={reports[i][0].id}>{samples.length ? <details><summary>{samples.filter((s) => s.state === "pass").length}/{samples.length} passed</summary>
               {samples.map((s) => <div key={s.number}><strong>Sample {s.number} · {s.state}</strong>
                 {s.observed && <p>{s.observed}</p>}{s.error && <p>{s.error}</p>}
                 {s.expected != null && <div><strong>Expected</strong><Fields value={s.expected} /></div>}
                 {Object.entries(s.values || {}).map(([metric, value]) => <p key={metric}>{metric} · {number(value)}</p>)}</div>)}
-            </details> : "Missing"}</td>)}</tr>)}</tbody></table>
+            </details> : "Missing"}</TableCell>)}</TableRow>)}</TableBody></Table>
     </div>}
   </section>;
 }
@@ -260,7 +269,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
           selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
         {winner && <h3>{headline}</h3>}
         {reason && <p>{reason}</p>}
-        <button className="text-button" onClick={() => setDetail("decision")}>View decision details</button>
+        <Button variant="outline" className="text-button" onClick={() => setDetail("decision")}>View decision details</Button>
         {detail === "decision" && <ImplementationDetails candidate={winner} decision={selected} {...{run, rule, explain}} onClose={() => setDetail("")} />}
       </div>
       {(winner?.commit || selected.landed_at) && <div className="outcome-meta">
@@ -271,36 +280,36 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         {isCurrent && run.started && selected.landed_at && <span>{run.interventions || 0} developer actions · {number((Date.parse(selected.landed_at) - Date.parse(run.started)) / 1000)} seconds to land</span>}
       </div>}
     </div>}
-    {run.observer_error && <div role="status"><p>{run.observer_error}</p><button disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</button></div>}
+    {run.observer_error && <div role="status"><p>{run.observer_error}</p><Button variant="outline" disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</Button></div>}
     {run.combination && <div role="status"><p>Waiting for the coordinator to plan the combination.</p>
-      <button disabled={busy} onClick={() => act({ kind: "cancel-combination" })}>Cancel request</button></div>}
-    {rounds(run).length > 1 && <label>Round<select value={visibleRound} onChange={(event) => { setRound(Number(event.target.value)); setPolicy(null); setMode(""); }}>{rounds(run).map((r) => <option key={r}>{r}</option>)}</select></label>}
+      <Button variant="outline" disabled={busy} onClick={() => act({ kind: "cancel-combination" })}>Cancel request</Button></div>}
+    {rounds(run).length > 1 && <Label>Round<NativeSelect value={visibleRound} onChange={(event) => { setRound(Number(event.target.value)); setPolicy(null); setMode(""); }}>{rounds(run).map((r) => <NativeSelectOption key={r}>{r}</NativeSelectOption>)}</NativeSelect></Label>}
     {candidates.length > 0 ? <>
-      {policies.length > 1 ? <label>Suite revision<select value={latestPolicy} onChange={(event) => { setPolicy(Number(event.target.value)); setMode(""); }}>
-        {policies.map((entry) => <option key={entry}>{entry}</option>)}</select></label> :
+      {policies.length > 1 ? <Label>Suite revision<NativeSelect value={latestPolicy} onChange={(event) => { setPolicy(Number(event.target.value)); setMode(""); }}>
+        {policies.map((entry) => <NativeSelectOption key={entry}>{entry}</NativeSelectOption>)}</NativeSelect></Label> :
         run.policies?.length > 1 && <p>Suite revision {latestPolicy}</p>}
       <div className={rule?.metrics?.length ? "experiment-results with-charts" : "experiment-results"}>
         <section className="comparison-card" aria-labelledby="comparison-heading">
           <h3 id="comparison-heading">Implementations</h3>
           <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
-            <table><thead><tr><th scope="col">Implementation</th><th scope="col">Checks</th>{rule?.metrics?.map((m) => <th scope="col" key={m.name}>{m.name} ({m.unit})</th>)}<th scope="col">Decision</th></tr></thead>
-              <tbody>{visibleCandidates.map((c) => <tr key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
-                <th scope="row"><button className="text-button implementation-title" aria-label={"View details for " + title(c)} onClick={() => setInspected(c.id)}>{title(c)}</button></th>
-                <td><span className={`state ${c.state}`}>{c.state}</span></td>
-                {rule?.metrics?.map((m) => <td key={m.name}>{c.score?.[m.name] ? number(c.score[m.name].value) : "—"}</td>)}
-                <td>
+            <Table><TableHeader><TableRow><TableHead scope="col">Implementation</TableHead><TableHead scope="col">Checks</TableHead>{rule?.metrics?.map((m) => <TableHead scope="col" key={m.name}>{m.name} ({m.unit})</TableHead>)}<TableHead scope="col">Decision</TableHead></TableRow></TableHeader>
+              <TableBody>{visibleCandidates.map((c) => <TableRow key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
+                <TableHead scope="row"><Button variant="outline" className="text-button implementation-title" aria-label={"View details for " + title(c)} onClick={() => setInspected(c.id)}>{title(c)}</Button></TableHead>
+                <TableCell><span className={`state ${c.state}`}>{c.state}</span></TableCell>
+                {rule?.metrics?.map((m) => <TableCell key={m.name}>{c.score?.[m.name] ? number(c.score[m.name].value) : "—"}</TableCell>)}
+                <TableCell>
                   {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
                     c.id === selected?.recommended ? "Recommended" :
                     c.baseline ? "Baseline" : c.state === "passed" && c.eligible === false ? "Doesn’t qualify" : ""}
                   {canDecide && !c.baseline && c.state === "passed" && c.eligible !== false && c.id !== selected?.candidate &&
-                    <button disabled={busy} onClick={() => act({ kind: "select", candidate: c.id })}>Select</button>}
-                </td>
-              </tr>)}</tbody></table>
+                    <Button variant="outline" disabled={busy} onClick={() => act({ kind: "select", candidate: c.id })}>Select</Button>}
+                </TableCell>
+              </TableRow>)}</TableBody></Table>
           </div>
-          {superseded.length > 0 && <button className="text-button superseded-toggle" aria-expanded={expandedGroup === group}
+          {superseded.length > 0 && <Button variant="outline" className="text-button superseded-toggle" aria-expanded={expandedGroup === group}
             onClick={() => setExpandedGroup(expandedGroup === group ? "" : group)}>
             {expandedGroup === group ? "Hide" : "Show"} superseded implementations ({superseded.length})
-          </button>}
+          </Button>}
           <ExperimentHelp />
         </section>
         <Charts {...{ run, rule }} candidates={visibleCandidates} policy={latestPolicy} includeSuperseded={expandedGroup === group} />
@@ -308,46 +317,46 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       {inspectedCandidate && <ImplementationDetails candidate={inspectedCandidate} {...{run, rule, explain}} onClose={() => setInspected("")} />}
     </> : <p>Measurements appear as candidates finish.</p>}
     <div className="actions">
-      {canDecide && <button disabled={busy} onClick={() => act({ kind: "keep-baseline" })}>Keep current version</button>}
+      {canDecide && <Button variant="outline" disabled={busy} onClick={() => act({ kind: "keep-baseline" })}>Keep current version</Button>}
       {canDecide && winner?.eligible && !winner.baseline && ["selected", "recommended"].includes(selected?.state) && (!run.input.delivery || run.input.delivery === "review" || run.held || !run.repo.Target) &&
-        <>{!run.repo.Target && <label>Target branch<input value={target} onChange={(event) => setTarget(event.target.value)} /></label>}
-          <button className="primary" disabled={busy || landingBlocked || (!run.repo.Target && !target.trim())}
+        <>{!run.repo.Target && <Label>Target branch<Input value={target} onChange={(event) => setTarget(event.target.value)} /></Label>}
+          <Button variant="default" className="primary" disabled={busy || landingBlocked || (!run.repo.Target && !target.trim())}
             onClick={() => act({ kind: "land", candidate: winner.id, text: target })}>
             {run.repo.Target ? `Land selected on ${branchName(run.repo.Target)}` : "Land selected implementation"}
-          </button></>}
+          </Button></>}
       {run.state !== "landed" && run.input.delivery && run.input.delivery !== "review" &&
-        <button disabled={busy || !!run.combination} onClick={() => act({ kind: run.held ? "unhold" : "hold" })}>{run.held ? "Resume auto-land" : "Hold auto-land"}</button>}
+        <Button variant="outline" disabled={busy || !!run.combination} onClick={() => act({ kind: run.held ? "unhold" : "hold" })}>{run.held ? "Resume auto-land" : "Hold auto-land"}</Button>}
       {isCurrent && implemented.length > 1 && (canDecide || run.state === "landed") &&
-        <button className={run.state === "landed" ? "primary" : undefined} aria-expanded={mode === "combine"} disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>
+        <Button variant="outline" className={run.state === "landed" ? "primary" : undefined} aria-expanded={mode === "combine"} disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>
           {run.state === "landed" ? "Improve this version" : "Combine aspects"}
-        </button>}
+        </Button>}
       {canDecide && run.input.recipe.rubric && previewable.length > 1 &&
-        <button onClick={() => { setBase(previewable[0].id); setDonors([previewable[1].id]); setMode("blind"); }}>Blind review</button>}
+        <Button variant="outline" onClick={() => { setBase(previewable[0].id); setDonors([previewable[1].id]); setMode("blind"); }}>Blind review</Button>}
       {isCurrent && (canDecide || run.state === "landed") &&
-        <button aria-expanded={mode === "next"} disabled={busy} onClick={() => { setMode(mode === "next" ? "" : "next"); setGoal(""); }}>Start another round</button>}
+        <Button variant="outline" aria-expanded={mode === "next"} disabled={busy} onClick={() => { setMode(mode === "next" ? "" : "next"); setGoal(""); }}>Start another round</Button>}
     </div>
     {canDecide && run.input.recipe.rubric && <p>Review criteria · {run.input.recipe.rubric}</p>}
     {mode === "next" && <form className="answer" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "new-round", text: goal }).then((ok) => { if (ok) setMode(""); });
     }}>
-      <label>What should the swarm try next?<textarea required value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
-      <button className="primary" disabled={busy || !goal.trim()}>Start round</button>
+      <Label>What should the swarm try next?<Textarea required value={goal} onChange={(event) => setGoal(event.target.value)} /></Label>
+      <Button variant="default" className="primary" disabled={busy || !goal.trim()}>Start round</Button>
     </form>}
     {mode === "combine" || mode === "blind" ? <form className="answer" onSubmit={(event) => {
       event.preventDefault();
       act({ kind: mode === "combine" ? "combine" : "blind-review", candidate: base, donors, text: goal }).then((ok) => { if (ok) setMode(""); });
     }}>
-      <label>Start from<select required value={base} disabled={run.state === "landed"} onChange={(event) => {
+      <Label>Start from<NativeSelect required value={base} disabled={run.state === "landed"} onChange={(event) => {
         setBase(event.target.value); setDonors(donors.filter((d) => d !== event.target.value));
-      }}><option value="">Choose implementation</option>{(mode === "blind" ? previewable : implemented).map((c) => <option key={c.id} value={c.id}>{title(c)}</option>)}</select></label>
+      }}><NativeSelectOption value="">Choose implementation</NativeSelectOption>{(mode === "blind" ? previewable : implemented).map((c) => <NativeSelectOption key={c.id} value={c.id}>{title(c)}</NativeSelectOption>)}</NativeSelect></Label>
       <fieldset><legend>{mode === "combine" ? "Take aspects from" : "Compare against"}</legend>
-        {(mode === "blind" ? previewable : implemented).filter((c) => c.id !== base).map((c) => <label key={c.id} className="checkbox">
-          <input type={mode === "combine" ? "checkbox" : "radio"} name="donors" checked={donors.includes(c.id)} onChange={(event) =>
-            setDonors(mode === "blind" ? [c.id] : event.target.checked ? [...donors, c.id] : donors.filter((id) => id !== c.id))} />{title(c)}</label>)}
+        {(mode === "blind" ? previewable : implemented).filter((c) => c.id !== base).map((c) => <Label key={c.id} className="checkbox">
+          <Input type={mode === "combine" ? "checkbox" : "radio"} name="donors" checked={donors.includes(c.id)} onChange={(event) =>
+            setDonors(mode === "blind" ? [c.id] : event.target.checked ? [...donors, c.id] : donors.filter((id) => id !== c.id))} />{title(c)}</Label>)}
       </fieldset>
-      {mode === "combine" && <label>What should carry over?<textarea required value={goal} onChange={(event) => setGoal(event.target.value)} /></label>}
-      <button className="primary" disabled={busy || !base || !donors.length || mode === "combine" && !goal.trim()}>{mode === "combine" ? "Build combination" : "Start review"}</button>
-      <button type="button" onClick={() => setMode("")}>Cancel</button>
+      {mode === "combine" && <Label>What should carry over?<Textarea required value={goal} onChange={(event) => setGoal(event.target.value)} /></Label>}
+      <Button variant="default" className="primary" disabled={busy || !base || !donors.length || mode === "combine" && !goal.trim()}>{mode === "combine" ? "Build combination" : "Start review"}</Button>
+      <Button variant="outline" type="button" onClick={() => setMode("")}>Cancel</Button>
     </form> : null}
     {candidates.length > 0 &&
       <div><Cases key={candidates.map((c) => c.id + c.evidence).join(":")} {...{ run, candidates, api, perform }} /></div>}
@@ -358,18 +367,18 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         <><div className="actions">{["a", "b"].map((side) => {
           const key = p.id + side;
           return ab[key] ? <a key={side} href={ab[key]} target="_blank" rel="noreferrer">Open {side.toUpperCase()}</a> :
-            <button disabled={busy} key={side} onClick={() => perform(async () => {
+            <Button variant="outline" disabled={busy} key={side} onClick={() => perform(async () => {
               const { url } = await api(`/runs/${run.id}/blind/${p.id}/${side}`, {});
               setAB((current) => ({ ...current, [key]: url }));
-            })}>Load {side.toUpperCase()}</button>;
+            })}>Load {side.toUpperCase()}</Button>;
         })}</div>
         <div className="actions">{[["left", "Prefer A"], ["right", "Prefer B"], ["tie", "Tie"], ["skip", "Skip"]].map(([value, label]) =>
-          <button key={value} disabled={busy} onClick={() => act({ kind: "vote", task: p.id, text: value })}>{label}</button>)}</div></>}
+          <Button variant="outline" key={value} disabled={busy} onClick={() => act({ kind: "vote", task: p.id, text: value })}>{label}</Button>)}</div></>}
     </article>)}
     <div className="actions experiment-tools">
-      <button onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</button>
-      <button onClick={() => { setDetail("cases"); if (!savedCases) loadCases(); }}>Project eval cases</button>
-      <button onClick={() => { setDetail("history"); if (!history) loadHistory(); }}>Project run history</button>
+      <Button variant="outline" onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</Button>
+      <Button variant="outline" onClick={() => { setDetail("cases"); if (!savedCases) loadCases(); }}>Project eval cases</Button>
+      <Button variant="outline" onClick={() => { setDetail("history"); if (!history) loadHistory(); }}>Project run history</Button>
     </div>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
       <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"
@@ -378,26 +387,26 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     </Dialog>}
     {detail === "cases" && <Dialog title="Project eval cases" onClose={() => setDetail("")}>
       {casesError && <p role="alert" className="notice error">{casesError}</p>}
-      {!savedCases && (loadingCases ? <p role="status">Loading cases…</p> : <button onClick={() => loadCases()}>Reload cases</button>)}
+      {!savedCases && (loadingCases ? <Loading>Loading cases…</Loading> : <Button variant="outline" onClick={() => loadCases()}>Reload cases</Button>)}
       {savedCases && !savedCases.length && <p>No saved cases for this project.</p>}
       {savedCases?.map((entry) => <article className="row" key={entry.cursor}><strong>{entry.scenario}</strong>
         <p>Expected · {entry.expected}</p><Markdown>{entry.why}</Markdown><small>{entry.active ? "Active in this suite" : entry.state} · Revision {entry.revision} · {entry.author}</small></article>)}
-      {savedCases?.length >= 100 && savedCases.length % 100 === 0 && <button disabled={loadingCases} onClick={() => loadCases(savedCases.at(-1).cursor)}>Load older revisions</button>}
+      {savedCases?.length >= 100 && savedCases.length % 100 === 0 && <Button variant="outline" disabled={loadingCases} onClick={() => loadCases(savedCases.at(-1).cursor)}>Load older revisions</Button>}
     </Dialog>}
     {detail === "history" && <Dialog title="Project run history" onClose={() => setDetail("")}>
       {historyError && <p role="alert" className="notice error">{historyError}</p>}
-      {!history && (loadingHistory ? <p role="status">Loading history…</p> : <button onClick={() => loadHistory()}>Reload history</button>)}
-      <ul>{history?.map((entry) => <li key={entry.id}><button disabled={entry.id === run.id}
-        onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</button></li>)}</ul>
-      {history?.length >= 20 && history.length % 20 === 0 && <button disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</button>}
+      {!history && (loadingHistory ? <Loading>Loading history…</Loading> : <Button variant="outline" onClick={() => loadHistory()}>Reload history</Button>)}
+      <ul>{history?.map((entry) => <li key={entry.id}><Button variant="outline" disabled={entry.id === run.id}
+        onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</Button></li>)}</ul>
+      {history?.length >= 20 && history.length % 20 === 0 && <Button variant="outline" disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</Button>}
     </Dialog>}
     <form className="form-card" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
         .then((ok) => { if (ok) setFeedback(""); });
     }}>
-      <label>Feedback for the coordinator<textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} /></label>
-      <label className="checkbox"><input type="checkbox" checked={rollout} onChange={(event) => setRollout(event.target.checked)} />From a live rollout</label>
-      <button disabled={!feedback.trim() || busy}>Send feedback</button>
+      <Label>Feedback for the coordinator<Textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} /></Label>
+      <Label className="checkbox"><Checkbox checked={rollout} onCheckedChange={setRollout} />From a live rollout</Label>
+      <Button variant="outline" disabled={!feedback.trim() || busy}>Send feedback</Button>
     </form>
   </section>;
 }
@@ -428,10 +437,10 @@ export function ReleaseList({ run, act, busy }) {
         {release.at && <p>{when(release.at)}</p>}
         <div className="actions">
           {["queued", "building", "built", "reading-baseline", "staged"].includes(release.state) &&
-            <button disabled={busy} onClick={() => act({ kind: release.held ? "resume-release" : "hold-release", task: release.id })}>{release.held ? "Resume release" : "Hold release"}</button>}
+            <Button variant="outline" disabled={busy} onClick={() => act({ kind: release.held ? "resume-release" : "hold-release", task: release.id })}>{release.held ? "Resume release" : "Hold release"}</Button>}
           {!running && ["queued", "built", "staged"].includes(release.state) &&
-            <button disabled={busy} onClick={() => act({ kind: "cancel-release", task: release.id })}>Cancel release</button>}
-          {release.state === "uncertain" && <button disabled={busy} onClick={() => act({ kind: "reconcile-release", task: release.id })}>Check live state</button>}
+            <Button variant="outline" disabled={busy} onClick={() => act({ kind: "cancel-release", task: release.id })}>Cancel release</Button>}
+          {release.state === "uncertain" && <Button variant="outline" disabled={busy} onClick={() => act({ kind: "reconcile-release", task: release.id })}>Check live state</Button>}
         </div>
       </article>;
     })}

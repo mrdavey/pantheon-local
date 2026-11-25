@@ -77,6 +77,7 @@ fn matches_profile(p: &Value, detected: &Value, row: &Value) -> bool {
     let effort = p["benchmark_effort"]
         .as_str()
         .filter(|s| !s.is_empty())
+        .or_else(|| p["effort"].as_str().filter(|s| !s.is_empty()))
         .unwrap_or_else(|| field(detected, "effort"));
     let row_effort = field(row, "effort");
     let manual_model =

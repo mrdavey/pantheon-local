@@ -21,6 +21,8 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Only a pending, running or questioning parent can receive children. An operator retries blocked milestones in Needs you. During the working phase, omit ref to assign additional work. When a handoff identifies a defect within the approved brief, assign a new scoped milestone depending on the relevant commits. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.
 - For a requested combination, {"kind":"combine","ref":"combination ID","text":"scoped implementation instructions","tasks":[{"id":"new-slug","worker":"profile","goal":"specific change","paths":[]}]}.
+- {"kind":"revise_milestone","ref":"pending task ID","tasks":[{"id":"same task ID","goal":"revised deliverable","worker":"profile","paths":[],"depends":[]}]}. Replace the assignment of an unstarted top-level milestone. Preserve prerequisites and variant where applicable. Send guidance to a worker already in progress.
+Reassess the remaining graph against the original objective on each review. Add missing deliverables or revise unstarted work to close gaps. Use each profile's model and thinking effort in the team context. Release independent work in parallel. List eligible_workers when only some model and effort combinations suit a new or revised milestone. Respect delegation.allowed. With a finite limit, request scoped child milestones through Pantheon.
 Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval or relax an approved check. Routine progress needs no action. "#;
 pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
     let batch = &a(&r["observations"])[..a(&r["observations"]).len().min(30)];
@@ -128,6 +130,10 @@ fn delegate(r: &mut Value, action: &Value) -> Result<()> {
     let parent = s(action, "ref");
     let mut added = a(&action["tasks"]).to_vec();
     if !parent.is_empty() {
+        ensure!(
+            r["input"]["subagents"] != false,
+            "subagents are disabled for this run"
+        );
         let i = item(&r["tasks"], parent)?;
         ensure!(
             active_task(r, i),
@@ -185,6 +191,63 @@ fn delegate(r: &mut Value, action: &Value) -> Result<()> {
     }
     Ok(())
 }
+fn revise_milestone(r: &mut Value, action: &Value) -> Result<()> {
+    let target = s(action, "ref");
+    let i = item(&r["tasks"], target)?;
+    let old = &r["tasks"][i];
+    // A concurrent dispatch wins over a stale coordinator observation.
+    if r["state"] != "working"
+        || !active_task(r, i)
+        || old["state"] != "pending"
+        || !s(old, "workspace").is_empty()
+    {
+        return Ok(());
+    }
+    ensure!(
+        s(old, "parent").is_empty()
+            && s(old, "conflict").is_empty()
+            && s(old, "repair_base").is_empty()
+            && !a(&r["tasks"]).iter().any(|t| t["parent"] == target),
+        "revise an independent top-level assignment"
+    );
+    let [replacement] = a(&action["tasks"]) else {
+        bail!("expected one revised assignment")
+    };
+    ensure!(replacement["id"] == target, "retain the milestone ID");
+    let mut new = replacement.clone();
+    for key in ["variant", "alternative"] {
+        new[key] = old[key].clone();
+    }
+    let others = a(&r["tasks"])
+        .iter()
+        .filter(|t| t["id"] != target)
+        .cloned()
+        .collect::<Vec<_>>();
+    validate_tasks(std::slice::from_ref(&new), &others, &r["input"]["workers"])?;
+    // Include implicit child-to-parent integration edges in the cycle check.
+    for child in &others {
+        let parent = s(child, "parent");
+        ensure!(
+            parent.is_empty()
+                || !inherits_cycle(&others, std::slice::from_ref(&new), s(child, "id"), parent),
+            "revision would block a delegated milestone"
+        );
+    }
+    for key in [
+        "goal",
+        "worker",
+        "eligible_workers",
+        "paths",
+        "depends",
+        "consult",
+        "class",
+    ] {
+        r["tasks"][i][key] = new[key].clone();
+    }
+    r["tasks"][i]["route"] = Value::Null;
+    Ok(())
+}
+
 fn repair_or_combine(r: &mut Value, act: &Value) -> Result<()> {
     let tasks = a(&act["tasks"]);
     ensure!(tasks.len() == 1, "expected one repair milestone");
@@ -409,6 +472,7 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
                 eval::validate(&action["recipe"])?;
                 r["suite_proposal"] = action["recipe"].clone();
             }
+            "revise_milestone" => revise_milestone(&mut r, action)?,
             "delegate" => delegate(&mut r, action)?,
             "repair_conflict" | "combine" => repair_or_combine(&mut r, action)?,
             k => bail!("unknown coordinator action {k}"),
@@ -689,6 +753,40 @@ pub fn public(mut r: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn observer_revises_only_unstarted_work_and_preserves_graph_integrity() -> Result<()> {
+        let mut r = json!({"state":"working","input":{"workers":["fast","deep"],"subagents":false},
+            "tasks":[{"id":"a","worker":"fast","state":"pending","goal":"A"},
+                     {"id":"b","worker":"deep","state":"pending","depends":["a"],"goal":"B"}],
+            "observations":[{"id":"obs","kind":"worker-completed"}]});
+        let apply = |r: &mut Value, kind: &str, target: &str, assignment: Value| {
+            let result = json!({"text":json!({"actions":[{"id":"update","kind":kind,"ref":target,"tasks":[assignment]}]}).to_string()});
+            finish_observation(r, &json!({"task":"obs"}), &result)
+        };
+        let original = r.clone();
+        let mut a =
+            json!({"id":"a","worker":"deep","goal":"Resolve an architecture gap","depends":["b"]});
+        assert!(apply(&mut r, "revise_milestone", "a", a.clone()).is_err());
+        assert!(
+            apply(
+                &mut r,
+                "delegate",
+                "a",
+                json!({"id":"c","worker":"fast","goal":"C"})
+            )
+            .is_err()
+        );
+        assert_eq!(r, original);
+        a["depends"] = json!([]);
+        let mut raced = r.clone();
+        raced["tasks"][0]["state"] = json!("running");
+        apply(&mut raced, "revise_milestone", "a", a.clone())?;
+        assert_eq!(raced["tasks"][0]["worker"], "fast");
+        apply(&mut r, "revise_milestone", "a", a)?;
+        assert_eq!(r["tasks"][0]["worker"], "deep");
+        assert_eq!(r["tasks"][1]["depends"], json!(["a"]));
+        Ok(())
+    }
     #[test]
     fn invalid_batch_is_atomic() {
         let mut r = json!({"id":"sample","project":"a","state":"working","tasks":[{"id":"t","state":"question","question":"Which?"}],"observations":[{"id":"obs","kind":"worker-question","ref":"t"}]});

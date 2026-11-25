@@ -82,7 +82,7 @@ fn codex(profile: &Value, config: &Value, catalog: &Value) -> Value {
         .or(effective);
     let configured = get("model_reasoning_effort");
     let effort = configured.or_else(|| entry.and_then(|m| setting(&m["default_reasoning_level"])));
-    model_info(
+    let mut detected = model_info(
         native,
         label,
         "Codex config.toml",
@@ -92,7 +92,16 @@ fn codex(profile: &Value, config: &Value, catalog: &Value) -> Value {
         } else {
             "Codex model catalog"
         },
-    )
+    );
+    if let Some(levels) = entry.and_then(|m| m["supported_reasoning_levels"].as_array()) {
+        detected["efforts"] = json!(
+            levels
+                .iter()
+                .filter_map(|level| setting(&level["effort"]))
+                .collect::<Vec<_>>()
+        );
+    }
+    detected
 }
 
 fn claude(profile: &Value, config: &Value) -> Value {
@@ -255,6 +264,15 @@ pub fn discover(profiles: &mut Map<String, Value>, state: &Path) {
             }
             _ => json!({}),
         };
+        if matches!(p["kind"].as_str(), Some("hermes" | "antigravity"))
+            && let Some(model) = setting(&p["model"])
+            && detected["model"] != model
+            && detected["label"] != model
+        {
+            // The original profile's reasoning level can be specific to its default model.
+            detected["label"] = json!(model);
+            detected["effort"] = Value::Null;
+        }
         crate::routing::suggest(p, &mut detected, &catalog);
         p["detected"] = detected;
     }

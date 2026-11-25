@@ -438,6 +438,7 @@ impl Local {
                     .context("agent profile not found")?;
                 for key in [
                     "model",
+                    "effort",
                     "benchmark_model",
                     "benchmark_agent",
                     "benchmark_effort",
@@ -449,15 +450,22 @@ impl Local {
                         value.len() <= 150 && !value.contains(['\r', '\n', '\0']),
                         "model settings must be one line and at most 150 bytes"
                     );
-                    if key != "model" || matches!(p["kind"].as_str(), Some("codex" | "claude")) {
+                    if !matches!(key, "model" | "effort")
+                        || matches!(
+                            p["kind"].as_str(),
+                            Some("codex" | "claude" | "hermes" | "antigravity")
+                        )
+                    {
                         p[key] = value.trim().into()
                     }
                 }
+                adapter::validate(p)?;
                 let mut config = configured_profiles(&self.dir)?;
                 let name = input["profile"].as_str().context("missing profile name")?;
                 if config["profiles"].get(name).is_some() {
                     for key in [
                         "model",
+                        "effort",
                         "benchmark_model",
                         "benchmark_agent",
                         "benchmark_effort",
@@ -467,7 +475,7 @@ impl Local {
                         }
                     }
                 } else {
-                    config["hermes_models"][name] = json!({"benchmark_model":p["benchmark_model"],"benchmark_agent":p["benchmark_agent"],"benchmark_effort":p["benchmark_effort"]});
+                    config["hermes_models"][name] = json!({"model":p["model"],"effort":p["effort"],"benchmark_model":p["benchmark_model"],"benchmark_agent":p["benchmark_agent"],"benchmark_effort":p["benchmark_effort"]});
                 }
                 write_local(&self.dir.join("profiles.json"), &config)?;
                 setup(&self.dir)

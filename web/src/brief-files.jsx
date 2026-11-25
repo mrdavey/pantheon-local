@@ -1,3 +1,5 @@
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 import React, { useRef } from "react";
 
 const limit = 16 * 1024 * 1024;
@@ -24,20 +26,20 @@ export async function encodeAttachments(files) {
 export function AttachmentButton({ add, busy }) {
   const picker = useRef(null);
   return <>
-    <input ref={picker} type="file" multiple hidden aria-label="Brief attachments" onChange={event => {
+    <Input ref={picker} type="file" multiple hidden aria-label="Brief attachments" onChange={event => {
       add(Array.from(event.target.files));
       event.target.value = "";
     }} />
-    <button type="button" className="attach-button" disabled={busy} onClick={() => picker.current.click()}>
+    <Button variant="outline" type="button" className="attach-button" disabled={busy} onClick={() => picker.current.click()}>
       <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
         <path d="m8 13 7.7-7.7a3.2 3.2 0 0 1 4.5 4.5L10 20a5 5 0 0 1-7-7L13.7 2.3M6.5 15.5l9-9"/>
       </svg> Attach files
-    </button>
+    </Button>
   </>;
 }
 
 export function FileList({ names, remove }) {
   if (!names.length) return null;
   return <ul className="brief-files">{names.map((name, index) =>
-    <li key={index}><span title={name}>{name}</span><button type="button" aria-label={"Remove " + name} onClick={() => remove(index)}>×</button></li>)}</ul>;
+    <li key={index}><span title={name}>{name}</span><Button variant="outline" type="button" aria-label={"Remove " + name} onClick={() => remove(index)}>×</Button></li>)}</ul>;
 }

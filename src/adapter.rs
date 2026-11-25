@@ -37,6 +37,21 @@ pub fn binary(p: &Value) -> std::borrow::Cow<'_, str> {
     .into()
 }
 pub fn validate(p: &Value) -> Result<()> {
+    let effort = field(p, "effort");
+    let valid = match field(p, "kind") {
+        "codex" | "hermes" | "antigravity" => {
+            effort.len() <= 32
+                && effort
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        }
+        "claude" => ["low", "medium", "high", "xhigh", "max"].contains(&effort),
+        _ => false,
+    };
+    ensure!(
+        effort.is_empty() || valid,
+        "unsupported reasoning effort for this harness"
+    );
     match field(p, "kind") {
         "codex" | "claude" | "hermes" | "antigravity" => Ok(()),
         "custom" => {
@@ -138,7 +153,26 @@ fn args(request: &Value) -> Vec<String> {
     let role = field(request, "role");
     let session = field(request, "session");
     let model = field(profile, "model");
+    let effort = field(profile, "effort");
+    let effort_override = format!("model_reasoning_effort={effort:?}");
     let mut args = Vec::new();
+    // Finite runs use scheduler-owned children so independent workers share one limit.
+    let native_children = role == "worker"
+        && request["subagents"] != false
+        && request["subagent_limit"].as_u64().is_none();
+    if kind == "codex" {
+        if !native_children {
+            args.extend([
+                "-c",
+                "agents.enabled=false",
+                "-c",
+                "features.multi_agent_v2=false",
+            ]);
+        }
+        if role != "advisor" && !effort.is_empty() {
+            args.extend(["-c", &effort_override]);
+        }
+    }
     match kind {
         "hermes" | "antigravity" => {
             let name = field(profile, "hermes_profile");
@@ -188,6 +222,12 @@ fn args(request: &Value) -> Vec<String> {
             if role == "chat" {
                 args.push("--include-partial-messages");
             }
+            if role != "advisor" && !effort.is_empty() {
+                args.extend(["--effort", effort]);
+            }
+            if role == "worker" && !native_children {
+                args.extend(["--disallowedTools", "Agent", "Task"]);
+            }
             if role != "worker" {
                 args.extend(["--tools", ""])
             }
@@ -231,6 +271,12 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
     let p = &r["profile"];
     validate(p)?;
     let mut cmd = Command::new(binary(p).as_ref());
+    if field(p, "kind") == "claude"
+        && field(r, "role") != "advisor"
+        && !field(p, "effort").is_empty()
+    {
+        cmd.env("CLAUDE_CODE_EFFORT_LEVEL", field(p, "effort"));
+    }
     cmd.args(args(r))
         .current_dir(field(r, "dir"))
         .process_group(0)
@@ -406,6 +452,38 @@ mod tests {
     use super::*;
     use crate::test_examples::native_fixture;
     #[test]
+    fn native_worker_policy_survives_resume_and_honors_effort() {
+        for session in ["", "resumed"] {
+            for kind in ["codex", "claude"] {
+                let mut req = json!({"profile":{"kind":kind,"effort":"high"},"role":"worker","session":session,"subagents":true});
+                for limit in [Value::Null, json!(2)] {
+                    req["subagent_limit"] = limit.clone();
+                    let cli = args(&req);
+                    assert!(
+                        cli.contains(
+                            &if kind == "codex" {
+                                r#"model_reasoning_effort="high""#
+                            } else {
+                                "high"
+                            }
+                            .to_owned()
+                        )
+                    );
+                    let disabled = if kind == "codex" {
+                        "agents.enabled=false"
+                    } else {
+                        "--disallowedTools"
+                    };
+                    assert_eq!(cli.contains(&disabled.to_owned()), limit.is_number());
+                    let mut off = req.clone();
+                    off["subagents"] = json!(false);
+                    assert!(args(&off).contains(&disabled.to_owned()));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn brief_uses_a_fast_model_with_medium_reasoning_only_for_advice() {
         for (kind, fast, effort) in [
             ("codex", "gpt-6-luna", r#"model_reasoning_effort="medium""#),
@@ -470,10 +548,21 @@ mod tests {
     fn desktop_profile_starts_each_role_with_settings_for_its_session() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let profile = json!({"kind":"hermes","hermes_profile":"desktop-work","executable":native_fixture(temp.path(),"mock-desktop-acp")?});
-        for role_dir in ["coordinator", "worker", "advisor", "advisor-options"] {
+        for role_dir in [
+            "coordinator",
+            "worker",
+            "advisor",
+            "advisor-options",
+            "worker-options",
+        ] {
             let role = role_dir.strip_suffix("-options").unwrap_or(role_dir);
             let dir = temp.path().join(role_dir);
             fs::create_dir(&dir)?;
+            let mut profile = profile.clone();
+            if role_dir == "worker-options" {
+                profile["model"] = json!("service:gpt-6-luna");
+                profile["effort"] = json!("medium");
+            }
             let request =
                 json!({"profile":profile,"role":role,"dir":dir.canonicalize()?,"prompt":"fixture"});
             let result = run(&request, None, |_| {});

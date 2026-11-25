@@ -71,16 +71,26 @@ fn reads_local_model_defaults_without_pinning_them_or_returning_private_config()
     assert_eq!(models["hermes-writer"]["detected"]["effort"], "high");
     assert_eq!(models["sticky"]["detected"]["model"], "publisher/writer");
     assert_eq!(models["hermes"]["detected"]["model"], "root-default");
+    let saved_hermes = svc.post(
+        "/setup/model",
+        &json!({"profile":"hermes-writer","model":"service:worker-model","effort":"high"}),
+    )?;
+    assert_eq!(
+        saved_hermes["profiles"]["hermes-writer"]["model"],
+        "service:worker-model"
+    );
+    assert_eq!(saved_hermes["profiles"]["hermes-writer"]["effort"], "high");
     assert_eq!(models["agy"]["detected"]["label"], "Gemini Flash (Preview)");
     assert!(models["agy"]["detected"]["model"].is_null());
     assert!(models["custom"]["detected"]["model"].is_null());
 
     let saved = svc.post(
         "/setup/model",
-        &json!({"profile":"codex","model":"override"}),
+        &json!({"profile":"codex","model":"override","effort":"ultra"}),
     )?;
     assert_eq!(saved["profiles"]["codex"]["detected"]["label"], "override");
     assert!(saved["profiles"]["codex"]["detected"]["routing"]["source"].is_null());
+    assert_eq!(saved["profiles"]["codex"]["effort"], "ultra");
     let edit = svc.post(
         "/setup/model",
         &json!({"profile":"codex","benchmark_effort":"low"}),

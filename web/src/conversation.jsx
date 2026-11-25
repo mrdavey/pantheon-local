@@ -1,8 +1,11 @@
+import { Button } from "./components/ui/button";
+import { Textarea } from "./components/ui/textarea";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Command } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { shortSummary } from "./run-summary.js";
 import "./conversation.css";
+import { coordinatorStatus } from "./status.jsx";
 
 // Keep unsent drafts and reading positions scoped to the run and this open page.
 const drafts = new Map();
@@ -35,8 +38,8 @@ function Proposal({ message, run, act, busy }) {
     </>}
     {message.proposal_state === "pending" ? <>
       <div className="chat-proposal-actions">
-        <button type="button" className="primary" disabled={busy || !canAdd} onClick={() => decide("accept-proposal")}>Add milestones</button>
-        <button type="button" disabled={busy} onClick={() => decide("dismiss-proposal")}>Dismiss proposal</button>
+        <Button variant="outline" type="button" className="primary" disabled={busy || !canAdd} onClick={() => decide("accept-proposal")}>Add milestones</Button>
+        <Button variant="outline" type="button" disabled={busy} onClick={() => decide("dismiss-proposal")}>Dismiss proposal</Button>
       </div>
       {!canAdd && <p>{run.state === "landed" ? "Open Experiment to start another round." : "You can add milestones when the run is working or ready for review."}</p>}
       {failed && <p role="alert">Couldn’t update the proposal. Try again.</p>}
@@ -73,7 +76,8 @@ function useLiveReply(api, runId, turnId, open) {
 export function Conversation({ run, act, busy, api, chatRequest }) {
   const panelId = useId();
   const titleId = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
+  const activated = useRef(false);
   const [text, setText] = useState(() => drafts.get(run.id) || "");
   const [sendError, setSendError] = useState(false);
   const [sending, setSending] = useState(false);
@@ -143,7 +147,7 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
   }
 
   useLayoutEffect(() => {
-    if (open) {
+    if (open && activated.current) {
       const target = window.matchMedia("(pointer: coarse)").matches ? minimize : composer;
       target.current.focus({ preventScroll: true });
     } else if (restoreFocus.current) {
@@ -179,19 +183,20 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
   }
 
   return <div className="coordinator-chat">
-    <button ref={launcher} type="button" className="chat-launcher" aria-label="Coordinator chat"
+    <Button variant="outline" ref={launcher} type="button" className="chat-launcher" aria-label="Coordinator chat"
       aria-description={unread ? "New reply" : undefined} aria-expanded={open} aria-controls={panelId}
-      aria-haspopup="dialog" hidden={open} onClick={() => setOpen(true)}>
+      aria-haspopup="dialog" hidden={open} onClick={() => { activated.current = true; setOpen(true); }}>
       <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
-    </button>
+    </Button>
     <div id={panelId}>{open && <section role="dialog" aria-labelledby={titleId} className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
       <header className="chat-header"><div><h2 id={titleId}>Coordinator chat</h2>
         <span>{run.input.coordinator}</span></div>
-        <button ref={minimize} type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><ChatIcon minimize /></button>
+        <Button variant="outline" ref={minimize} type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><ChatIcon minimize /></Button>
       </header>
+      <div className="coordinator-status" role="status">{coordinatorStatus(run)}</div>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
         onScroll={trackPosition}>
         {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
@@ -208,15 +213,15 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
           <span className="chat-progress" role="status"><i aria-hidden="true" />{liveReply ? "Writing…" : "Waiting for the coordinator…"}</span>
         </article>}
       </div>
-      {!atLatest && <button className="chat-latest" type="button" onClick={() => {
+      {!atLatest && <Button variant="outline" className="chat-latest" type="button" onClick={() => {
         history.current.scrollTop = history.current.scrollHeight;
         trackPosition();
-      }}>Latest messages ↓</button>}
+      }}>Latest messages ↓</Button>}
       <form className="chat-composer" onSubmit={send}>
         {attachment && <div className="chat-attachment">
           <span>Explain {attachment.kind} · {referenceLabel(run, attachment)}</span>
-          {sendError && <button type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</button>}
-          {!sending && <button type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</button>}
+          {sendError && <Button variant="outline" type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</Button>}
+          {!sending && <Button variant="outline" type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</Button>}
         </div>}
         {sending && <p role="status">Sending…</p>}
         {paused && <p>Resume the run to send a message.</p>}
@@ -224,14 +229,14 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
         {overLimit && <p role="alert">Shorten your message to 6,000 bytes.</p>}
         {sendError && <p className="chat-error" role="alert">Your message wasn’t sent. Try again.</p>}
         <div>
-          <textarea ref={composer} aria-label="Message" placeholder="Message the coordinator…" rows={2}
+          <Textarea ref={composer} aria-label="Message" placeholder="Message the coordinator…" rows={2}
             value={text} onChange={(event) => edit(event.target.value)} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault();
                 event.currentTarget.form.requestSubmit();
               }
             }} />
-          <button type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</button>
+          <Button variant="outline" type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</Button>
         </div>
       </form>
     </section>}</div>

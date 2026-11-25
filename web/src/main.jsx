@@ -1,3 +1,10 @@
+import { Alert } from "./components/ui/alert";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { Label } from "./components/ui/label";
+import { Status, Loading, LoadingProvider } from "./status.jsx";
+import { AssignmentMap } from "./assignment-map.jsx";
 import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
 import React, { useEffect, useRef, useState } from "react";
@@ -13,6 +20,8 @@ import { Brief } from "./brief.jsx";
 import { Experiment, Inbox, ReleaseList, title } from "./experiments.jsx";
 import { Conversation, RoutingEvidence } from "./conversation.jsx";
 import { RecipeEditor, branchName } from "./review.jsx";
+
+import "./workspace.css";
 
 const tokenKey = "local-swarm-token";
 const [launchToken, ...launchOptions] = location.hash.slice(1).split("&");
@@ -44,15 +53,6 @@ async function api(path, body, signal) {
   return response.json();
 }
 
-const stateLabel = {
-  planning: "Planning", question: "Needs an answer", checks: "Review checks", working: "In progress",
-  evaluating: "Checking candidates", repairing: "Routing a repair", review: "Ready to review", landed: "Landed",
-  budget: "Token target reached", blocked: "Blocked", stopped: "Stopped", pending: "Queued",
-  running: "Working", committed: "Committed", interrupted: "Interrupted", passed: "Passed",
-  failed: "Failed", conflict: "Merge conflict", inconclusive: "Inconclusive", cancelled: "Canceled",
-  superseded: "Superseded", abandoned: "Abandoned", stale: "Stale", queued: "Queued", received: "Finished",
-};
-
 const iconPaths = {
   brand: "M3 19h18M5 16V9m5 7V5m5 11V5m4 11V9M3 9l9-6 9 6",
   plus: "M12 5v14M5 12h14",
@@ -69,17 +69,12 @@ function Icon({ name }) {
   </svg>;
 }
 
-function Status({ state, run }) {
-  if (state === "working" && run && blockedTasks(run).length) return <span className="state blocked">Milestone blocked</span>;
-  return <span className={"state " + state}>{stateLabel[state] || state}</span>;
-}
-
 function Question({ text, onAnswer, busy, submitLabel = "Send answer" }) {
   const [answer, setAnswer] = useState("");
   return <form className="answer" onSubmit={(event) => { event.preventDefault(); onAnswer(answer); }}>
     <Markdown>{text}</Markdown>
-    <textarea aria-label={text} required rows={2} value={answer} onChange={(event) => setAnswer(event.target.value)} />
-    <button className="primary" type="submit" disabled={busy || !answer.trim()}>{submitLabel}</button>
+    <Textarea aria-label={text} required rows={2} value={answer} onChange={(event) => setAnswer(event.target.value)} />
+    <Button variant="default" className="primary" type="submit" disabled={busy || !answer.trim()}>{submitLabel}</Button>
   </form>;
 }
 
@@ -103,9 +98,9 @@ function Evidence({ path, kind, name, refreshable }) {
   }, [path, reload]);
   return <>
     {error && <p className="notice error" role="alert">{error}</p>}
-    {loading && <p role="status">{kind === "diff" ? "Loading changes…" : "Loading output…"}</p>}
+    {loading && <Loading>{kind === "diff" ? "Loading changes…" : "Loading output…"}</Loading>}
     {text !== null && (kind === "diff" ? <DiffExplorer text={text} /> : <TurnOutput name={name} source={text} />)}
-    {(error || refreshable) && <button disabled={loading} onClick={() => setReload(reload + 1)}>{error ? "Try again" : "Refresh log"}</button>}
+    {(error || refreshable) && <Button variant="outline" disabled={loading} onClick={() => setReload(reload + 1)}>{error ? "Try again" : "Refresh log"}</Button>}
   </>;
 }
 
@@ -128,15 +123,15 @@ function Candidate({ run, candidate, act, perform, busy, name, explain }) {
     {candidate.tasks?.length > 0 && <p>{candidate.tasks.length} {candidate.tasks.length === 1 ? "milestone" : "milestones"} included</p>}
     {candidate.detail && <p>{shortSummary(candidate.detail)}</p>}
     {canLand && <>
-      {!run.repo.Target && <label>Target branch<input value={target} onChange={(event) => setTarget(event.target.value)} /></label>}
+      {!run.repo.Target && <Label>Target branch<Input value={target} onChange={(event) => setTarget(event.target.value)} /></Label>}
       {needsSelection && <p>Select this implementation in Experiment after reviewing the criteria.</p>}
       {blocked && <p>Answer the blocking questions before landing this implementation.</p>}
       <div className="actions">
-        <button className="primary" disabled={busy || blocked || needsSelection || !!run.combination || (!run.repo.Target && !target.trim())}
+        <Button variant="default" className="primary" disabled={busy || blocked || needsSelection || !!run.combination || (!run.repo.Target && !target.trim())}
           onClick={() => act({ kind: "land", candidate: candidate.id, text: target })}>
           {run.repo.Target ? `Land on ${branchName(run.repo.Target)}` : "Land locally"}
-        </button>
-        <button disabled={busy || !!run.combination} onClick={() => setChanging(true)}>Request change</button>
+        </Button>
+        <Button variant="outline" disabled={busy || !!run.combination} onClick={() => setChanging(true)}>Request change</Button>
       </div>
       {changing && <Dialog title="Request a change" onClose={() => setChanging(false)}>
         <Question text="What should change?" submitLabel="Request revision" busy={busy} onAnswer={async (text) => {
@@ -144,11 +139,11 @@ function Candidate({ run, candidate, act, perform, busy, name, explain }) {
         }} /></Dialog>}
     </>}
     <div className="actions result-tools">
-      {candidate.commit && <button disabled={busy} onClick={() => load("diff", "/diff/" + candidate.id)}>View diff</button>}
-      {evalTurn && <button disabled={busy} onClick={() => load("checks", "/turns/" + evalTurn.id)}>View checks</button>}
-      {candidate.commit && <button disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", { candidate: candidate.id }), "Opening folder…")}>Open output folder</button>}
-      {candidate.commit && previewCommand?.length > 0 && !preview && <button disabled={busy || candidate.state === "evaluating"} onClick={() => perform(async () => setPreview((await api("/runs/" + run.id + "/preview/" + candidate.id, {})).url), "Starting preview…")}>Start preview</button>}
-      <button onClick={() => setDetails(true)}>View details</button>
+      {candidate.commit && <Button variant="outline" disabled={busy} onClick={() => load("diff", "/diff/" + candidate.id)}>View diff</Button>}
+      {evalTurn && <Button variant="outline" disabled={busy} onClick={() => load("checks", "/turns/" + evalTurn.id)}>View checks</Button>}
+      {candidate.commit && <Button variant="outline" disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", { candidate: candidate.id }), "Opening folder…")}>Open output folder</Button>}
+      {candidate.commit && previewCommand?.length > 0 && !preview && <Button variant="outline" disabled={busy || candidate.state === "evaluating"} onClick={() => perform(async () => setPreview((await api("/runs/" + run.id + "/preview/" + candidate.id, {})).url), "Starting preview…")}>Start preview</Button>}
+      <Button variant="outline" onClick={() => setDetails(true)}>View details</Button>
       {preview && <a href={preview} target="_blank" rel="noreferrer">Open preview ↗</a>}
     </div>
     {details && <ImplementationDetails {...{ run, candidate, explain }} onClose={() => setDetails(false)} />}
@@ -171,20 +166,20 @@ function Milestone({ task, run, busy, act, order, explain }) {
   const date = hasDate && <time dateTime={task.assigned_at} title={added.toLocaleString()}>{added.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>;
   const retry = canRetryMilestone(run, task);
   return <li className="milestone">
-    <button className="milestone-link" data-task={task.id} onClick={() => setOpen(true)} aria-haspopup="dialog">
+    <Button variant="outline" className="milestone-link" data-task={task.id} onClick={() => setOpen(true)} aria-haspopup="dialog">
       <span className="milestone-order" aria-label={"Milestone " + order}>{order}</span>
       <span className="milestone-title"><strong>{name}</strong>{date}</span>
       <span className="milestone-owner">{task.worker}{task.variant && " · " + task.variant}</span>
       <Status state={task.state} />
-    </button>
-    {retry && <button disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}>Retry milestone</button>}
+    </Button>
+    {retry && <Button variant="outline" disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}>Retry milestone</Button>}
     {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
     {open && <Dialog title={task.id.replace(/[-_]+/g, " ")} className="work-detail-dialog" onClose={() => setOpen(false)}>
       <div className="work-details">
         <section><div className="milestone-meta"><Status state={task.state} /><span>{task.worker}</span><span>Milestone {order}</span>{date}
           {task.commit && <code title={task.commit}>{task.commit.slice(0, 10)}</code>}</div>
           {task.depends?.length > 0 && <p>After {task.depends.join(", ")}</p>}
-          <button className="text-button explain-context" onClick={() => { setOpen(false); explain("milestone", task.id); }}>Explain this</button>
+          <Button variant="outline" className="text-button explain-context" onClick={() => { setOpen(false); explain("milestone", task.id); }}>Explain this</Button>
         </section>
         <section><h3>Assignment</h3><Markdown>{task.goal}</Markdown></section>
         {task.finding && <section><h3>Result</h3><Markdown>{task.finding}</Markdown></section>}
@@ -206,10 +201,10 @@ function Activity({ run }) {
   };
   if (!turns.length) return null;
   return <>
-    <button onClick={() => { setOpen(true); setId(null); }}>View activity ({turns.length})</button>
+    <Button variant="outline" onClick={() => { setOpen(true); setId(null); }}>View activity ({turns.length})</Button>
     {open && <Dialog className="evidence-dialog" title={turn ? turnName(turn) : "Run activity"} onClose={() => setOpen(false)}>
       {turn ? <>
-        <button onClick={() => setId(null)}>Back to activity</button>
+        <Button variant="outline" onClick={() => setId(null)}>Back to activity</Button>
         <Evidence key={turn.id} path={"/runs/" + run.id + "/turns/" + turn.id} refreshable={turn.state === "running"} />
       </> : <>
         {(run.tokens > 0 || run.unknown_turns > 0) && <p className="usage-note">{[
@@ -218,7 +213,7 @@ function Activity({ run }) {
         ].filter(Boolean).join(" · ")}</p>}
         {[...turns].reverse().map((t) => <div className="activity activity-entry" key={t.id}>
           <span>{turnName(t)}</span><Status state={t.state} />
-          <button aria-label={"View log for " + turnName(t)} onClick={() => setId(t.id)}>View log</button>
+          <Button variant="outline" aria-label={"View log for " + turnName(t)} onClick={() => setId(t.id)}>View log</Button>
         </div>)}
       </>}
     </Dialog>}
@@ -248,11 +243,11 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const subdir = run.repo.Subdir;
   const projectPath = subdir && subdir !== "." ? run.repo.Root.replace(/\/$/, "") + "/" + subdir : run.repo.Root;
   const completed = currentTasks.filter((t) => t.state === "committed").length;
-  return <section className="panel">
+  return <section className="panel run-workspace">
     <header className="run-heading">
       <div className="run-meta">
-        <button className="text-button project-label" title={projectPath} aria-label="Open project folder" disabled={busy}
-          onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {}), "Opening folder…")}><Icon name="folder" />{projectPath.split("/").filter(Boolean).at(-1) || projectPath}</button>
+        <Button variant="outline" className="text-button project-label" title={projectPath} aria-label="Open project folder" disabled={busy}
+          onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {}), "Opening folder…")}><Icon name="folder" />{projectPath.split("/").filter(Boolean).at(-1) || projectPath}</Button>
         {run.repo.Target && <code>{branchName(run.repo.Target)}</code>}
         <Status state={run.state} run={run} />{settings}
       </div>
@@ -262,6 +257,8 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
         {!!run.input.attachments?.length && <ul aria-label="Brief attachments">{run.input.attachments.map(file => <li key={file.path}>{file.name}</li>)}</ul>}
       </details>}
     </header>
+    <Conversation {...{ run, act, busy, api, chatRequest }} />
+    <div className="run-body">
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
       <strong>Implementation landed{run.repo.Target && ` on ${branchName(run.repo.Target)}`}</strong>
@@ -270,24 +267,26 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
     {run.state === "checks" && <section className="answer decision" aria-labelledby="review-checks-title">
       <h2 id="review-checks-title">Review acceptance checks</h2>
-      <p>These commands run locally to verify the implementation.</p>
+      <p>Approve these checks to start work. Expand a check to see its command.</p>
       <RecipeEditor recipe={run.proposed_recipe} busy={busy} label="Acceptance recipe" submitLabel="Approve checks"
         onApprove={(recipe) => act({ kind: "approve", recipe })} />
     </section>}
     {questions.length > 0 && <div className="notice">
       <span>{questions.length === 1 ? shortSummary(questions[0].text) : `${questions.length} open questions for this run.`}</span>{" "}
-      <button className="text-button" onClick={openInbox}>Open Needs you</button>
+      <Button variant="outline" className="text-button" onClick={openInbox}>Open Needs you</Button>
     </div>}
     <nav className="run-tabs" aria-label="Run views">
-      <button aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</button>
-      <button aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</button>
+      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</Button>
+      <Button variant="outline" aria-pressed={view === "map"} onClick={() => setTab("map")}>Agent map</Button>
+      <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
     </nav>
+    {view === "map" && <AssignmentMap run={run} />}
     <ReleaseList {...{ run, act, busy }} />
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
       {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
         {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
-          <button className="text-button" onClick={showExperiment}>Compare in Experiment</button></header>}
+          <Button variant="outline" className="text-button" onClick={showExperiment}>Compare in Experiment</Button></header>}
         {activeCandidates.map(renderCandidate)}
         {superseded.length > 0 && <details className="superseded-work">
           <summary>Superseded implementations ({superseded.length})</summary>
@@ -300,14 +299,14 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
         {run.benchmark_note && <Markdown>{run.benchmark_note}</Markdown>}
         {!currentTasks.length && <p>Waiting for the coordinator’s plan.</p>}
         <ol className="milestones" aria-label="Milestones in order added">{currentTasks.map((task, i) => <Milestone key={task.id} order={(run.task_start || 0) + i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
-        {run.task_start > 0 && <button onClick={() => setPrevious(true)}>Earlier milestones</button>}
+        {run.task_start > 0 && <Button variant="outline" onClick={() => setPrevious(true)}>Earlier milestones</Button>}
         {previous && <Dialog title="Earlier milestones" onClose={() => setPrevious(false)}>
           <ol className="milestones">{tasks.slice(0, run.task_start).map((task, i) => <Milestone key={task.id} order={i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
         </Dialog>}
       </section>
       <footer className="work-footer"><span>Coordinator · <strong>{run.input.coordinator}</strong></span><Activity run={run} /></footer>
     </div>
-    <Conversation {...{ run, act, busy, api, chatRequest }} />
+    </div>
   </section>;
 }
 
@@ -484,7 +483,7 @@ function App() {
   };
   const busy = !!pending;
   const settingsRun = runs.find(run => run.id === settingsId);
-  const settingsButton = (run, name) => <button type="button" className="run-settings-button" aria-label={name} title={name} onClick={() => { setError(""); setSettingsId(run.id); }}><Icon name="settings" /></button>;
+  const settingsButton = (run, name) => <Button variant="outline" type="button" className="run-settings-button" aria-label={name} title={name} onClick={() => { setError(""); setSettingsId(run.id); }}><Icon name="settings" /></Button>;
   const navProps = (id) => ({ "aria-current": selection === id ? "page" : undefined, onClick: () => navigate(id) });
   return <div className="app">
     <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); main.current.focus(); }}>Skip to content</a>
@@ -492,29 +491,29 @@ function App() {
       <div className="brand"><span className="brand-mark"><Icon name="brand" /></span>Pantheon Local</div>
       {setup && <>
         <nav className="workspace-nav" aria-label="Workspace">
-          <button {...navProps("")}><Icon name="plus" />New run</button>
-          <button {...navProps("setup")}><Icon name="agents" />Agent setup</button>
-          <button {...navProps("inbox")}><Icon name="inbox" />Needs you{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</button>
+          <Button variant="outline" {...navProps("")}><Icon name="plus" />New run</Button>
+          <Button variant="outline" {...navProps("setup")}><Icon name="agents" />Agent setup</Button>
+          <Button variant="outline" {...navProps("inbox")}><Icon name="inbox" />Needs you{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</Button>
         </nav>
         {runs.length > 0 && <div className="run-history">
           <div className="nav-heading" aria-hidden="true">Runs</div>
           <nav className="run-nav" aria-label="Runs">{runs.map((run) =>
-            <div className="run-nav-row" key={run.id}><button {...navProps(run.id)}><span className="run-name">{runTitle(run)}</span><Status state={run.state} run={run} /></button>{settingsButton(run, "Settings for " + runTitle(run))}</div>)}</nav>
+            <div className="run-nav-row" key={run.id}><Button variant="outline" {...navProps(run.id)}><span className="run-name">{runTitle(run)}</span><Status state={run.state} run={run} /></Button>{settingsButton(run, "Settings for " + runTitle(run))}</div>)}</nav>
         </div>}
       </>}
     </aside>
     <main ref={main} tabIndex={-1} id="main-content">
       {update && <div className="notice update-notice" role="status">
         <span>Update available: <strong>Pantheon Local v{update.latest}</strong> (you have v{update.current}). <a href={update.url} target="_blank" rel="noreferrer">View GitHub release ↗</a></span>
-        <button type="button" onClick={() => { sessionStorage.setItem("local-swarm-dismissed-update", update.latest); setDismissedUpdate(update.latest); }} aria-label="Dismiss update notice">×</button>
+        <Button variant="outline" type="button" onClick={() => { sessionStorage.setItem("local-swarm-dismissed-update", update.latest); setDismissedUpdate(update.latest); }} aria-label="Dismiss update notice">×</Button>
       </div>}
-      {connectionError && <div className="notice error" role="alert">
+      {connectionError && <Alert className="notice error" variant="destructive">
         <span>{connectionError.status === 401 ? connectionError.message : setup ? "Run updates paused. Reconnecting…" : `Couldn’t load Pantheon Local. ${connectionError.message}`}</span>
-        {!setup && connectionError.status !== 401 && <button onClick={() => { setConnectionError(null); setStartup((value) => value + 1); }}>Try again</button>}
-      </div>}
+        {!setup && connectionError.status !== 401 && <Button variant="outline" onClick={() => { setConnectionError(null); setStartup((value) => value + 1); }}>Try again</Button>}
+      </Alert>}
       {(error || pending) && <div className="feedback">
-        {error && <div className="notice error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
-        {pending && <p role="status" className="notice">{pending}</p>}
+        {error && <Alert className="notice error" variant="destructive"><span>{error}</span><Button variant="outline" onClick={() => setError("")} aria-label="Dismiss error">×</Button></Alert>}
+        {pending && <Loading top>{pending}</Loading>}
       </div>}
       {setup && <div hidden={selection !== ""}>
         <Brief key={draftVersion} setup={setup} {...{ api, report, checking, checkError }} cwd={sessionStorage.getItem(cwdKey) || setup.cwd || ""} saveModel={updateModel} agentChoice={agentChoice} onSetup={() => navigate("setup")} {...{ onCreate, perform, busy }} />
@@ -525,7 +524,7 @@ function App() {
       }} {...{ send, perform, busy }} /> :
         selection === "inbox" ? <Inbox runs={runs} initialHistory={showInboxHistory} act={send} open={navigate} busy={busy} /> :
         selection === "setup" ? <AgentSetup {...{ report, checking }} error={checkError} refresh={refreshAgents} saveModel={updateModel} onContinue={useAgent} /> :
-        !setup && !connectionError && <p role="status">Connecting to Pantheon Local…</p>}
+        !setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
     </main>
     {settingsRun && <RunSettings key={settingsRun.id} run={settingsRun} {...{ send, busy, error }}
       onClose={() => { setSettingsId(null); setError(""); }}
@@ -537,4 +536,4 @@ function App() {
   </div>;
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<LoadingProvider><App /></LoadingProvider>);

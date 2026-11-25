@@ -125,19 +125,61 @@ fn options(setting: &Value) -> impl Iterator<Item = &str> {
         })
 }
 
+fn category<'a>(settings: &'a Value, key: &str) -> Option<&'a Value> {
+    settings
+        .as_array()?
+        .iter()
+        .find(|s| s["category"] == key && s["type"] == "select")
+}
+
+fn apply_profile_settings<F: Fn(Value)>(
+    c: &mut Client<F>,
+    info: &Value,
+    profile: &Value,
+) -> Result<Value> {
+    let mut settings = info["configOptions"].clone();
+    for (key, group) in [("model", "model"), ("effort", "thought_level")] {
+        let choice = field(profile, key);
+        if choice.is_empty() {
+            continue;
+        }
+        if let Some(setting) = category(&settings, group) {
+            if setting["currentValue"] == choice {
+                continue;
+            }
+            ensure!(
+                options(setting).any(|v| v == choice),
+                "This session does not offer {key} {choice:?}. Check the worker’s model settings."
+            );
+            let changed = c.set_choice(setting, choice)?;
+            if changed["configOptions"].is_array() {
+                settings = changed["configOptions"].clone();
+            }
+        } else if key == "model" && info["models"]["currentModelId"] == choice {
+            continue;
+        } else if key == "model"
+            && info["models"]["availableModels"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|m| m["modelId"] == choice))
+        {
+            c.call(
+                "session/set_model",
+                json!({"sessionId":c.session,"modelId":choice}),
+            )?;
+        } else {
+            bail!(
+                "This session does not advertise {key} {choice:?}. Use the harness default or a supported value."
+            );
+        }
+    }
+    Ok(settings)
+}
+
 fn apply_advisor_settings<F: Fn(Value)>(c: &mut Client<F>, info: &Value) {
     let mut settings = info["configOptions"].clone();
-    let category = |settings: &Value, key: &str| {
-        settings
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|s| s["category"] == key && s["type"] == "select")
-            .cloned()
-    };
     if let Some(setting) = category(&settings, "model") {
-        if let Some(fast) = fast_model(field(&setting, "currentValue"), options(&setting))
-            && let Ok(changed) = c.set_choice(&setting, fast)
+        if let Some(fast) = fast_model(field(setting, "currentValue"), options(setting))
+            && let Ok(changed) = c.set_choice(setting, fast)
             && changed["configOptions"].is_array()
         {
             settings = changed["configOptions"].clone();
@@ -158,9 +200,9 @@ fn apply_advisor_settings<F: Fn(Value)>(c: &mut Client<F>, info: &Value) {
     }
     if let Some(setting) = category(&settings, "thought_level")
         && setting["currentValue"] != "medium"
-        && options(&setting).any(|effort| effort == "medium")
+        && options(setting).any(|effort| effort == "medium")
     {
-        let _ = c.set_choice(&setting, "medium");
+        let _ = c.set_choice(setting, "medium");
     }
 }
 
@@ -239,21 +281,27 @@ pub(super) fn exchange(
     emit(json!({"type":"session","session":c.session}));
     if r["role"] == "advisor" {
         apply_advisor_settings(&mut c, &session_info);
-    }
-    let modes = &session_info["modes"];
-    if r["role"] == "worker"
-        && r["profile"]["kind"] == "hermes"
-        && modes["currentModeId"] != "accept_edits"
-        && modes["availableModes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|m| m["id"] == "accept_edits")
-    {
-        c.call(
-            "session/set_mode",
-            json!({"sessionId":c.session,"modeId":"accept_edits"}),
-        )?;
+    } else {
+        let settings = apply_profile_settings(&mut c, &session_info, &r["profile"])?;
+        if r["role"] == "worker" && r["profile"]["kind"] == "hermes" {
+            let modes = &session_info["modes"];
+            if let Some(setting) = category(&settings, "mode") {
+                if setting["currentValue"] != "accept_edits"
+                    && options(setting).any(|v| v == "accept_edits")
+                {
+                    c.set_choice(setting, "accept_edits")?;
+                }
+            } else if modes["currentModeId"] != "accept_edits"
+                && modes["availableModes"]
+                    .as_array()
+                    .is_some_and(|rows| rows.iter().any(|m| m["id"] == "accept_edits"))
+            {
+                c.call(
+                    "session/set_mode",
+                    json!({"sessionId":c.session,"modeId":"accept_edits"}),
+                )?;
+            }
+        }
     }
     c.text.clear();
     c.previous_text.clear();

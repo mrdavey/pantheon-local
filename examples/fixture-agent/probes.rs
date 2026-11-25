@@ -17,7 +17,17 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
     match name {
         "mock-codex" => {
             ensure!(
-                args == ["exec", "resume", "--json", "abc", "-"],
+                args == [
+                    "-c",
+                    "agents.enabled=false",
+                    "-c",
+                    "features.multi_agent_v2=false",
+                    "exec",
+                    "resume",
+                    "--json",
+                    "abc",
+                    "-"
+                ],
                 "unexpected Codex arguments"
             );
             let mut prompt = String::new();
@@ -32,7 +42,16 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
             }
         }
         "mock-codex-chat" => {
-            ensure!(args == ["app-server"], "chat needs the streaming transport");
+            ensure!(
+                args == [
+                    "-c",
+                    "agents.enabled=false",
+                    "-c",
+                    "features.multi_agent_v2=false",
+                    "app-server"
+                ],
+                "chat needs the streaming transport"
+            );
             let init = next(&mut input)?;
             ensure!(init["method"] == "initialize", "missing initialize");
             println!("{}", json!({"id":init["id"],"result":{}}));
@@ -138,7 +157,7 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                     },
                     "configOptions":[{"id":"thinking","category":"thought_level","type":"select","currentValue":"high","options":[{"value":"high"},{"value":"medium"}]}]
                 });
-                if cwd.ends_with("advisor-options") {
+                if cwd.ends_with("advisor-options") || cwd.ends_with("worker-options") {
                     session["configOptions"] = json!([{
                         "id":"model","category":"model","type":"select","currentValue":"service:gpt-6-astra",
                         "options":[{"group":"Service","options":[{"value":"service:gpt-6-luna"}]}]
@@ -162,9 +181,13 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 println!("{}", json!({"id":mode["id"],"result":{}}));
             }
             let cwd = std::env::current_dir()?;
-            if fresh && (cwd.ends_with("advisor") || cwd.ends_with("advisor-options")) {
+            if fresh
+                && (cwd.ends_with("advisor")
+                    || cwd.ends_with("advisor-options")
+                    || cwd.ends_with("worker-options"))
+            {
                 let model = next(&mut input)?;
-                if cwd.ends_with("advisor-options") {
+                if cwd.ends_with("advisor-options") || cwd.ends_with("worker-options") {
                     ensure!(
                         model["method"] == "session/set_config_option"
                             && model["params"]["configId"] == "model"
@@ -192,8 +215,18 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 );
                 println!(
                     "{}",
-                    json!({"id":effort["id"],"result":{"configOptions":[]}})
+                    json!({"id":effort["id"],"result":{"configOptions":[{"id":"edit-mode","category":"mode","type":"select","currentValue":"default","options":[{"value":"accept_edits"}]}]}})
                 );
+            }
+            if fresh && cwd.ends_with("worker-options") {
+                let mode = next(&mut input)?;
+                ensure!(
+                    mode["method"] == "session/set_config_option"
+                        && mode["params"]["configId"] == "edit-mode"
+                        && mode["params"]["value"] == "accept_edits",
+                    "expected advertised ACP mode"
+                );
+                println!("{}", json!({"id":mode["id"],"result":{}}));
             }
             let prompt = next(&mut input)?;
             ensure!(prompt["method"] == "session/prompt", "expected ACP prompt");
@@ -216,7 +249,7 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 reply["id"] == 9 && reply["result"]["outcome"] == expected,
                 "incorrect permission response"
             );
-            let chunks = if fresh && std::env::current_dir()?.ends_with("worker") {
+            let chunks = if fresh && (cwd.ends_with("worker") || cwd.ends_with("worker-options")) {
                 [
                     ("progress", "Checking the project."),
                     ("final", "Finished the checks.\n\n"),

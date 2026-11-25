@@ -367,7 +367,11 @@ impl<'a> Locator<'a> {
     }
     pub fn checked(&self, want: bool) -> Result<()> {
         let id = self.element()?;
-        if self.browser.get(&format!("element/{id}/selected"))? != want {
+        let selected = match self.attr("aria-checked")?.as_str() {
+            Some(state) => state == "true",
+            None => self.browser.get(&format!("element/{id}/selected"))? == true,
+        };
+        if selected != want {
             self.click()?;
         }
         Ok(())

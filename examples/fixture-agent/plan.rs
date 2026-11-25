@@ -123,8 +123,8 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             &["result.txt", "correct"],
         );
     }
-    if prompt.contains("Build the fixture") {
-        return build(
+    if prompt.contains("Build the fixture") || prompt.contains("Inspect the assignment map") {
+        let mut plan = build(
             vec![
                 milestone("foundation", "Create a project explanation.", Value::Null),
                 milestone(
@@ -140,7 +140,11 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
                 ),
             ],
             &["api.txt", "correct", "ui.txt", "usable"],
-        );
+        )?;
+        if prompt.contains("Inspect the assignment map") {
+            plan["recipe"]["checks"] = json!([["/usr/bin/env", "PATH=/fixture/bin", "npm", "ci"]]);
+        }
+        return Ok(plan);
     }
     if rows(&ctx["planning_decisions"])
         .iter()

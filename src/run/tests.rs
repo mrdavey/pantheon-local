@@ -644,3 +644,76 @@ fn detached_head_landing_checks_ancestry_and_allows_retry_after_dirty_checkout()
     assert_eq!(project::target_head(root, "refs/heads/main")?, candidate);
     Ok(())
 }
+
+#[test]
+fn child_capacity_is_shared_without_delaying_primary_workers() {
+    let mut r = json!({"input":{"subagent_limit":1},"tasks":[
+        {"id":"first","parent":"a","state":"running"},
+        {"id":"second","parent":"b","state":"pending"},
+        {"id":"third","parent":"a","state":"pending"},
+        {"id":"independent","state":"pending"}]});
+    assert_eq!(scheduler::ready_workers(&r), vec![3]);
+    r["tasks"][0]["state"] = json!("committed");
+    assert_eq!(scheduler::ready_workers(&r), vec![1, 3]);
+    r["input"]["subagent_limit"] = Value::Null;
+    assert_eq!(scheduler::ready_workers(&r), vec![1, 2, 3]);
+}
+
+#[test]
+fn all_turns_get_effective_models_without_treating_benchmarks_as_runtime_settings() {
+    let r = json!({"input":{"workers":["primary","secondary","unknown"]},"profiles":{
+        "primary":{"model":"configured-model","effort":"high","detected":{"model":"old","effort":"medium"}},
+        "secondary":{"detected":{"label":"Native model","effort":"low"}},
+        "unknown":{"benchmark_model":"Benchmark alias","benchmark_effort":"max"}}});
+    let team = &context(&r, None)["team"];
+    assert_eq!(team[0]["model"], "configured-model");
+    assert_eq!(team[0]["thinking_effort"], "high");
+    assert_eq!(team[1]["model"], "Native model");
+    assert_eq!(team[1]["thinking_effort"], "low");
+    assert!(team[2]["model"].is_null() && team[2]["thinking_effort"].is_null());
+}
+
+#[test]
+fn shared_skills_prefer_the_private_checkout_and_include_global_skills() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let checkout = root.path().join("worker");
+    let home = root.path().join("home");
+    let nested = checkout.join("package");
+    fs::create_dir_all(&nested)?;
+    fs::create_dir(checkout.join(".git"))?;
+    let skill = |base: &Path, name: &str| -> Result<PathBuf> {
+        let dir = base.join(".agents/skills").join(name);
+        fs::create_dir_all(&dir)?;
+        let file = dir.join("SKILL.md");
+        fs::write(&file, "Fixture instructions")?;
+        Ok(file)
+    };
+    skill(&home, "shared")?;
+    let local = skill(&checkout, "shared")?;
+    let global = skill(&home, "global-only")?;
+    assert_eq!(
+        worker::shared_skills(&nested, root.path(), Some(&home)),
+        vec![global, local]
+    );
+    Ok(())
+}
+
+#[test]
+fn benchmark_routing_respects_the_planners_capability_pool() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let run = json!({"id":"pool","input":{"routing":"quality","workers":["strong","fast"]},
+        "profiles":{"strong":{"benchmark_model":"Pro","benchmark_agent":"CLI"},"fast":{"benchmark_model":"Small","benchmark_agent":"CLI"}}});
+    fs::create_dir_all(engine.root(&run))?;
+    let row = |model: &str, score: i64| json!({"model":model,"agent":"CLI","score":score,"class":"debugging","suite":"test","date":"2026-01-01"});
+    fs::write(
+        engine.root(&run).join("benchmarks.json"),
+        json!({"rows":[row("Pro",70),row("Small",99)]}).to_string(),
+    )?;
+    let mut tasks = vec![
+        json!({"id":"debug","class":"debugging","goal":"Resolve ambiguity","worker":"strong","eligible_workers":["strong"]}),
+    ];
+    validate_tasks(&tasks, &[], &run["input"]["workers"])?;
+    engine.assign(&run, &mut tasks);
+    assert_eq!(tasks[0]["worker"], "strong");
+    Ok(())
+}

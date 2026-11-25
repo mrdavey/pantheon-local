@@ -1,3 +1,11 @@
+import { Loading } from "./status.jsx";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { NativeSelect } from "./components/ui/native-select";
+import { NativeSelectOption } from "./components/ui/native-select";
+import { Label } from "./components/ui/label";
+import { Checkbox } from "./components/ui/checkbox";
 import React, { useEffect, useState } from "react";
 import { Dialog } from "./dialog.jsx";
 import { availableNames, ModelSettings, profileLabel } from "./setup.jsx";
@@ -13,6 +21,11 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
   const [coordinator, setCoordinator] = useState(agentChoice?.name || setup.coordinator || "");
   const [workers, setWorkers] = useState(agentChoice ? [agentChoice.name] : null);
   const [advisor, setAdvisor] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [allowChildren, setAllowChildren] = useState(true);
+  const [unlimited, setUnlimited] = useState(true);
+  const [limit, setLimit] = useState("2");
+  const validLimit = !allowChildren || unlimited || (/^[1-9][0-9]*$/.test(limit) && Number(limit) <= 4294967295);
   const [tokens, setTokens] = useState("");
   const [routing, setRouting] = useState("manual");
   const [initialFiles, setInitialFiles] = useState([]);
@@ -78,7 +91,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
     }
   }
   const formBusy = busy || Boolean(briefNotice);
-  const ready = !formBusy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
+  const ready = validLimit && !formBusy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
   const create = (event) => {
     event.preventDefault();
     if (!ready) return;
@@ -86,6 +99,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
       const run = await api("/runs", {
         attachments: await encodeAttachments(files), path, prompt, original_prompt: original, coordinator: selectedCoordinator, workers: selectedWorkers,
         routing: selectedWorkers.length > 1 ? routing : "manual", token_target: Number(tokens),
+        subagents: allowChildren, subagent_limit: allowChildren && !unlimited ? Number(limit) : null,
         initial_files: initialFiles, target, compare, delivery, destination: delivery === "deploy" ? destination : "", recipe: { checks: [] },
       });
       onCreate(run);
@@ -98,92 +112,105 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
         onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
         onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
         onDrop={event => { event.preventDefault(); setDragging(false); addFiles(Array.from(event.dataTransfer.files)); }}>
-        <label htmlFor="run-goal">What do you want to build?</label>
-        <textarea id="run-goal" required rows={4} value={prompt} placeholder="Describe the change you want to make…" onChange={event => setPrompt(event.target.value)} />
+        <Label htmlFor="run-goal">What do you want to build?</Label>
+        <Textarea id="run-goal" required rows={4} value={prompt} placeholder="Describe the change you want to make…" onChange={event => setPrompt(event.target.value)} />
         <FileList names={files.map(file => file.name)} remove={i => setFiles(current => current.filter((_, index) => i !== index))} />
         {fileError && <p role="alert" className="notice error">{fileError}</p>}
         {briefError && <p role="alert" className="notice error">{briefError}</p>}
-        {briefNotice && <p role="status" className="notice">{briefNotice}</p>}
+        {briefNotice && <Loading>{briefNotice}</Loading>}
         <div className="composer-tools">
           <AttachmentButton add={addFiles} busy={formBusy} />
-          <button type="button" className="text-button" disabled={formBusy || !prompt.trim() || !advisorName}
-            onClick={() => runBriefTask(async () => setSuggestion(await api("/advice", { profile: advisorName, prompt, attachments: await encodeAttachments(files) })), "Improving brief…")}>Improve brief</button>
-          <button className="primary start-run" aria-label="Start run" type="submit" disabled={!ready}>Start run <span aria-hidden="true">↑</span></button>
+          <Button variant="outline" type="button" className="text-button" disabled={formBusy || !prompt.trim() || !advisorName}
+            onClick={() => runBriefTask(async () => setSuggestion(await api("/advice", { profile: advisorName, prompt, attachments: await encodeAttachments(files) })), "Improving brief…")}>Improve brief</Button>
+          <Button variant="default" className="primary start-run" aria-label="Start run" type="submit" disabled={!ready}>Start run <span aria-hidden="true">↑</span></Button>
         </div>
       </div>
-      {original && <button type="button" className="text-button" onClick={() => setModal("original")}>Original brief</button>}
+      {original && <Button variant="outline" type="button" className="text-button" onClick={() => setModal("original")}>Original brief</Button>}
       {suggestion && <div className="answer">
-        <label>Suggested brief<textarea rows={4} value={suggestion} onChange={(event) => setSuggestion(event.target.value)} /></label>
-        <button type="button" onClick={() => { setOriginal(original || prompt); setPrompt(suggestion); setSuggestion(""); }}>Use suggestion</button>
-        <button type="button" onClick={() => setSuggestion("")}>Dismiss</button>
+        <Label>Suggested brief<Textarea rows={4} value={suggestion} onChange={(event) => setSuggestion(event.target.value)} /></Label>
+        <Button variant="outline" type="button" onClick={() => { setOriginal(original || prompt); setPrompt(suggestion); setSuggestion(""); }}>Use suggestion</Button>
+        <Button variant="outline" type="button" onClick={() => setSuggestion("")}>Dismiss</Button>
       </div>}
       <div className="project-picker">
-        <label htmlFor="project-folder">Project folder</label>
+        <Label htmlFor="project-folder">Project folder</Label>
         <div className="path-controls">
-          <input id="project-folder" required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => changePath(event.target.value)} placeholder="/path/to/project" />
-          <button type="button" disabled={formBusy} onClick={() => runBriefTask(async () => {
+          <Input id="project-folder" required value={path} spellCheck={false} autoCapitalize="none" onChange={(event) => changePath(event.target.value)} placeholder="/path/to/project" />
+          <Button variant="outline" type="button" disabled={formBusy} onClick={() => runBriefTask(async () => {
             const folder = await api("/project-folder", {});
             if (folder) changePath(folder);
-          }, "Choosing a folder…")}>Browse…</button>
+          }, "Choosing a folder…")}>Browse…</Button>
         </div>
       </div>
       <div className="run-preferences">
-        {names.length ? <button type="button" className="team-control" onClick={() => setModal("team")} aria-label="Team">
+        {names.length ? <Button variant="outline" type="button" className="team-control" onClick={() => setModal("team")} aria-label="Team">
           <strong>Team</strong><span>{label(selectedCoordinator)} · {selectedWorkers.length} {selectedWorkers.length === 1 ? "worker" : "workers"}</span>
-        </button> : checking ? <p role="status">Checking local agents…</p> : <p>{checkError || "No agents configured yet."} <button type="button" onClick={onSetup}>Agent setup</button></p>}
-        <button type="button" className="team-control" onClick={() => setModal("advanced")} aria-label="Advanced settings">
+        </Button> : checking ? <Loading>Checking local agents…</Loading> : <p>{checkError || "No agents configured yet."} <Button variant="outline" type="button" onClick={onSetup}>Agent setup</Button></p>}
+        <Button variant="outline" type="button" className="team-control" onClick={() => setModal("advanced")} aria-label="Advanced settings">
           <strong>Advanced settings</strong><span>{delivery === "auto" ? "Auto-land" : delivery === "review" ? "Review before landing" : "Auto-land and deploy"}</span>
-        </button>
+        </Button>
       </div>
       {!!names.length && !selectedWorkers.length && <p>Select at least one worker.</p>}
-      {report && !report.git && <p role="alert">Git is required. <button type="button" onClick={onSetup}>Agent setup</button></p>}
+      {report && !report.git && <p role="alert">Git is required. <Button variant="outline" type="button" onClick={onSetup}>Agent setup</Button></p>}
     </form>
-    {(modal === "team" || modal === "model") && <Dialog title="Team" onClose={() => setModal("")}>
+    {(modal === "team" || modal === "model") && <Dialog title="Team" onClose={() => { if (modal === "team") setModal(""); }}>
       <div className="roles">
-        <div><label>Coordinator<select aria-label="Coordinator" required title={label(selectedCoordinator)} value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}>
-          {names.map((name) => <option key={name} value={name}>{label(name)}</option>)}</select></label>
-          <button type="button" className="model-link text-button" onClick={() => setModal("model")}>
-            {[profile?.detected?.label || profile?.model || "Agent default", profile?.detected?.effort].filter(Boolean).join(" · ")} · Model settings
-          </button>
+        <div><Label>Coordinator<NativeSelect aria-label="Coordinator" required title={label(selectedCoordinator)} value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}>
+          {names.map((name) => <NativeSelectOption key={name} value={name}>{label(name)}</NativeSelectOption>)}</NativeSelect></Label>
+          <Button variant="outline" type="button" className="model-link text-button" onClick={() => { setModelName(selectedCoordinator); setModal("model"); }}>
+            {[profile?.model || profile?.detected?.label || "Agent default", profile?.effort || profile?.detected?.effort].filter(Boolean).join(" · ")} · Model settings
+          </Button>
         </div>
-        <fieldset><legend>Workers</legend>{names.map((name) => <label className="checkbox" key={name}><input type="checkbox" checked={selectedWorkers.includes(name)}
-          onChange={(event) => setWorkers(event.target.checked ? [...selectedWorkers, name] : selectedWorkers.filter((worker) => worker !== name))} />{label(name)}</label>)}</fieldset>
+        <fieldset><legend>Workers</legend>{names.map((name) => {
+          const worker = setup.profiles[name];
+          return <div className="worker-setting" key={name}>
+            <Label className="checkbox"><Checkbox aria-label={label(name)} checked={selectedWorkers.includes(name)}
+              onCheckedChange={checked => setWorkers(checked ? [...selectedWorkers, name] : selectedWorkers.filter(id => id !== name))} />{label(name)}</Label>
+            <small>{[worker.model || worker.detected?.label || "Agent default", worker.effort || worker.detected?.effort].filter(Boolean).join(" · ")}</small>
+            <Button variant="outline" type="button" aria-label={`Settings for worker ${name}`} onClick={() => { setModelName(name); setModal("model"); }}>Settings</Button>
+          </div>;
+        })}</fieldset>
       </div>
-      <div className="dialog-footer"><button type="button" onClick={() => setModal("")}>Done</button></div>
+      <fieldset className="subagent-settings"><legend>Delegation</legend>
+        <Label className="checkbox"><Checkbox checked={allowChildren} onCheckedChange={setAllowChildren} />Allow subagents</Label>
+        {allowChildren && <><Label className="checkbox"><Checkbox checked={unlimited} onCheckedChange={setUnlimited} />Unlimited subagents</Label>
+          {!unlimited && <Label>Concurrent subagents<Input type="number" min="1" max="4294967295" value={limit} aria-invalid={!validLimit} onChange={e => setLimit(e.target.value)} /></Label>}
+          {!validLimit && <p role="alert">Enter a positive whole number.</p>}</>}
+      </fieldset>
+      <div className="dialog-footer"><Button variant="outline" type="button" disabled={!validLimit} onClick={() => setModal("")}>Done</Button></div>
+      {modal === "model" && setup.profiles[modelName] && <ModelSettings key={modelName} name={modelName} profile={setup.profiles[modelName]} save={saveModel} onClose={() => setModal("team")} />}
     </Dialog>}
     {modal === "advanced" && <Dialog className="advanced-sheet" title="Advanced settings" onClose={() => { if (!picking) setModal(""); }}>
       <div className="options brief-options">
-        <label>Delivery<select value={delivery} onChange={(event) => {
+        <Label>Delivery<NativeSelect value={delivery} onChange={(event) => {
           setDelivery(event.target.value);
           if (event.target.value === "deploy" && destinations === null && !loadingDestinations) loadDestinations();
-        }}><option value="auto">Auto-land</option><option value="review">Review before landing</option><option value="deploy">Auto-land and deploy</option></select></label>
-        <label>Worker routing<select value={routing} disabled={selectedWorkers.length < 2} onChange={(event) => setRouting(event.target.value)}>
-          <option value="manual">Coordinator chooses</option><option value="balanced">Balance benchmark score and cost</option>
-          <option value="quality">Highest benchmark score</option><option value="economy">Favor lower cost</option>
-        </select></label>
+        }}><NativeSelectOption value="auto">Auto-land</NativeSelectOption><NativeSelectOption value="review">Review before landing</NativeSelectOption><NativeSelectOption value="deploy">Auto-land and deploy</NativeSelectOption></NativeSelect></Label>
+        <Label>Worker routing<NativeSelect value={routing} disabled={selectedWorkers.length < 2} onChange={(event) => setRouting(event.target.value)}>
+          <NativeSelectOption value="manual">Coordinator chooses</NativeSelectOption><NativeSelectOption value="balanced">Balance benchmark score and cost</NativeSelectOption>
+          <NativeSelectOption value="quality">Highest benchmark score</NativeSelectOption><NativeSelectOption value="economy">Favor lower cost</NativeSelectOption>
+        </NativeSelect></Label>
         {delivery === "deploy" && <div className="destination-field">
-          <label>Destination<select value={destination} disabled={loadingDestinations} onChange={(event) => setDestination(event.target.value)}>
-            <option value="">Choose a destination</option>{destinations?.map((name) => <option key={name}>{name}</option>)}</select></label>
-          {loadingDestinations ? <p role="status">Loading destinations…</p> : destinationError || !destinations?.length ?
+          <Label>Destination<NativeSelect value={destination} disabled={loadingDestinations} onChange={(event) => setDestination(event.target.value)}>
+            <NativeSelectOption value="">Choose a destination</NativeSelectOption>{destinations?.map((name) => <NativeSelectOption key={name}>{name}</NativeSelectOption>)}</NativeSelect></Label>
+          {loadingDestinations ? <Loading>Loading destinations…</Loading> : destinationError || !destinations?.length ?
             <><p role={destinationError ? "alert" : undefined}>{destinationError || <>Add a destination to <code>destinations.json</code>.</>}</p>
-              <button type="button" onClick={loadDestinations}>Reload destinations</button></> :
+              <Button variant="outline" type="button" onClick={loadDestinations}>Reload destinations</Button></> :
             <p>The tested commit can land and deploy to this destination automatically.</p>}
         </div>}
-        <label>Advisor<select aria-label="Advisor" value={names.includes(advisor) ? advisor : ""} onChange={(event) => setAdvisor(event.target.value)}><option value="">Use coordinator</option>{names.map((name) => <option key={name} value={name}>{label(name)}</option>)}</select></label>
-        <label>Token target<input type="number" min="0" step="1" value={tokens} onChange={(event) => setTokens(event.target.value)} placeholder="Optional" /></label>
-        <label>Target branch<input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Current branch" /></label>
+        <Label>Advisor<NativeSelect aria-label="Advisor" value={names.includes(advisor) ? advisor : ""} onChange={(event) => setAdvisor(event.target.value)}><NativeSelectOption value="">Use coordinator</NativeSelectOption>{names.map((name) => <NativeSelectOption key={name} value={name}>{label(name)}</NativeSelectOption>)}</NativeSelect></Label>
+        <Label>Token target<Input type="number" min="0" step="1" value={tokens} onChange={(event) => setTokens(event.target.value)} placeholder="Optional" /></Label>
+        <Label>Target branch<Input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Current branch" /></Label>
         <div className="file-field"><span>Initial import files</span>
-          <button type="button" disabled={!path.trim() || picking} onClick={pickImports}>{picking ? "Choosing files…" : initialFiles.length ? "Add more files…" : "Choose files…"}</button>
+          <Button variant="outline" type="button" disabled={!path.trim() || picking} onClick={pickImports}>{picking ? "Choosing files…" : initialFiles.length ? "Add more files…" : "Choose files…"}</Button>
           <FileList names={initialFiles} remove={i => setInitialFiles(current => current.filter((_, index) => i !== index))} />
           {importError && <p role="alert" className="notice error">{importError}</p>}
         </div>
-        <label className="checkbox"><input type="checkbox" checked={compare} onChange={(event) => setCompare(event.target.checked)} />Compare approaches against a baseline</label>
+        <Label className="checkbox"><Checkbox checked={compare} onCheckedChange={setCompare} />Compare approaches against a baseline</Label>
       </div>
-      <div className="dialog-footer"><button className="primary" disabled={picking} onClick={() => setModal("")}>Done</button></div>
+      <div className="dialog-footer"><Button variant="default" className="primary" disabled={picking} onClick={() => setModal("")}>Done</Button></div>
     </Dialog>}
-    {modal === "model" && profile && <ModelSettings name={selectedCoordinator} profile={profile} save={saveModel} onClose={() => setModal("team")} />}
     {modal === "original" && <Dialog title="Original brief" onClose={() => setModal("")}>
-      <p className="original-brief">{original}</p><button onClick={() => { setPrompt(original); setOriginal(""); setModal(""); }}>Restore original</button>
+      <p className="original-brief">{original}</p><Button variant="outline" onClick={() => { setPrompt(original); setOriginal(""); setModal(""); }}>Restore original</Button>
     </Dialog>}
   </section>;
 }

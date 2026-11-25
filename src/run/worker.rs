@@ -21,6 +21,30 @@ pub(super) fn awaiting_consultation(task: &Value) -> bool {
     !s(task, "consult").trim().is_empty() && s(task, "reply").is_empty()
 }
 
+/// Native harnesses discover their own plugins and profile skills. Advertise portable
+/// SKILL.md files as paths so other local harnesses can read them on demand.
+pub(super) fn shared_skills(cwd: &Path, integration: &Path, home: Option<&Path>) -> Vec<PathBuf> {
+    let checkout = cwd
+        .ancestors()
+        .take_while(|path| integration.parent() != Some(*path))
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(integration);
+    let mut roots = vec![cwd.join(".agents/skills"), checkout.join(".agents/skills")];
+    if let Some(home) = home {
+        roots.push(home.join(".agents/skills"));
+    }
+    let mut skills = std::collections::BTreeMap::new();
+    for root in roots {
+        for child in fs::read_dir(root).into_iter().flatten().flatten() {
+            let path = child.path().join("SKILL.md");
+            if path.is_file() {
+                skills.entry(child.file_name()).or_insert(path);
+            }
+        }
+    }
+    skills.into_values().collect()
+}
+
 impl Engine {
     pub(super) fn plan(&self, r: &mut Value) -> Result<()> {
         let dir = self.integration(r);
@@ -55,16 +79,6 @@ impl Engine {
             }
         }
         let inp = &r["input"];
-        let profiles = strings(&inp["workers"])
-            .iter()
-            .map(|id| {
-                format!(
-                    "\n- {id} ({}, {})",
-                    s(&r["profiles"][id], "kind"),
-                    s(&r["profiles"][id], "model")
-                )
-            })
-            .collect::<String>();
         let prior = a(&r["tasks"])
             .iter()
             .take(num(&r["task_start"]) as usize)
@@ -75,7 +89,6 @@ impl Engine {
             include_str!("plan.txt"),
             &[
                 ("compare", yes(&inp["compare"]).to_string()),
-                ("profiles", profiles),
                 ("subdir", subdir.into()),
                 ("files", files),
                 ("guidance", guidance),
@@ -193,6 +206,13 @@ impl Engine {
         let mut prompt = render(
             include_str!("worker.txt"),
             &[
+                ("delegation", if r["input"]["subagents"] == false {
+                    "Complete your own milestone without spawning or requesting subagents."
+                } else if r["input"]["subagent_limit"].is_number() {
+                    "To delegate independent work, return a question to the coordinator requesting scoped child milestones. Pantheon schedules them within the shared run limit. Do not spawn native subagents."
+                } else {
+                    "Use native subagents for independent work when supported. Match each child's model and thinking effort to its scope."
+                }.into()),
                 ("brief", s(&r["input"], "prompt").into()),
                 ("id", id.clone()),
                 ("goal", s(&t, "goal").into()),

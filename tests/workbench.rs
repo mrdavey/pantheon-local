@@ -213,9 +213,9 @@ fn desktop_profile_roles(h: &Harness) -> Result<()> {
     h.click("Team")?;
     h.b.label("Coordinator").value("hermes-desktop-work")?;
     let worker = h.b.role("checkbox", "Hermes · desktop-work");
-    ensure!(worker.property("checked")? == true);
+    ensure!(worker.attr("aria-checked")? == "true");
     h.b.label("Coordinator").select("first")?;
-    ensure!(worker.property("checked")? == true);
+    ensure!(worker.attr("aria-checked")? == "true");
     h.no_overflow()
 }
 
@@ -240,11 +240,22 @@ fn run_form(h: &Harness) -> Result<()> {
     h.b.role("checkbox", "Claude Code").absent()?;
     h.b.xpath("//select[@aria-label='Coordinator']/option[@value='claude' or @value='codex']")
         .absent()?;
+    h.click("Settings for worker writer")?;
+    h.b.role("heading", "Settings for writer").visible()?;
+    h.click("Close dialog")?;
+    h.b.role("checkbox", "Unlimited subagents").checked(false)?;
+    h.b.label("Concurrent subagents").fill("3")?;
+    h.b.role("checkbox", "Allow subagents").checked(false)?;
+    h.b.label("Concurrent subagents").absent()?;
+    h.b.role("checkbox", "Allow subagents").checked(true)?;
+    h.b.label("Concurrent subagents").value("3")?;
     h.b.label("Coordinator").select("hermes-desktop-work")?;
     h.click("Agent default · Model settings")?;
     h.b.text("Choose the model and reasoning level in your Hermes profile.")
         .visible()?;
     h.b.key("\u{e00c}")?;
+    h.b.role("heading", "Team").visible()?;
+    h.button("Agent default · Model settings").focused()?;
     h.click("Done")?;
     h.click("Advanced settings")?;
     h.b.label("Delivery").value("auto")?;
@@ -288,7 +299,7 @@ fn export(h: &Harness) -> Result<()> {
     b.role("heading", "Start a run").focused()?;
     h.click("Team")?;
     b.label("Coordinator").value("first")?;
-    ensure!(b.role("checkbox", "first").property("checked")? == true);
+    ensure!(b.role("checkbox", "first").attr("aria-checked")? == "true");
     h.click("Done")?;
     h.button("Needs you").focus()?;
     b.key("\u{e004}")?;
@@ -319,7 +330,7 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Advanced settings")?;
     b.label("Delivery").value("auto")?;
     b.label("Delivery").select("review")?;
-    let routing = b.xpath("//label[contains(.,'Worker routing')]/select");
+    let routing = b.xpath("//label[contains(.,'Worker routing')]//select");
     routing.value("manual")?;
     routing.select("balanced")?;
     h.click("Done")?;
@@ -360,7 +371,8 @@ fn export(h: &Harness) -> Result<()> {
     b.xpath("//details[@open]//p[.='Add quote export']")
         .visible()?;
     b.key("\u{e007}")?;
-    h.button("Coordinator chat").visible()?;
+    b.role("dialog", "Coordinator chat").visible()?;
+    h.click("Minimize chat")?;
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
     b.role("heading", "Review acceptance checks").visible()?;
@@ -376,6 +388,14 @@ fn export(h: &Harness) -> Result<()> {
     b.label("Acceptance recipe")
         .fill(&json!({"checks":[check],"preview":[fixture,"serve-preview"]}).to_string())?;
     h.click("Approve checks")?;
+    h.click("Agent map")?;
+    h.click("Zoom in")?;
+    h.b.label("Map zoom").contains("125%")?;
+    h.click("View assignments for second")?;
+    h.b.role("heading", "second").visible()?;
+    h.click("Close dialog")?;
+    h.click("Fit")?;
+    h.no_overflow()?;
     h.click("Work")?;
     h.button("Land on main").visible()?;
     b.xpath("//section[header[contains(@class,'run-heading')]]//select[@aria-label='Coordinator' or parent::label[contains(.,'Coordinator')]]").absent()?;
@@ -385,7 +405,7 @@ fn export(h: &Harness) -> Result<()> {
         .xpath(".//strong[.='Write the open quotes export.']")
         .visible()?;
     milestone.click()?;
-    b.xpath("//dialog[@open]//code[.='open quotes']")
+    b.xpath("//*[@data-slot='dialog-content']//code[.='open quotes']")
         .visible()?;
     b.text("Why this model?").click()?;
     b.xpath("//*[contains(text(),'Efficient model') and contains(.,'88.0%')]")
@@ -440,7 +460,7 @@ fn export(h: &Harness) -> Result<()> {
         Ok(v.map(|_| ()))
     })?;
     h.run_button("Quote export").click()?;
-    h.click("Coordinator chat")?;
+    b.role("dialog", "Coordinator chat").visible()?;
     b.text("Milestones added").visible()?;
     b.text("Explain the result after reopening.").visible()?;
     h.click("Minimize chat")?;
@@ -454,7 +474,7 @@ fn export(h: &Harness) -> Result<()> {
     b.key("\u{e00c}")?;
     candidate.xpath(".//button[.='View checks']").click()?;
     b.label("Acceptance checks").contains("open quotes")?;
-    b.xpath("//dialog[@open]//code[contains(@class,'shell-command')]")
+    b.xpath("//*[@data-slot='dialog-content']//code[contains(@class,'shell-command')]")
         .visible()?;
     h.click("Close dialog")?;
     candidate
@@ -494,12 +514,13 @@ fn compare(h: &Harness) -> Result<()> {
     h.button("Explain this").visible()?;
     h.click("Close dialog")?;
     h.click("View details for balanced")?;
-    b.xpath("//dialog[@open]//dt[contains(.,'relevance')]")
+    b.xpath("//*[@data-slot='dialog-content']//dt[contains(.,'relevance')]")
         .visible()?;
     h.no_overflow()?;
     h.click("Close dialog")?;
     h.click("Help with experiment actions")?;
-    b.xpath("//dialog[@open]//dt[.='Feedback']").visible()?;
+    b.xpath("//*[@data-slot='dialog-content']//dt[.='Feedback']")
+        .visible()?;
     b.key("\u{e00c}")?;
     h.button("Help with experiment actions").focused()?;
     b.text("relevance (hits) by latency (ms)").visible()?;
@@ -565,8 +586,10 @@ fn compare(h: &Harness) -> Result<()> {
     let combination = b.xpath("//section[contains(@class,'comparison-card')]//tr[th//button[normalize-space(.)!='Baseline']]");
     combination.xpath(".//th/button").click()?;
     b.role("heading", "Based on").visible()?;
-    b.xpath("//dialog[@open]//li[.='balanced']").visible()?;
-    b.xpath("//dialog[@open]//li[.='fast']").visible()?;
+    b.xpath("//*[@data-slot='dialog-content']//li[.='balanced']")
+        .visible()?;
+    b.xpath("//*[@data-slot='dialog-content']//li[.='fast']")
+        .visible()?;
     h.click("Close dialog")?;
     h.button("Resume auto-land").visible()?;
     round.select("1")?;
@@ -763,7 +786,7 @@ fn chat_history(h: &Harness) -> Result<()> {
     h.svc.post(&path, &json!({"kind":"chat","text":message}))?;
     h.goto()?;
     h.run_button("Quote export").click()?;
-    h.click("Coordinator chat")?;
+    b.role("dialog", "Coordinator chat").visible()?;
     let history = b.role("log", "Coordinator conversation");
     history.contains("The export milestone owns the generated CSV.")?;
     history.xpath(".//code[.='total']").visible()?;
@@ -776,7 +799,7 @@ fn chat_history(h: &Harness) -> Result<()> {
     h.click("Minimize chat")?;
     h.click("Agent setup")?;
     h.run_button("Quote export").click()?;
-    h.click("Coordinator chat")?;
+    b.role("dialog", "Coordinator chat").visible()?;
     b.label("Message").value("Keep this draft")?;
     h.click("Latest messages ↓")?;
     h.button("Latest messages ↓").absent()?;
@@ -825,7 +848,7 @@ fn explain_context(h: &Harness) -> Result<()> {
     h.svc.wait_state(&path, "review")?;
     h.goto()?;
     h.run_button("Quote export").click()?;
-    h.click("Coordinator chat")?;
+    b.role("dialog", "Coordinator chat").visible()?;
     b.label("Message").fill("An unfinished follow-up")?;
     h.click("Minimize chat")?;
     b.xpath("//button[@data-task='export']").click()?;
@@ -1033,4 +1056,67 @@ scenario!(
     desktop_run_settings,
     mobile_run_settings,
     delete_from_settings
+);
+
+fn assignment_map(h: &Harness) -> Result<()> {
+    let goal = "Inspect the assignment map";
+    let run = h.svc.post("/runs", &json!({"path":h.repo("map")?,"prompt":goal,"coordinator":"first","workers":["writer","writer-two"],"delivery":"review"}))?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "checks")?;
+    h.goto()?;
+    h.run_button(goal).click()?;
+    let b = &h.b;
+    b.text("Waiting for check approval").visible()?;
+    b.text("Install locked dependencies").click()?;
+    b.xpath("//details[@open]//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
+        .visible()?;
+    b.text("Install locked dependencies").click()?;
+    h.click("Agent map")?;
+    h.click("View coordinator activity")?;
+    b.role("heading", "Coordinator activity").visible()?;
+    h.click("Close dialog")?;
+    let view = b.label("Assignment map, scroll to pan");
+    view.visible()?;
+    ensure!(
+        b.eval(
+            "return document.querySelectorAll('.map-world > svg > path').length",
+            vec![]
+        )? == 2
+    );
+    for _ in 0..4 {
+        h.click("Zoom in")?;
+    }
+    view.focus()?;
+    b.key("\u{e014}")?;
+    until("keyboard pans the map", || {
+        Ok((b
+            .eval(
+                "return document.querySelector('.map-viewport').scrollLeft",
+                vec![],
+            )?
+            .as_f64()
+            .unwrap_or(0.)
+            > 0.)
+            .then_some(()))
+    })?;
+    h.click("Fit")?;
+    h.click("Milestone 3: Implement the interface.")?;
+    b.text("Depends on foundation").visible()?;
+    h.click("All assignments for writer-two")?;
+    b.role("heading", "writer-two").visible()?;
+    h.click("Close dialog")?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        view.focus()?;
+        b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "map-mobile.png"
+        } else {
+            "map-desktop.png"
+        }))?;
+    }
+    h.no_overflow()
+}
+scenario!(
+    desktop_assignment_map,
+    mobile_assignment_map,
+    assignment_map
 );

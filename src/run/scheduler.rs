@@ -44,6 +44,14 @@ pub(super) fn ready_workers(run: &Value) -> Vec<usize> {
             .filter(|task| !matches!(s(task, "state"), "committed" | "abandoned"))
             .filter_map(|task| task["parent"].as_str()),
     );
+    let running_children = active(run)
+        .iter()
+        .filter(|t| t["state"] == "running" && !s(t, "parent").is_empty())
+        .count();
+    let mut slots = run["input"]["subagent_limit"]
+        .as_u64()
+        .unwrap_or(u64::MAX)
+        .saturating_sub(running_children as u64);
     tasks
         .iter()
         .enumerate()
@@ -54,6 +62,16 @@ pub(super) fn ready_workers(run: &Value) -> Vec<usize> {
                 && a(&task["depends"])
                     .iter()
                     .all(|dep| dep.as_str().is_some_and(|id| committed.contains(id)))
+        })
+        .filter(|(_, t)| {
+            if s(t, "parent").is_empty() {
+                return true;
+            }
+            if slots == 0 {
+                return false;
+            }
+            slots -= 1;
+            true
         })
         .map(|(i, _)| i)
         .collect()
@@ -203,14 +221,29 @@ impl Engine {
                         let n = a(&r["tasks"]).len();
                         let result = experiment::finish_observation(&mut next, &turn, &res)
                             .and_then(|cases| {
-                                let mut new = a(&next["tasks"])
-                                    .iter()
-                                    .skip(n)
-                                    .cloned()
+                                let indices = (0..a(&next["tasks"]).len())
+                                    .filter(|&i| {
+                                        i >= n
+                                            || [
+                                                "worker",
+                                                "class",
+                                                "eligible_workers",
+                                                "goal",
+                                                "paths",
+                                                "depends",
+                                                "consult",
+                                            ]
+                                            .iter()
+                                            .any(|key| r["tasks"][i][key] != next["tasks"][i][key])
+                                    })
                                     .collect::<Vec<_>>();
-                                self.assign(&next, &mut new);
-                                for (i, t) in new.into_iter().enumerate() {
-                                    next["tasks"][n + i] = t;
+                                let mut assignments = indices
+                                    .iter()
+                                    .map(|&i| next["tasks"][i].clone())
+                                    .collect::<Vec<_>>();
+                                self.assign(&next, &mut assignments);
+                                for (i, task) in indices.into_iter().zip(assignments) {
+                                    next["tasks"][i] = task;
                                 }
                                 self.store.save(&mut next, "coordinator-observed", &cases)
                             });

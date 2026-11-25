@@ -71,7 +71,13 @@ pub fn add_profiles(profiles: &mut Map<String, Value>, root: &Path, settings: &V
         if let Some(exe) = &executable {
             profile["executable"] = exe.clone();
         }
-        for field in ["benchmark_model", "benchmark_agent", "benchmark_effort"] {
+        for field in [
+            "model",
+            "effort",
+            "benchmark_model",
+            "benchmark_agent",
+            "benchmark_effort",
+        ] {
             if let Some(value) = settings[&key][field].as_str() {
                 profile[field] = json!(value);
             }

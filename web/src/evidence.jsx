@@ -1,3 +1,7 @@
+import { Button } from "./components/ui/button";
+import { NativeSelect } from "./components/ui/native-select";
+import { NativeSelectOption } from "./components/ui/native-select";
+import { Label } from "./components/ui/label";
 import React, { useMemo, useState } from "react";
 import { Markdown } from "./markdown.jsx";
 
@@ -122,7 +126,7 @@ export function TurnOutput({ source, name = "Turn log" }) {
         kind === "terminal" ? <pre tabIndex={0}>{body}</pre> : kind === "fields" ? <Fields value={body} /> :
         kind === "plain" ? <p>{body}</p> : <MessageBody text={body} />)}
     </article>)}
-    {visible < rows.length && <button onClick={() => setVisible(visible + 80)}>Show more events</button>}
+    {visible < rows.length && <Button variant="outline" onClick={() => setVisible(visible + 80)}>Show more events</Button>}
   </section>;
 }
 
@@ -184,13 +188,13 @@ export function DiffExplorer({ text }) {
   const file = files[selected];
   if (!file) return <p>No file changes.</p>;
   return <section aria-label="Candidate diff" className="diff-explorer">
-    <div className="diff-toolbar"><label>Changed file<select value={selected} onChange={(event) => { setSelected(Number(event.target.value)); setLimit(300); }}>
-      {files.map((f, i) => <option value={i} key={i}>{f.path}</option>)}</select></label>
+    <div className="diff-toolbar"><Label>Changed file<NativeSelect value={selected} onChange={(event) => { setSelected(Number(event.target.value)); setLimit(300); }}>
+      {files.map((f, i) => <NativeSelectOption value={i} key={i}>{f.path}</NativeSelectOption>)}</NativeSelect></Label>
       <span aria-label={file.added + ' additions, ' + file.removed + ' deletions'}><b>+{file.added}</b> −{file.removed}</span></div>
     <div className="diff-lines" role="region" aria-label={'Changes to ' + file.path} tabIndex={0}>
       {file.lines.slice(0, limit).map((row, i) => <div key={i} className={'diff-line ' + row.kind}>
         <span>{row.left}</span><span>{row.right}</span><code>{row.text || " "}</code></div>)}
     </div>
-    {limit < file.lines.length && <button onClick={() => setLimit(limit + 300)}>Show more lines</button>}
+    {limit < file.lines.length && <Button variant="outline" onClick={() => setLimit(limit + 300)}>Show more lines</Button>}
   </section>;
 }

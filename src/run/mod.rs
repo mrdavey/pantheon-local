@@ -161,6 +161,13 @@ pub fn validate_tasks(added: &[Value], existing: &[Value], workers: &Value) -> R
             routing::class_valid(s(t, "class")),
             "invalid benchmark category"
         );
+        let eligible = a(&t["eligible_workers"]);
+        ensure!(
+            eligible.is_empty()
+                || (eligible.contains(&t["worker"])
+                    && eligible.iter().all(|name| a(workers).contains(name))),
+            "eligible workers must include the assigned worker and belong to this team"
+        );
         for k in ["variant", "alternative"] {
             ensure!(
                 s(t, k).is_empty() || valid_id(s(t, k)),
@@ -256,6 +263,12 @@ fn context(r: &Value, worker: Option<&Value>) -> Value {
         decisions.push(json!({"answer":r["answer"]}))
     }
     let mut c = json!({"planning_decisions":decisions,"round_goal":r["round_goal"],"checks_approved":r["recipe_approved"]});
+    c["team"] = json!(strings(&r["input"]["workers"]).iter().map(|name| {
+        let p = &r["profiles"][name];
+        let effective = |key: &str| p[key].as_str().filter(|s| !s.is_empty()).or_else(|| p["detected"][key].as_str());
+        json!({"profile":name,"harness":p["kind"],"model":effective("model").or(p["detected"]["label"].as_str()),"thinking_effort":effective("effort")})
+    }).collect::<Vec<_>>());
+    c["delegation"] = json!({"allowed":r["input"]["subagents"] != false,"max_concurrent_children":r["input"]["subagent_limit"]});
     if yes(&r["recipe_approved"]) {
         for (dest, src) in [
             ("checks", "checks"),
@@ -302,11 +315,17 @@ impl Engine {
         let assigned_at = now();
         for t in tasks {
             t["assigned_at"] = json!(assigned_at);
+            let eligible = strings(&t["eligible_workers"]);
+            let pool = if eligible.is_empty() {
+                &workers
+            } else {
+                &eligible
+            };
             let (w, route) = routing::choose(
                 s(&r["input"], "routing"),
                 s(t, "class"),
                 s(t, "worker"),
-                &workers,
+                pool,
                 &r["profiles"],
                 &catalog,
             );
@@ -336,6 +355,11 @@ impl Engine {
         eval::pin(&recipe, &self.root(r).join("evaluators"))
     }
     pub fn start(&self, mut input: Value, profiles: Value) -> Result<Value> {
+        ensure!(
+            input["subagent_limit"].is_null()
+                || input["subagent_limit"].as_u64().is_some_and(|n| n > 0),
+            "subagent limit must be positive"
+        );
         let attachments = crate::attachments::unpack(&mut input)?;
         let mode = s(&input, "routing");
         ensure!(routing::mode_valid(mode), "unknown benchmark routing mode");
@@ -456,14 +480,32 @@ impl Engine {
                 context["brief_attachments"] =
                     crate::attachments::context(&self.root(r), &r["input"]["attachments"])?;
             }
+            let shared = worker::shared_skills(
+                Path::new(s(&job["request"], "dir")),
+                Path::new(&self.integration(r)),
+                std::env::var_os("HOME").as_deref().map(Path::new),
+            );
+            if !shared.is_empty() {
+                context["shared_skill_files"] = json!(shared);
+            }
             job["request"]["prompt"] = json!(format!("Run context: {context}\n{prompt}"));
+        }
+        if job["request"].is_object() {
+            for key in ["subagents", "subagent_limit"] {
+                job["request"][key] = r["input"][key].clone();
+            }
         }
         let id = uid();
         let dir = self.jobdir(r, &id);
         fs::create_dir_all(&dir)?;
         supervisor::write_json(&dir.join("job.json"), &job)?;
+        let agent = match role {
+            "worker" => worker.map(|t| &t["worker"]),
+            "plan" | "repair" | "observe" | "chat" => Some(&r["input"]["coordinator"]),
+            _ => None,
+        };
+        let turn = json!({"id":id,"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
         before_save(r);
-        let turn = json!({"id":id,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
         push(&mut r["turns"], turn);
         self.save(r, "dispatched")?;
         if let Err(e) = supervisor::spawn(&dir) {
