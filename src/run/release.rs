@@ -1,5 +1,5 @@
 //! A release runs only the executable authorized when the run started.
-use crate::run::{a, find, s};
+use crate::run::{a, find, s, valid_id};
 use crate::{eval, project};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -73,13 +73,6 @@ fn config(dir: &Path) -> Result<BTreeMap<String, Destination>> {
         f => f?,
     };
     Ok(serde_json::from_reader(file)?)
-}
-fn valid_id(id: &str) -> bool {
-    (1..=48).contains(&id.len())
-        && !id.starts_with('-')
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 pub fn destinations(state: &Path) -> Result<Vec<String>> {
     Ok(config(state)?.into_keys().filter(|k| valid_id(k)).collect())

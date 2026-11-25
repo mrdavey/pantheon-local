@@ -1,7 +1,10 @@
 //! Apply coordinator decisions atomically to a run.
 use crate::{
     adapter, eval,
-    run::{a, comparison, find, num, observe, push, record_answer, release, s, validate_tasks},
+    run::{
+        a, comparison, find, num, observe, push, record_answer, release, s, valid_id,
+        validate_tasks,
+    },
     uid,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -73,14 +76,6 @@ pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
         s(&r["input"], "prompt"),
         state
     )
-}
-fn valid_slug(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 48
-        && !id.starts_with('-')
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     let t = s(v, k).trim();
@@ -316,7 +311,7 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
     for action in actions {
         let id = s(action, "id");
         ensure!(
-            valid_slug(id) && ids.insert(id),
+            valid_id(id) && ids.insert(id),
             "invalid or duplicate coordinator action ID"
         );
         let target = s(action, "ref");
@@ -324,7 +319,7 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
             "save_case_revision" => {
                 let mut c = action["case"].clone();
                 ensure!(
-                    valid_slug(s(&c, "id"))
+                    valid_id(s(&c, "id"))
                         && num(&c["revision"]) >= 1
                         && ["scenario", "expected", "why"]
                             .iter()
