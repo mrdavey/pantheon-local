@@ -17,6 +17,10 @@ fn render(template: &str, fields: &[(&str, String)]) -> String {
     out.push_str(rest);
     out
 }
+fn awaiting_consultation(task: &Value) -> bool {
+    !s(task, "consult").trim().is_empty() && s(task, "reply").is_empty()
+}
+
 impl Engine {
     pub(super) fn plan(&self, r: &mut Value) -> Result<()> {
         let dir = self.integration(r);
@@ -137,7 +141,8 @@ impl Engine {
             }
             t["base"] = json!(project::head(&dir)?);
             t["workspace"] = json!(dir);
-        } else if num(&t["handoff_retries"]) == 0
+        } else if !awaiting_consultation(&t)
+            && num(&t["handoff_retries"]) == 0
             && let Ok(sha) = project::milestone(&dir, s(&t, "base"))
             && s(&t, "reply").is_empty()
             && a(&t["notes"]).len() == num(&t["delivered"]) as usize
@@ -192,6 +197,13 @@ impl Engine {
         }
         if num(&t["handoff_retries"]) > 0 {
             prompt += "\nContinue from your current checkout and session. Your last turn ended without a readable milestone receipt. Collect any pending review, check the existing changes, and return the worker JSON above. If finished, report the existing commit or the reviewed files. If you need help, use question or blocked.";
+        }
+        if awaiting_consultation(&t) {
+            prompt = format!(
+                "Milestone ({id}): {}\nAsk the coordinator about this topic: {}\nThis turn is for the question only. Do not use tools or edit files. Return only {{\"status\":\"question\",\"message\":\"your specific question\"}}. Implementation starts on a later turn after you receive the answer.",
+                s(&t, "goal"),
+                s(&t, "consult")
+            );
         }
         let req = json!({"role":"worker","profile":r["profiles"][s(&t,"worker")],"dir":cwd,"prompt":prompt,"session":s(&t,"session")});
         t["state"] = json!("running");
@@ -290,7 +302,8 @@ impl Engine {
         let result = (|| -> Result<()> {
             if !s(res, "error").is_empty() {
                 let t = &r["tasks"][i];
-                if !children_pending(r, id)
+                if !awaiting_consultation(t)
+                    && !children_pending(r, id)
                     && !held(r, id)
                     && num(&t["delivered"]) as usize == a(&t["notes"]).len()
                     && let Ok(sha) = project::milestone(s(t, "workspace"), s(t, "base"))
@@ -320,6 +333,11 @@ impl Engine {
             }
             let message = s(&outcome, "message");
             r["tasks"][i]["finding"] = json!(message);
+            ensure!(
+                !awaiting_consultation(&r["tasks"][i])
+                    || matches!(s(&outcome, "status"), "question" | "blocked"),
+                "The worker must ask its coordinator before completing this milestone."
+            );
             match s(&outcome, "status") {
                 "committed" | "ready" => {
                     if children_pending(r, id)

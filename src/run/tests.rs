@@ -415,3 +415,56 @@ fn rejected_start_removes_its_pinned_inputs_without_touching_other_runs() -> Res
     assert!(runs.join("existing").is_dir());
     Ok(())
 }
+
+#[test]
+fn required_consultation_rejects_premature_handoffs() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    for status in ["ready", "committed"] {
+        let mut r =
+            json!({"tasks":[{"id":"storage","consult":"Confirm the format","state":"running"}]});
+        let result = json!({"text":json!({"status":status,"message":"Already implemented","files":["store.rs"]}).to_string()});
+        engine.accept_worker(&mut r, &json!({"task":"storage"}), &result)?;
+        assert_eq!(r["tasks"][0]["state"], "blocked");
+        assert!(s(&r["tasks"][0], "finding").contains("must ask its coordinator"));
+        assert!(r["tasks"][0]["commit"].is_null());
+    }
+    Ok(())
+}
+
+#[test]
+fn final_handoff_review_can_assign_a_fix_before_evaluation() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let turn = json!({"id":"observer","role":"observe","state":"running","task":"event","generation":1,"round":1,"policy":1});
+    let mut r = json!({"id":"review","state":"working","generation":1,"round":1,"policy":1,
+        "input":{"workers":["writer"]},"tasks":[{"id":"storage","state":"committed"}],
+        "turns":[turn],"observations":[{"id":"event","kind":"worker-completed","ref":"storage"}]});
+    engine.save(&mut r, "seed")?;
+    let dir = engine.jobdir(&r, "observer");
+    fs::create_dir_all(&dir)?;
+    supervisor::write_json(&dir.join("job.json"), &json!({}))?;
+    engine.tick()?;
+    assert_eq!(engine.store.get("review")?["state"], "working");
+    let actions = json!({"actions":[{"id":"fix","kind":"delegate","tasks":[{"id":"fix-storage","worker":"writer","goal":"Reject blank records","paths":["store.rs"],"depends":["storage"]}]}]});
+    supervisor::write_json(
+        &dir.join("result.json"),
+        &json!({"text":actions.to_string()}),
+    )?;
+    engine.tick()?;
+    let run = engine.store.get("review")?;
+    assert_eq!(run["tasks"][1]["state"], "pending");
+    assert!(a(&run["candidates"]).is_empty());
+    Ok(())
+}
+
+#[test]
+fn selected_candidate_waits_quietly_on_a_scoped_question() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut r = json!({"id":"run","state":"review","round":1,"policy":1,"input":{"delivery":"auto"},
+        "repo":{"Target":"refs/heads/main"},"selection":{"state":"selected","round":1,"policy":1,"candidate":"candidate"},
+        "inbox":[{"state":"open","blocking":true,"tasks":["storage"]}],
+        "candidates":[{"id":"candidate","state":"passed","tasks":["storage"],"round":1,"policy":1}]});
+    engine.save(&mut r, "selected")?;
+    engine.tick()?;
+    assert_eq!(engine.store.get("run")?, r);
+    Ok(())
+}

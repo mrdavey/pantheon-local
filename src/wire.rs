@@ -55,7 +55,7 @@ request!(Metric {
 });
 
 request!(Task{
-    id:String,goal:String,worker:String,class:String,depends:Vec<String>,paths:Vec<String>,variant:String,
+    id:String,goal:String,consult:String,worker:String,class:String,depends:Vec<String>,paths:Vec<String>,variant:String,
     parent:String,donors:Vec<String>,round:i64,conflict:String,route:Value,delivered:i64,alternative:String,
     state:String,workspace:String,base:String,commit:String,session:String,question:String,reply:String,
     finding:String,repair_base:String,notes:Vec<String>

@@ -29,7 +29,7 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
                 milestone(
                     "team-format",
                     "Write the date format.",
-                    json!({"paths":["format.txt"]}),
+                    json!({"paths":["format.txt"],"consult":"Confirm the date format."}),
                 ),
                 task(
                     "team-view",

@@ -67,6 +67,9 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
     })?;
     svc.restart(false)?;
     let saved = svc.get(&url)?;
+    let format = item(&saved["tasks"], "id", &json!("team-format"))?;
+    assert_eq!(format["state"], "committed");
+    assert!(rows(&format["notes"]).contains(&json!("Worker asked: Which date contract should the exporter use?\n\nCoordinator answered: ISO dates")));
     assert_eq!(
         rows(&saved["inbox"])
             .iter()

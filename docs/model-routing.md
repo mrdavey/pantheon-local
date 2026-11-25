@@ -6,7 +6,9 @@ Choose a coordinator and the workers you want to use. Describe the outcome, how 
 
 The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Once you approve the checks, workers can start independent milestones in parallel.
 
-A worker can ask the coordinator or send a finding to a peer. If you already chose ISO dates for an export, the coordinator can answer the exporter and tell the verifier which format to check. Each worker receives new guidance on its next turn. Routine completions are grouped for review. A question that still needs your decision appears in **Needs you** while unrelated work continues.
+A worker can ask the coordinator or send a finding to a peer. If your brief requires consultation before implementation, the worker gets a separate turn to ask. The coordinator’s answer stays in the milestone notes. Only questions needing your decision appear in **Needs you**. Unrelated work continues.
+
+The coordinator reviews completed milestones in batches and can assign a correction before the combined checks begin.
 
 ## Talk to the coordinator
 

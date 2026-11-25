@@ -255,7 +255,13 @@ impl Engine {
             Phase::Stopped | Phase::Landed | Phase::Blocked | Phase::Question | Phase::Checks => {
                 Ok(())
             }
-            Phase::Working if !workers && committed(r) => self.candidates(r),
+            Phase::Working if !workers && committed(r) => {
+                // The last handoff review may still assign a corrective milestone.
+                if control || chat {
+                    return Ok(());
+                }
+                self.candidates(r)
+            }
             Phase::Planning | Phase::Working | Phase::Repairing if budget(r) => {
                 r["state"] = json!("budget");
                 self.save(r, "token-target")
@@ -390,6 +396,14 @@ impl Engine {
                     && !s(&r["repo"], "Target").is_empty() =>
             {
                 let id = s(sel, "candidate").to_owned();
+                let candidate = &r["candidates"][index(&r["candidates"], &id)?];
+                if a(&candidate["tasks"])
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|task| held(r, task))
+                {
+                    return Ok(());
+                }
                 if let Err(e) = self.land(r, &id) {
                     return self.landing_wait(r, e);
                 }
