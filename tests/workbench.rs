@@ -1141,3 +1141,62 @@ scenario!(
     mobile_assignment_map,
     assignment_map
 );
+
+fn run_metrics(h: &Harness) -> Result<()> {
+    let b = &h.b;
+    let run = h.svc.post("/runs",&json!({"path":h.repo("metrics")?, "prompt":"Add quote export","coordinator":"first","workers":["writer"]}))?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.proxy.inject(Once::MetricsFailure);
+    h.click("Metrics")?;
+    h.button("Retry metrics").visible()?;
+    h.click("Retry metrics")?;
+    let tokens = b.xpath("//dt[.='Tokens used']/following-sibling::dd");
+    tokens.contains("5")?;
+    h.svc
+        .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
+    tokens.contains("7")?;
+    b.role("combobox", "Model").select("Fixture Chat")?;
+    tokens.contains("2")?;
+    b.role("combobox", "Agent").select("first")?;
+    b.role("combobox", "Time range").select("15")?;
+    b.role("combobox", "Role").select("plan")?;
+    b.text("No usage in this selection.").visible()?;
+    b.role("combobox", "Role").select("chat")?;
+    b.role("combobox", "Metric").select("usd")?;
+    b.role("combobox", "Chart view").select("interval")?;
+    b.xpath("//*[@aria-label='Estimated cost over time, per interval']")
+        .visible()?;
+    h.click("Pause live updates")?;
+    fs::write(h.dir.path().join("chat-gate"), "")?;
+    h.click("Resume live updates")?;
+    tokens.contains("5")?;
+    b.role("combobox", "Model").select("")?;
+    b.role("combobox", "Role").select("")?;
+    tokens.contains("10")?;
+    b.xpath("//dt[.='Estimated cost (USD)']/following-sibling::dd")
+        .contains("$0.002")?;
+    b.text("Cost unavailable for 1 turn").visible()?;
+    b.role("combobox", "Metric").select("tokens")?;
+    b.role("combobox", "Chart view").select("total")?;
+    b.role("combobox", "Time range").select("all")?;
+    b.text("Chart data").focus()?;
+    b.key("\u{e007}")?;
+    b.xpath("//th[.='Through']").visible()?;
+    b.text("Chart data").click()?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        b.eval(
+            "document.querySelector('.run-metrics').scrollIntoView();",
+            vec![],
+        )?;
+        b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "metrics-mobile.png"
+        } else {
+            "metrics-desktop.png"
+        }))?;
+    }
+    h.no_overflow()
+}
+scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);

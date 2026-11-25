@@ -41,6 +41,8 @@ pub(super) fn exchange(
     let mut item = String::new();
     let mut answer = String::new();
     let mut tokens = None;
+    let mut baseline = None;
+    let mut model = Value::Null;
     while line(&mut output, &mut bytes)? {
         let event: Value = serde_json::from_slice(&bytes)?;
         let params = &event["params"];
@@ -79,7 +81,31 @@ pub(super) fn exchange(
                     answer = field(&params["item"], "text").into();
                 }
                 "thread/tokenUsage/updated" => {
-                    tokens = params["tokenUsage"]["last"]["totalTokens"].as_i64();
+                    let usage = &params["tokenUsage"];
+                    let last = &usage["last"];
+                    let total = &usage["total"];
+                    // A resumed thread includes earlier turns. Subtract the counters
+                    // preceding this turn's first reported model call.
+                    let keys = [
+                        "totalTokens",
+                        "inputTokens",
+                        "cachedInputTokens",
+                        "outputTokens",
+                    ];
+                    let before = baseline.get_or_insert_with(|| {
+                        keys.map(|key| total[key].as_u64()?.checked_sub(last[key].as_u64()?))
+                    });
+                    let delta = |i: usize| {
+                        let key = keys[i];
+                        before[i]
+                            .and_then(|b| total[key].as_u64()?.checked_sub(b))
+                            .or_else(|| last[key].as_u64())
+                    };
+                    tokens = delta(0);
+                    emit(
+                        json!({"type":"usage","model":model,"tokens":tokens,"input_tokens":delta(1),
+                        "cached_input_tokens":delta(2),"output_tokens":delta(3)}),
+                    );
                 }
                 "turn/completed" if turn.is_empty() || params["turn"]["id"] == turn => {
                     let completed = &params["turn"];
@@ -134,6 +160,7 @@ pub(super) fn exchange(
                 )?;
             }
             Some(2 | 4) => {
+                model = event["result"]["model"].clone();
                 session = event["result"]["thread"]["id"]
                     .as_str()
                     .context("Codex returned no chat session")?

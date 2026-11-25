@@ -495,6 +495,17 @@ impl Engine {
                 job["request"][key] = r["input"][key].clone();
             }
         }
+        let request = &mut job["request"];
+        if request["profile"]["kind"] == "codex"
+            && role != "chat"
+            && let Some(session) = request["session"].as_str().filter(|s| !s.is_empty())
+        {
+            request["codex_baseline"] = json!(crate::metrics::prior_usage(
+                a(&r["turns"]),
+                &self.root(r),
+                session
+            ));
+        }
         let id = uid();
         let dir = self.jobdir(r, &id);
         fs::create_dir_all(&dir)?;
@@ -504,7 +515,7 @@ impl Engine {
             "plan" | "repair" | "observe" | "chat" => Some(&r["input"]["coordinator"]),
             _ => None,
         };
-        let turn = json!({"id":id,"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
+        let turn = json!({"id":id,"started":chrono::Utc::now().timestamp_millis(),"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
         before_save(r);
         push(&mut r["turns"], turn);
         self.save(r, "dispatched")?;

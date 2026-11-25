@@ -197,6 +197,10 @@ impl Engine {
                 release::finish(r, task, &res)?;
                 return self.save(r, "release-finished");
             }
+            if res["codex_usage"].is_object() {
+                r["turns"][i]["codex_usage"] = res["codex_usage"].clone();
+                r["turns"][i]["usage_session"] = res["session"].clone();
+            }
             if role != "eval" {
                 if let Some(n) = res["tokens"].as_i64() {
                     r["tokens"] = json!(num(&r["tokens"]).saturating_add(n))

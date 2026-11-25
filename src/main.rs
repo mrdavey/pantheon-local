@@ -6,6 +6,7 @@ mod cli;
 mod compat;
 mod eval;
 mod folder_picker;
+mod metrics;
 mod project;
 mod routing;
 mod run;

@@ -606,6 +606,9 @@ impl Local {
                         }
                         Ok(json!({"opened":true}))
                     }
+                    ("GET", ["metrics"]) => {
+                        crate::metrics::report(&run, &root, cursor("from").max(0) as usize)
+                    }
                     ("GET", ["history"]) => {
                         Ok(e.store.project_history(project, cursor("before"))?.into())
                     }

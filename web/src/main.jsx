@@ -4,6 +4,7 @@ import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider } from "./status.jsx";
+import { Metrics } from "./metrics";
 import { AssignmentMap } from "./assignment-map.jsx";
 import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
@@ -278,8 +279,10 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     <nav className="run-tabs" aria-label="Run views">
       <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</Button>
       <Button variant="outline" aria-pressed={view === "map"} onClick={() => setTab("map")}>Agent map</Button>
+      <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}>Metrics</Button>
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
     </nav>
+    {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
     {view === "map" && <AssignmentMap run={run} />}
     <ReleaseList {...{ run, act, busy }} />
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}

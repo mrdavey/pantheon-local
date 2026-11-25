@@ -1,5 +1,6 @@
 mod acp;
 mod codex_chat;
+mod codex_usage;
 pub mod hermes;
 pub mod models;
 use anyhow::{Context, Result, bail, ensure};
@@ -317,6 +318,8 @@ fn execute(r: &Value, state: Option<&Path>, emit: &(impl Fn(Value) + Sync)) -> R
         let codex_chat = field(p, "kind") == "codex" && field(r, "role") == "chat";
         let result = if codex_chat {
             codex_chat::exchange(r, stdin, stdout, emit)
+        } else if field(p, "kind") == "codex" {
+            codex_usage::stream_with_usage(r, stdin, stdout, emit)
         } else if acp {
             acp::exchange(r, stdin, stdout, emit)
         } else {
@@ -403,7 +406,20 @@ fn stream(
                     field(&event, "result")
                 });
             }
-            if matches!(ty, "turn.completed" | "result") && event["usage"].is_object() {
+            if kind == "codex" && ty == "turn.completed" && event["usage"].is_object() {
+                let delta = crate::metrics::turn_usage(&event["usage"], r.get("codex_baseline"));
+                if let Some(total) = delta["input_tokens"]
+                    .as_u64()
+                    .zip(delta["output_tokens"].as_u64())
+                    .and_then(|(i, o)| i.checked_add(o))
+                {
+                    result["tokens"] = total.into();
+                }
+                result["codex_usage"] = event["usage"].clone();
+                emit(json!({"type":ty,"session":result["session"],"turn_usage":delta,"raw":event}));
+                continue;
+            }
+            if ty == "result" && event["usage"].is_object() {
                 let mut tokens = 0i64;
                 for key in [
                     "input_tokens",
@@ -511,7 +527,7 @@ mod tests {
         let request = json!({"profile":{"kind":"codex","executable":native_fixture(temp.path(),"mock-codex")?},"session":"abc","prompt":"hello\n","dir":temp.path()});
         assert_eq!(
             run(&request, None, |_| {}),
-            json!({"text":"done","session":"abc","tokens":10})
+            json!({"text":"done","session":"abc","tokens":10,"codex_usage":{"input_tokens":8,"output_tokens":2}})
         );
         let request = json!({"profile":{"kind":"claude","executable":native_fixture(temp.path(),"mock-claude")?},"dir":temp.path()});
         let result = run(&request, None, |_| {});
@@ -537,7 +553,10 @@ mod tests {
             );
             fs::remove_file(dir.path().join("chat-closed"))?;
             let events = events.into_inner().unwrap();
-            assert_eq!(events.len(), 3);
+            assert_eq!(events.len(), 6);
+            assert_eq!(events[3]["tokens"], 5);
+            assert_eq!(events[4]["tokens"], 17);
+            assert_eq!(events[5]["tokens"], 17);
             assert_eq!(events[1]["type"], "agent_message_chunk");
             assert_eq!(events[2]["text"], r#" answer"}"#);
         }

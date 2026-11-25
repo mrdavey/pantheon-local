@@ -183,6 +183,10 @@ fn main() -> Result<()> {
         "observer" => observer::respond(prompt, &ctx)?,
         "chat" if prompt.ends_with("Stream this answer") => {
             let gate = env::var("SWARM_TEST_CHAT_GATE")?;
+            println!(
+                "{}",
+                json!({"event":{"type":"usage","model":"Fixture Chat","tokens":2,"cost_usd":0.002}})
+            );
             let fragment = r#"{"reply":"The live answer"#;
             println!(
                 "{}",

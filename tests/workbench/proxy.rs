@@ -20,6 +20,7 @@ pub enum Once {
     FolderSelected,
     FolderCancelled,
     SnapshotFailure,
+    MetricsFailure,
     MissingGit,
     DestinationsFailure,
     DestinationsSuccess,
@@ -120,6 +121,7 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
             .pending
             .iter()
             .position(|p| match p {
+                Once::MetricsFailure => path.ends_with("/metrics"),
                 Once::SnapshotFailure | Once::SnapshotRace => path == "/api/snapshot",
                 Once::InitialSelection | Once::MoreInitialFiles => {
                     path == "/api/pick-initial-files"
@@ -149,7 +151,12 @@ async fn handle(st: Forward, request: Request) -> Result<Response> {
             return Ok(reply(StatusCode::OK, json!("/tmp/Project With Spaces")));
         }
         Some(Once::FolderCancelled) => return Ok(reply(StatusCode::OK, Value::Null)),
-        Some(Once::SnapshotFailure | Once::EvidenceFailure | Once::DestinationsFailure) => {
+        Some(
+            Once::MetricsFailure
+            | Once::SnapshotFailure
+            | Once::EvidenceFailure
+            | Once::DestinationsFailure,
+        ) => {
             return Ok(reply(
                 StatusCode::SERVICE_UNAVAILABLE,
                 json!({"error":"Temporarily unavailable"}),

@@ -9,6 +9,8 @@ struct Client<'a, F> {
     previous_text: String,
     message_id: String,
     id: u64,
+    cost_before_prompt: Option<f64>,
+    current_model: Option<String>,
 }
 impl<F: Fn(Value)> Client<'_, F> {
     fn send(&mut self, v: Value) -> Result<()> {
@@ -24,6 +26,7 @@ impl<F: Fn(Value)> Client<'_, F> {
         )
     }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+        let prompting = method == "session/prompt";
         self.id += 1;
         self.send(json!({"jsonrpc":"2.0","id":self.id,"method":method,"params":params}))?;
         let mut buf = Vec::new();
@@ -58,6 +61,21 @@ impl<F: Fn(Value)> Client<'_, F> {
                     let update = &event["params"]["update"];
                     let kind = update["sessionUpdate"].as_str().unwrap_or(method);
                     let text = field(&update["content"], "text");
+                    if kind == "usage_update"
+                        && event["params"]["sessionId"] == self.session
+                        && update["cost"]["currency"] == "USD"
+                        && let Some(amount) = update["cost"]["amount"].as_f64()
+                    {
+                        if !prompting {
+                            self.cost_before_prompt = Some(amount);
+                        } else if let Some(start) = self.cost_before_prompt
+                            && amount >= start
+                        {
+                            (self.emit)(
+                                json!({"type":"usage","model":self.current_model,"cost_usd":amount-start}),
+                            );
+                        }
+                    }
                     if kind == "agent_message_chunk" {
                         if let Some(id) = update["messageId"].as_str()
                             && id != self.message_id
@@ -259,6 +277,8 @@ pub(super) fn exchange(
         previous_text: String::new(),
         message_id: String::new(),
         id: 0,
+        cost_before_prompt: field(r, "session").is_empty().then_some(0.0),
+        current_model: None,
     };
     let init=c.call("initialize",json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"local-swarm","version":env!("CARGO_PKG_VERSION")}}))?;
     let mut params = json!({"cwd":r["dir"],"mcpServers":[]});
@@ -283,6 +303,11 @@ pub(super) fn exchange(
         apply_advisor_settings(&mut c, &session_info);
     } else {
         let settings = apply_profile_settings(&mut c, &session_info, &r["profile"])?;
+        c.current_model = category(&settings, "model")
+            .and_then(|s| s["currentValue"].as_str())
+            .or_else(|| r["profile"]["model"].as_str().filter(|s| !s.is_empty()))
+            .or_else(|| session_info["models"]["currentModelId"].as_str())
+            .map(str::to_owned);
         if r["role"] == "worker" && r["profile"]["kind"] == "hermes" {
             let modes = &session_info["modes"];
             if let Some(setting) = category(&settings, "mode") {
@@ -309,6 +334,11 @@ pub(super) fn exchange(
         "session/prompt",
         json!({"sessionId":c.session,"prompt":[{"type":"text","text":field(r,"prompt")}]}),
     );
+    if let Ok(reply) = &result
+        && let Some(tokens) = reply["usage"]["totalTokens"].as_u64()
+    {
+        emit(json!({"type":"usage","tokens":tokens,"model":c.current_model}));
+    }
     if c.text.is_empty() && !c.previous_text.is_empty() {
         c.text = std::mem::take(&mut c.previous_text);
     }

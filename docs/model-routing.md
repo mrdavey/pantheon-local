@@ -43,3 +43,9 @@ For implementation, debugging, testing and automation, Pantheon Local uses Termi
 Run `swarm doctor` to locate the state directory. Add a `benchmarks.json` file with a `rows` array. Comparable rows share a `suite`, HTTPS `source` and task `class`. Each row needs a `model`, `agent`, `date` (YYYY-MM-DD) and `score` (0–100). Include `cost_per_trial` in USD for cost-aware routing and `effort` when relevant. Rows expire after 180 days.
 
 Supported classes are `implementation`, `debugging`, `testing`, `automation`, `documentation` and `design`. Use named profiles in `profiles.json` for multiple models from the same CLI. Optional matching fields are `benchmark_model`, `benchmark_agent` and `benchmark_effort`. For balanced routing from the CLI, add `--routing balanced` to `swarm start`.
+
+## Monitor run usage
+
+Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. Filter by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
+
+Costs use harness receipts where available. For supported Codex models, Pantheon estimates standard short-context API cost from input, cached input, and output tokens at published rates dated November 25, 2026. Subscription charges, tool fees, cache-write premiums, and service-tier adjustments are outside this estimate. Unreported costs and tokens are shown as unavailable. Older runs use saved turn receipts and their timestamps. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)

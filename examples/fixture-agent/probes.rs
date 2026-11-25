@@ -132,10 +132,12 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 "item/completed",
                 json!({"threadId":"native-chat","turnId":"t","item":{"type":"agentMessage","id":"m","text":r#"{"reply":"Good answer"}"#}}),
             );
-            note(
-                "thread/tokenUsage/updated",
-                json!({"threadId":"native-chat","turnId":"t","tokenUsage":{"last":{"totalTokens":17}}}),
-            );
+            for (last, total) in [(5, 105), (12, 117), (12, 117)] {
+                note(
+                    "thread/tokenUsage/updated",
+                    json!({"threadId":"native-chat","turnId":"t","tokenUsage":{"last":{"totalTokens":last},"total":{"totalTokens":total}}}),
+                );
+            }
             note(
                 "turn/completed",
                 json!({"threadId":"native-chat","turn":{"id":"t","status":"completed"}}),

@@ -150,10 +150,19 @@ fn execute(dir: &Path) -> Result<Value> {
         let chat = (spec["request"]["role"] == "chat")
             .then(|| crate::chat_stream::Writer::create(dir))
             .transpose()?;
-        let logger = Mutex::new((BufWriter::new(&mut log), None::<io::Error>, chat));
-        let result = crate::adapter::run(&spec["request"], None, |event| {
+        let mut metrics = crate::metrics::Recorder::new(&spec["request"]);
+        let logger = Mutex::new((
+            BufWriter::new(&mut log),
+            None::<io::Error>,
+            chat,
+            &mut metrics,
+        ));
+        let mut result = crate::adapter::run(&spec["request"], None, |event| {
             if let Ok(mut guard) = logger.lock() {
-                let (writer, error, chat) = &mut *guard;
+                let (writer, error, chat, metrics) = &mut *guard;
+                if let Err(e) = metrics.event(dir, &event) {
+                    eprintln!("record usage: {e}");
+                }
                 if error.is_none() {
                     *error = (|| -> io::Result<()> {
                         if let Some(chat) = chat {
@@ -167,12 +176,15 @@ fn execute(dir: &Path) -> Result<Value> {
                 }
             }
         });
-        let (mut writer, error, _) = logger
+        let (mut writer, error, _, metrics) = logger
             .into_inner()
             .map_err(|_| anyhow::anyhow!("event writer failed"))?;
         writer.flush()?;
         if let Some(e) = error {
             return Err(e.into());
+        }
+        if let Err(e) = metrics.finish(dir, &mut result) {
+            eprintln!("finalize usage: {e}");
         }
         result
     };
