@@ -25,15 +25,25 @@ Build a local release archive with `scripts/package.sh` (requires jq). In the ex
 
 Pull requests and pushes to `main` start a small selection job. It compares the checked-out tree (the merge result for a PR) with a successfully checked base on `main`. If that base is pending or failed, CI includes changes since the most recent verified ancestor it can find. Without a verified comparison it selects the full set. New commits to a PR cancel its superseded run.
 
-| Change | Checks |
-| --- | --- |
-| Documentation or `.gitignore` only | Selection job only |
-| React source, styles, or web dependencies | Linux frontend job builds with Vite and opens the production bundle in headless Chrome. The Rust matrix is skipped. |
-| Rust source or shared fixtures | Linux and macOS Clippy and tests, Linux formatting and browser tests |
-| One integration test file | Clippy and that test target on both platforms, formatting on Linux. Workbench changes also run the browser suite. |
-| Packaging scripts or release workflow | Build, extract, and test the archives on Linux and macOS |
-| CI workflow, toolchain, or unclassified build input | Full set |
+CI discovers Cargo tests and examples in both standard layouts (`tests/name.rs` or `tests/name/main.rs`, and the corresponding `examples/` paths). Files under a target's directory belong to that target. The ownership and dependency rules in `scripts/ci/targets.py` also describe shared Rust modules, the daemon, fixture executables, the frontend, and platform-specific packaging.
 
-For mixed changes, CI combines the affected checks. Each selected check compares its Git inputs, workflow, runner image, architecture, and tool versions with successful steps from the last 20 CI runs. A matching step from a repository branch can cover a PR update, merge, or retry. A later failure or missing evidence makes the check run. The selection log shows which results were reused. GitHub caches the built web assets separately.
+| Changed input | What runs |
+| --- | --- |
+| Documentation or repository metadata | Selection only |
+| Example recipe or profile JSON | Parse the changed sample |
+| React source, styles, or web dependencies | Vite production build and headless Chrome smoke check on Linux |
+| One or more integration tests | Format, lint and run those targets. Build the fixtures they launch. |
+| Standalone Cargo example | Format, lint, build and test the example, plus any suites that use it |
+| Shared test module or executable fixture | Check the targets that compile the module or launch the fixture |
+| Production daemon source | Build and lint the binary and run its unit, integration, and workbench consumers |
+| macOS launcher | Build, extract and verify the macOS archive |
+| Shared packaging or release workflow | Verify archives on Linux and macOS |
+| CI policy, removed Cargo target, or unknown input | Full coverage |
+
+Mixed edits take the union of the affected targets on each platform. Node setup and embedded web assets are selected separately. For example, changes to `tests/service.rs` and `tests/e2e.rs` run those two suites with the fixture agent. The workbench tests also need a built web bundle. Signed-in native qualification stays opt-in.
+
+To inspect the selection for committed changes without contacting GitHub, run `python3 scripts/ci/checks.py explain BASE` from the repository root, replacing `BASE` with a comparison commit. The Actions selection log shows the same target lists. When adding cross-directory source imports or changing which fixture a suite launches, update `SHARED` or `FIXTURES` in the target model and cover the relationship in `tests/ci.rs`. New integration targets conservatively depend on all example executables until their fixture requirements are declared.
+
+CI reuses a successful command from the last 20 runs when its selected targets, input files, workflow, runner and tool versions match. A later failure or missing evidence runs the command. A fresh runner builds fixtures needed by a pending test even if the earlier build passed. GitHub caches the web bundle separately.
 
 For a release tag, the selector reuses green main CI for the tagged commit or waits up to ten minutes for a known active run. Tags qualify the full daemon-backed browser suite, including changes previously checked by the frontend job alone. An unverified tag also runs the missing Rust checks. Release tags build fresh archives and run the packaged fixture suites on all three release platforms before publication. To exercise the selection rules locally, run `cargo test --locked --test ci` with Python 3 and Node.js available.

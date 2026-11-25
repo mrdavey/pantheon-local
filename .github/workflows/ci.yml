@@ -18,8 +18,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       checks: ${{ steps.plan.outputs.checks }}
-      test_target: ${{ steps.plan.outputs.test_target }}
+      scope: ${{ steps.plan.outputs.scope }}
       platforms: ${{ steps.plan.outputs.platforms }}
+      node_platforms: ${{ steps.plan.outputs.node_platforms }}
       history: ${{ steps.plan.outputs.history }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -53,7 +54,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - id: select
         env:
-          CHECKS: ${{ needs.select.outputs.checks }}
+          SCOPE: ${{ needs.select.outputs.scope }}
           HISTORY: ${{ needs.select.outputs.history }}
         run: python3 scripts/ci/checks.py web
       - name: ${{ steps.select.outputs.web }}
@@ -72,17 +73,17 @@ jobs:
         os: ${{ fromJSON(needs.select.outputs.platforms) }}
     runs-on: ${{ matrix.os }}
     env:
-      TEST_TARGET: ${{ needs.select.outputs.test_target }}
+      SCOPE: ${{ needs.select.outputs.scope }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: contains(fromJSON(needs.select.outputs.node_platforms), matrix.os)
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
       - id: select
         env:
-          CHECKS: ${{ needs.select.outputs.checks }}
           HISTORY: ${{ needs.select.outputs.history }}
         run: python3 scripts/ci/checks.py check
       - name: ${{ steps.select.outputs.fmt || 'Format' }}
@@ -95,7 +96,7 @@ jobs:
           ./scripts/ci/verify-package.sh
       - name: Restore embedded web assets
         id: assets
-        if: steps.select.outputs.run_package != 'true' && (steps.select.outputs.run_tests == 'true' || steps.select.outputs.run_lint == 'true' || steps.select.outputs.run_browser == 'true')
+        if: steps.select.outputs.run_package != 'true' && steps.select.outputs.need_assets == 'true'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: web/dist
@@ -107,18 +108,15 @@ jobs:
           npm --prefix web run build
       - name: ${{ steps.select.outputs.lint || 'Clippy' }}
         if: steps.select.outputs.run_lint == 'true'
-        run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Build CLI and fixtures
-        if: steps.select.outputs.run_tests == 'true' || steps.select.outputs.run_browser == 'true'
-        run: cargo build --locked --bin swarm --examples
+        run: python3 scripts/ci/checks.py lint
+      - name: ${{ steps.select.outputs.run_build == 'true' && steps.select.outputs.build || 'Build test prerequisites' }}
+        if: steps.select.outputs.build_targets != '[]'
+        env:
+          BUILD_TARGETS: ${{ steps.select.outputs.build_targets }}
+        run: python3 scripts/ci/checks.py build
       - name: ${{ steps.select.outputs.tests || 'Rust tests' }}
         if: steps.select.outputs.run_tests == 'true'
-        run: |
-          if [ -n "$TEST_TARGET" ]; then
-            cargo test --locked --test "$TEST_TARGET"
-          else
-            cargo test --locked
-          fi
+        run: python3 scripts/ci/checks.py tests
       - name: Install matching Chrome and ChromeDriver
         if: steps.select.outputs.run_browser == 'true'
         env:

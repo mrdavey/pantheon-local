@@ -74,9 +74,8 @@ esac
             .env("RUNNER_ARCH", "X64")
             .env("ImageOS", "ubuntu24")
             .env("ImageVersion", "one")
-            .env("CHECKS", r#"["browser","fmt","lint","package","tests"]"#)
+            .env("SCOPE", r#"{"browser":true,"fmt":true,"lint":["*"],"package":["ubuntu-24.04","macos-latest"],"tests":["*"]}"#)
             .env("HISTORY", "[]")
-            .env("TEST_TARGET", "")
             .envs(vars.iter().copied())
             .output()?;
         ensure!(
@@ -109,7 +108,10 @@ fn selects_changes_against_a_verified_base_including_deletions() -> Result<()> {
     fixture.base = common::git(&fixture.dir.path().join("repo"), &["rev-parse", "HEAD"])?;
     fs::remove_file(fixture.dir.path().join("repo/web/src/main.jsx"))?;
     fixture.commit("tests/service.rs", "test")?;
-    assert_eq!(fixture.plan()?["test_target"], "service");
+    assert_eq!(
+        serde_json::from_str::<Value>(&fixture.plan()?["scope"])?["tests"],
+        json!(["test:service"])
+    );
     assert_eq!(
         fixture.plan()?["checks"],
         r#"["fmt", "lint", "tests", "web"]"#
@@ -125,10 +127,13 @@ fn selects_changes_against_a_verified_base_including_deletions() -> Result<()> {
     )?;
     assert_eq!(
         fixture.plan()?["checks"],
-        r#"["browser", "fmt", "lint", "package", "tests", "web"]"#
+        r#"["browser", "build", "fmt", "lint", "package", "tests", "web"]"#
     );
     let release = fixture.run(&["plan", ""], &[("RELEASE_TAG", "true")])?;
-    assert_eq!(release["checks"], r#"["browser", "fmt", "lint", "tests"]"#);
+    assert_eq!(
+        release["checks"],
+        r#"["browser", "build", "fmt", "lint", "tests"]"#
+    );
     Ok(())
 }
 
@@ -162,7 +167,7 @@ fn web_changes_need_only_node_and_chrome_even_across_pending_pushes() -> Result<
     }
     let check = fixture.run(
         &["web"],
-        &[("CHECKS", &plan["checks"]), ("CHROME_BIN", "google-chrome")],
+        &[("SCOPE", &plan["scope"]), ("CHROME_BIN", "google-chrome")],
     )?;
     assert_eq!(check["run_web"], "true");
     assert_eq!(check.len(), 2);
@@ -170,7 +175,7 @@ fn web_changes_need_only_node_and_chrome_even_across_pending_pushes() -> Result<
     let mixed = fixture.run(&["plan", &pending], &[])?;
     assert_eq!(
         mixed["checks"],
-        r#"["browser", "fmt", "lint", "tests", "web"]"#
+        r#"["build", "fmt", "lint", "tests", "web"]"#
     );
     assert_eq!(mixed["platforms"], r#"["ubuntu-24.04", "macos-latest"]"#);
     Ok(())
@@ -182,7 +187,7 @@ fn reuses_only_matching_successful_steps_from_trusted_runs() -> Result<()> {
     fixture.commit("src/main.rs", "code")?;
     let keys = fixture.run(&["check"], &[])?;
     assert_ne!(
-        fixture.run(&["check"], &[("TEST_TARGET", "service")])?["tests"],
+        fixture.run(&["check"], &[("SCOPE", r#"{"tests":["test:service"]}"#)])?["tests"],
         keys["tests"]
     );
     let step = |lane: &str, result: &str, time: &str| json!({"name":keys[lane],"conclusion":result,"completed_at":time});
@@ -220,5 +225,109 @@ fn reuses_only_matching_successful_steps_from_trusted_runs() -> Result<()> {
     }
     fixture.commit(".github/workflows/ci.yml", "new recipe")?;
     assert_ne!(fixture.run(&["check"], &[])?["fmt"], keys["fmt"]);
+    Ok(())
+}
+
+#[test]
+fn routes_multiple_targets_shared_sources_and_platforms() -> Result<()> {
+    let mut fixture = Fixture::new()?;
+    for name in ["e2e", "experiments", "service", "workbench", "ci"] {
+        fixture.commit(&format!("tests/{name}.rs"), "mod common;")?;
+    }
+    for name in [
+        "fixture-agent",
+        "fixture-release",
+        "experiment-grader",
+        "hello-check",
+        "quotes-check",
+    ] {
+        fixture.commit(&format!("examples/{name}.rs"), "fn main() {}")?;
+    }
+    let repo = fixture.dir.path().join("repo");
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("tests/e2e.rs", "// changed")?;
+    fixture.commit("tests/service.rs", "// changed")?;
+    let plan = fixture.plan()?;
+    let scope: Value = serde_json::from_str(&plan["scope"])?;
+    let pair = json!(["test:e2e", "test:service"]);
+    assert_eq!(scope, json!({"fmt": true, "lint": pair, "tests": pair}));
+    assert_eq!(plan["node_platforms"], "[]");
+    let checks = fixture.run(&["check"], &[("SCOPE", &plan["scope"])])?;
+    assert_eq!(checks["need_assets"], "false");
+    assert_eq!(checks["build_targets"], r#"["example:fixture-agent"]"#);
+
+    // A later edit to an unrelated test must leave this pair's receipt valid.
+    fixture.commit("tests/ci.rs", "// policy regression")?;
+    let unchanged = fixture.run(&["check"], &[("SCOPE", &plan["scope"])])?;
+    assert_eq!(unchanged["tests"], checks["tests"]);
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("examples/fixture-release.rs", "// release fixture")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(
+        scope["tests"],
+        json!([
+            "example:fixture-release",
+            "test:experiments",
+            "test:workbench"
+        ])
+    );
+    assert_eq!(scope["lint"], json!(["example:fixture-release"]));
+    assert_eq!(scope["browser"], true);
+
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("tests/browser/mod.rs", "// shared ChromeDriver client")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(
+        scope["lint"],
+        json!(["example:quotes-check", "test:workbench"])
+    );
+    assert_eq!(scope["build"], json!(["example:quotes-check"]));
+
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("src/run/tests.rs", "// daemon unit tests")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(
+        scope,
+        json!({"fmt":true,"lint":["bin:swarm"],"tests":["bin:swarm"]})
+    );
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("scripts/open-pantheon-local.command", "#!/bin/sh")?;
+    let plan = fixture.plan()?;
+    assert_eq!(plan["platforms"], r#"["macos-latest"]"#);
+    assert_eq!(plan["checks"], r#"["package"]"#);
+    fixture.commit("tests/service.rs", "// mixed")?;
+    let plan = fixture.plan()?;
+    let linux = fixture.run(&["check"], &[("SCOPE", &plan["scope"])])?;
+    assert!(!linux.contains_key("run_package"));
+    assert_eq!(linux["run_tests"], "true");
+    Ok(())
+}
+
+#[test]
+fn discovers_new_cargo_targets_and_handles_removals_and_unknown_inputs() -> Result<()> {
+    let mut fixture = Fixture::new()?;
+    let repo = fixture.dir.path().join("repo");
+    fixture.commit("examples/new-check/main.rs", "fn main() {}")?;
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("examples/new-check/helper.rs", "// helper")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(
+        scope,
+        json!({"fmt":true,"lint":["example:new-check"],"build":["example:new-check"],"tests":["example:new-check"]})
+    );
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("examples/recipe.json", "{}")?;
+    assert_eq!(fixture.plan()?["platforms"], "[]");
+    fixture.commit("examples/recipe.json", "{")?;
+    assert!(fixture.plan().is_err());
+    fs::remove_file(repo.join("examples/recipe.json"))?;
+    fs::remove_dir_all(repo.join("examples/new-check"))?;
+    fixture.commit("docs/note.md", "removed example")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(scope["build"], json!(["*"]));
+    fixture.base = common::git(&repo, &["rev-parse", "HEAD"])?;
+    fixture.commit("future-tool.config", "unknown")?;
+    let scope: Value = serde_json::from_str(&fixture.plan()?["scope"])?;
+    assert_eq!(scope["lint"], json!(["*"]));
     Ok(())
 }

@@ -8,32 +8,9 @@ import sys
 import time
 from pathlib import Path
 
-RUST = {"fmt", "lint", "tests"}
-CODE = RUST | {"browser"}
-ALL = CODE | {"web", "package"}
-DOCS = {"README.md", "CONTRIBUTING.md", "SECURITY.md", "AGENTS.md",
-        "LICENSE", "NOTICE", ".gitignore", "examples/README.md"}
-RECEIPT = re.compile(r"Pass (?:fmt|lint|tests|browser|web|package) [0-9a-f]{64}")
+from targets import LINUX, MAC, PLATFORMS, Targets, cargo_args, needs_assets, needs_node, on_platform
 
-
-def affected(path):
-    if path in DOCS or path.startswith("docs/"):
-        return set()
-    if path.startswith("web/") or path == "scripts/ci/check-web.sh":
-        return {"web"}
-    if path in {"Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml"} or path.startswith(".cargo/"):
-        return CODE | {"package"}
-    if path in {".github/workflows/release.yml", "scripts/package.sh",
-                "scripts/open-pantheon-local.command", "scripts/ci/verify-package.sh"}:
-        return {"package"}
-    if path.startswith(("tests/browser/", "tests/workbench/", "tests/common/")):
-        return CODE
-    if path.startswith("tests/") and path != "tests/workbench.rs":
-        return RUST
-    if path.startswith(("src/", "examples/")) or path == "tests/workbench.rs":
-        return CODE if path.endswith(".rs") else CODE - {"fmt"}
-    # New build configuration and unclassified paths get full coverage.
-    return ALL
+RECEIPT = re.compile(r"Pass (?:fmt|lint|tests|browser|web|package|build) [0-9a-f]{64}")
 
 
 def git(*args):
@@ -59,7 +36,12 @@ def main_run(base):
     return runs[0] if runs else {}
 
 
-def plan(base):
+def changed_paths(base):
+    diff = git("diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--")
+    return [os.fsdecode(p) for p in diff.split(b"\0") if p]
+
+
+def plan(base, model):
     release = os.environ.get("RELEASE_TAG") == "true"
     if release:
         base = git("rev-parse", "HEAD").decode().strip()
@@ -83,25 +65,18 @@ def plan(base):
                               stderr=subprocess.DEVNULL).returncode == 0:
                 base, verified = sha, True
                 break
-    test_target = ""
-    checks = set(ALL)
+    paths = None
     if verified:
-        diff = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z",
-                               base, "HEAD", "--"], capture_output=True)
-        if diff.returncode == 0:
-            paths = [os.fsdecode(p) for p in diff.stdout.split(b"\0") if p]
-            checks = set().union(*(affected(path) for path in paths))
-            test_paths = [Path(path) for path in paths if "tests" in affected(path)]
-            if len(test_paths) == 1:
-                path = test_paths[0]
-                if (path.parent == Path("tests") and re.fullmatch(r"[\w-]+\.rs", path.name)
-                        and path.is_file()):
-                    test_target = path.stem
+        try:
+            paths = changed_paths(base)
+        except subprocess.CalledProcessError:
+            print("Comparison unavailable. Selecting full coverage.", file=sys.stderr)
+    scope = model.select(paths)
     if release:
-        checks.discard("package")  # The release verifies its own archives.
-        checks.add("browser")  # A green frontend build may not have exercised the daemon.
-        checks.discard("web")  # The real workbench exercises the production bundle.
-    return sorted(checks), test_target
+        scope.pop("package", None)  # Release verifies its own archives on all platforms.
+        scope.pop("web", None)
+        scope["browser"] = True
+    return scope
 
 
 def successful_steps():
@@ -122,7 +97,7 @@ def successful_steps():
         # from repository branches with the same workflow and selector.
         recipe = subprocess.run(
             ["git", "diff", "--quiet", run["head_sha"], "HEAD", "--",
-             ".github/workflows/ci.yml", "scripts/ci/checks.py"],
+             ".github/workflows/ci.yml", "scripts/ci/checks.py", "scripts/ci/targets.py"],
             stderr=subprocess.DEVNULL)
         if recipe.returncode == 0:
             endpoints.append(f'runs/{run["id"]}/jobs')
@@ -140,25 +115,15 @@ def successful_steps():
     return sorted(name for name, (_, failed) in latest.items() if not failed)
 
 
-def inputs(path):
-    # Paths that supply bytes to a check may be broader than the changes that
-    # warrant running it. The CLI embeds web/dist and release archives ship docs.
-    checks = set(affected(path))
-    if path.startswith("web/") or checks == ALL:
-        checks.add("assets")
-    if path.startswith("web/"):
-        checks.update({"tests", "lint", "browser"})
-    if (path.startswith(("src/", "examples/", "web/", "docs/",
-                        "tests/common/", "tests/browser/"))
-            or path in {"tests/e2e.rs", "tests/experiments.rs", "README.md",
-                        "CONTRIBUTING.md", "SECURITY.md", "LICENSE", "NOTICE"}):
-        checks.add("package")
-    if path.startswith(("src/", "examples/", "tests/")) and not path.endswith(".rs"):
-        checks.discard("fmt")
-    return checks
+def tree():
+    entries = {}
+    for entry in git("ls-tree", "-rz", "HEAD").split(b"\0"):
+        if entry:
+            entries[os.fsdecode(entry.split(b"\t", 1)[1])] = entry
+    return entries
 
 
-def fingerprints(checks):
+def fingerprints(scope, model, entries):
     image = os.environ.get("ImageVersion")
     if not image:
         # An unidentified image can only provide evidence for this attempt.
@@ -166,27 +131,26 @@ def fingerprints(checks):
     common = [os.environ["RUNNER_OS"], os.environ.get("ImageOS"), image, os.environ["RUNNER_ARCH"]]
     common.append(subprocess.check_output(["git", "--version"], text=True).strip())
     rust = []
-    if checks & (CODE | {"package"}):
+    if scope.keys() - {"assets", "web"}:
         rust = [subprocess.check_output(cmd, text=True).strip()
                 for cmd in (["rustc", "-vV"], ["cargo", "-V"])]
-    node = [subprocess.check_output([cmd, "--version"], text=True).strip() for cmd in ("node", "npm")]
-    chrome = []
-    if "web" in checks:
-        chrome = [subprocess.check_output([os.environ.get("CHROME_BIN", "google-chrome"), "--version"],
-                                          text=True).strip()]
+    owners = {path: model.owner(path) for path in entries}
     hashes = {}
-    for check in checks:
-        target = os.environ.get("TEST_TARGET", "") if check == "tests" else ""
-        runtime = node + chrome if check == "web" else node
-        if check in CODE or check == "package":
-            runtime = rust if check == "fmt" else rust + node
-        hashes[check] = hashlib.sha256(json.dumps([check, target, common, runtime]).encode())
-    for entry in git("ls-tree", "-rz", "HEAD").split(b"\0"):
-        if entry:
-            path = os.fsdecode(entry.split(b"\t", 1)[1])
-            for check in inputs(path) & hashes.keys():
-                hashes[check].update(entry + b"\0")
-    return {check: digest.hexdigest() for check, digest in hashes.items()}
+    for check in scope:
+        inputs = model.inputs(check, scope)
+        runtime = list(rust) if check not in {"assets", "web"} else []
+        if "web" in inputs or (check == "tests" and ("test:ci" in inputs or "*" in scope[check])):
+            runtime.extend(subprocess.check_output([cmd, "--version"], text=True).strip()
+                           for cmd in ("node", "npm"))
+        if check == "web":
+            runtime.append(subprocess.check_output([os.environ.get("CHROME_BIN", "google-chrome"),
+                                                    "--version"], text=True).strip())
+        digest = hashlib.sha256(json.dumps([check, scope[check], common, runtime]).encode())
+        for path, entry in entries.items():
+            if owners[path] in inputs or (check == "fmt" and path.endswith(".rs")):
+                digest.update(entry + b"\0")
+        hashes[check] = digest.hexdigest()
+    return hashes
 
 
 def output(key, value):
@@ -195,32 +159,69 @@ def output(key, value):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "plan":
-        checks, test_target = plan(sys.argv[2])
-        output("test_target", test_target)
-        output("checks", checks)
-        native = set(checks) - {"web"}
-        platforms = ["ubuntu-24.04"] if native else []
-        if native - {"fmt", "browser"}:
-            platforms.append("macos-latest")
-        output("platforms", platforms)
-        output("history", successful_steps() if checks else [])
-        print("Selected checks:", ", ".join(checks) or "none")
+    mode = sys.argv[1]
+    if mode in {"lint", "build", "tests"}:
+        targets = json.loads(os.environ["BUILD_TARGETS"] if mode == "build" else os.environ["SCOPE"])
+        if mode != "build":
+            targets = targets[mode]
+        command = {"lint": "clippy", "build": "build", "tests": "test"}[mode]
+        args = ["cargo", command, "--locked", *cargo_args(targets, mode)]
+        if mode == "lint":
+            args.extend(["--", "-D", "warnings"])
+        print("Running", *args, flush=True)
+        subprocess.run(args, check=True)
+        if mode == "lint" and targets != ["*"]:
+            # Cargo's test profile checks cfg(test) code in the named binary/examples.
+            harnesses = [t for t in targets if not t.startswith("test:")]
+            if harnesses:
+                subprocess.run(["cargo", "clippy", "--locked", "--profile", "test",
+                                *cargo_args(harnesses, mode), "--", "-D", "warnings"], check=True)
+        sys.exit(0)
+
+    entries = tree()
+    model = Targets(entries)
+    if mode == "explain":
+        scope = model.select(changed_paths(sys.argv[2]))
+        print(json.dumps({"checks": scope, "fixtures_and_builds": model.prerequisites(scope),
+                          "platforms": [p for p in PLATFORMS if on_platform(scope, p)]},
+                         indent=2, sort_keys=True))
+    elif mode == "plan":
+        scope = plan(sys.argv[2], model)
+        samples = scope.pop("samples", [])
+        if samples == ["*"]:
+            samples = [p for p in entries if model.owner(p) == "sample"]
+        for path in samples:
+            if path in entries:
+                json.loads(Path(path).read_bytes())
+                print("Validated", path)
+        output("scope", scope)
+        output("checks", sorted(scope))
+        output("platforms", [label for label in PLATFORMS if on_platform(scope, label)])
+        output("node_platforms", [label for label in PLATFORMS if needs_node(on_platform(scope, label))])
+        output("history", successful_steps() if scope else [])
+        print("Selected checks:", json.dumps(scope, sort_keys=True))
     else:
-        checks = set(json.loads(os.environ["CHECKS"]))
-        if sys.argv[1] == "web":
-            checks &= {"web"}
+        scope = json.loads(os.environ["SCOPE"])
+        if mode == "web":
+            scope = {"web": scope["web"]}
         else:
-            checks.discard("web")
-            checks.add("assets")
-        if os.environ["RUNNER_OS"] != "Linux":
-            checks -= {"fmt", "browser"}
+            os_label = LINUX if os.environ["RUNNER_OS"] == "Linux" else MAC
+            scope = on_platform(scope, os_label)
+            if needs_assets(scope):
+                scope["assets"] = True
         history = set(json.loads(os.environ["HISTORY"]))
-        for name, digest in fingerprints(checks).items():
+        pending = {}
+        for name, digest in fingerprints(scope, model, entries).items():
             if name == "assets":
                 output("assets", f"web-dist-{digest}")
                 continue
             key = f"Pass {name} {digest}"
             output(name, key)
             output(f"run_{name}", key not in history)
+            if key not in history:
+                pending[name] = scope[name]
             print(f"{name}: {'reuse ' + key if key in history else 'run'}")
+        if mode != "web":
+            output("build_targets", model.prerequisites(pending))
+            # Keep the cached input identity consistent even when other steps reuse results.
+            output("need_assets", needs_assets(scope) and bool(pending.keys() & {"lint", "tests", "build", "browser"}))
