@@ -484,6 +484,7 @@ fn foreground_launcher_keeps_the_link_and_updates_on_screen() -> Result<()> {
     assert!(second.contains(&terminal_link));
     assert!(second.contains("Keep the service window open."));
     attached.0.stdin.as_mut().unwrap().write_all(b"\x03")?;
+    wait_text(&second_log, "Terminal view closed.")?;
     wait_text(&second_log, "\x1b[?1049l")?;
     assert!(state.join("service.json").is_file());
     daemon.0.stdin.as_mut().unwrap().write_all(b"\x03")?;
@@ -495,7 +496,16 @@ fn foreground_launcher_keeps_the_link_and_updates_on_screen() -> Result<()> {
         );
         thread::sleep(Duration::from_millis(30));
     }
-    assert!(String::from_utf8_lossy(&fs::read(&transcript)?).contains("\x1b[?1049l"));
+    let exit_text = fs::read_to_string(&transcript)?;
+    let after_screen = exit_text
+        .rsplit_once("\x1b[?1049l")
+        .context("alternate screen not restored")?
+        .1;
+    assert!(
+        after_screen.contains("Local service stopped.")
+            && after_screen.contains("Thanks for using Pantheon Local.")
+            && after_screen.contains("You can now close this window.")
+    );
     assert!(!state.join("service.json").exists());
     Ok(())
 }

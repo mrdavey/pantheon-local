@@ -30,6 +30,35 @@ pub fn interactive() -> bool {
         && foreground()
 }
 
+/// Leave the completion message in normal scrollback after the alternate screen closes.
+pub fn farewell(mode: Mode) {
+    if !interactive() {
+        return;
+    }
+    let status = match mode {
+        Mode::Owner => "Local service stopped.",
+        Mode::Attached => "Terminal view closed.",
+        Mode::Serve => return,
+    };
+    let color = env::var_os("NO_COLOR").is_none();
+    let (accent, reset) = if color {
+        ("\x1b[1;36m", "\x1b[0m")
+    } else {
+        ("", "")
+    };
+    let mut out = io::stdout().lock();
+    if Size::current().is_some_and(|size| size.rows >= 16 && size.columns >= 40) {
+        let ink = if color { "\x1b[38;5;111m" } else { "" };
+        for line in mark::portico(20, 6, 0.0) {
+            let _ = writeln!(out, "  {ink}{line}{reset}");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "\n  {accent}Pantheon Local{reset}  ·  {status}\n\n  Thanks for using Pantheon Local.\n  You can now close this window.\n"
+    );
+}
+
 fn foreground() -> bool {
     tcgetpgrp(io::stdin())
         .is_ok_and(|foreground| foreground.as_raw_nonzero().get() == getpgrp().as_raw())

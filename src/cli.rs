@@ -248,6 +248,7 @@ fn reopen(dir: &Path, link: &str) -> Result<()> {
             tokio::select! { _ = interrupt.recv() => {}, _ = terminate.recv() => {}, _ = disconnected => {} }
         };
         crate::launch::monitor(closed, crate::launch::Mode::Attached, link, notices).await;
+        crate::launch::farewell(crate::launch::Mode::Attached);
         Ok(())
     })
 }

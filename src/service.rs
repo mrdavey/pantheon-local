@@ -272,7 +272,11 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
             stop_preview(preview)
         }
     }
-    Ok(result?)
+    result?;
+    if browser {
+        crate::launch::farewell(crate::launch::Mode::Owner);
+    }
+    Ok(())
 }
 fn stop_preview(preview: &mut Preview) {
     let _ = nix::sys::signal::killpg(preview.pgid, nix::sys::signal::Signal::SIGKILL);
