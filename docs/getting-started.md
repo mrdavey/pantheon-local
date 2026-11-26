@@ -2,7 +2,7 @@
 
 ## Open the workbench
 
-Follow the [source build instructions](../README.md#build-from-source), or run `./swarm open` from an extracted archive. Keep Terminal open. If the browser doesn’t open, use the link printed in Terminal.
+Follow the [source build instructions](../README.md#build-from-source), or run `./swarm open` from an extracted archive. Keep Terminal open while you use the workbench. Press **Enter** on the launch screen to show the browser link. If the browser fails to open, Terminal prints the link automatically.
 
 ## Connect an agent
 

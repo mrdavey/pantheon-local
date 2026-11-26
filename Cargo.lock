@@ -962,7 +962,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "pantheon-local"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -975,6 +975,7 @@ dependencies = [
  "rand 0.9.5",
  "reqwest",
  "rusqlite",
+ "rustix",
  "serde",
  "serde-saphyr",
  "serde_json",

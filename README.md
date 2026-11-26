@@ -24,6 +24,8 @@ cargo build --locked --release
 
 If you have a Pantheon Local archive for your platform, extract it and run `./swarm open` from its folder. On macOS you can also double-click **Open Pantheon Local.command**.
 
+In an interactive terminal, `swarm` and `swarm open` open the browser and show a rotating Pantheon mark while the workbench is online. Press **Enter** to reveal the browser link and keep the service running. **Ctrl+C** stops the service. Use `REDUCE_MOTION=1` for a still mark or `SWARM_PLAIN=1` for plain text. `swarm serve` and redirected output always print the link.
+
 ### Start a run
 
 1. Configure your agent in its CLI or Hermes Desktop. Open **New run**, describe the goal, and attach any reference files. Choose a coordinator and workers under **Team**. Open a worker’s settings to change its model or thinking effort, and choose whether to allow or limit subagents.

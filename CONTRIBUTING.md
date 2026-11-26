@@ -11,7 +11,7 @@ cargo build --locked --examples
 cargo test --locked
 ```
 
-The default suite uses temporary Git repos and compiled fixture agents. To run the desktop and mobile workbench tests, install Chrome or Chromium with a matching ChromeDriver and run the command below. Set `CHROME_BIN` and `CHROMEDRIVER` when the executables are outside their standard locations.
+The default suite uses temporary Git repos and compiled fixture agents. The terminal launch test uses the system `script` and `stty` commands (included with macOS and available in util-linux and coreutils on Linux). To run the desktop and mobile workbench tests, install Chrome or Chromium with a matching ChromeDriver and run the command below. Set `CHROME_BIN` and `CHROMEDRIVER` when the executables are outside their standard locations.
 
 ```sh
 cargo test --locked --test workbench -- --ignored --test-threads=1

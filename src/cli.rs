@@ -190,27 +190,40 @@ pub fn workbench_link(origin: &str, token: &str) -> String {
     }
     link
 }
-pub fn open_browser(link: &str) {
+pub fn open_browser(link: &str) -> Result<()> {
     use wait_timeout::ChildExt;
-    let launch = || -> Result<()> {
-        let program = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        let mut child = Command::new(program).arg(link).spawn()?;
-        match child.wait_timeout(Duration::from_secs(5))? {
-            Some(exit) if exit.success() => Ok(()),
-            None => {
-                child.kill()?;
-                child.wait()?;
-                bail!("browser launch timed out")
-            }
-            _ => bail!("browser launch failed"),
-        }
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
     };
-    if launch().is_err() {
-        eprintln!("Open the Pantheon Local link above in your browser.");
+    let mut child = Command::new(program)
+        .arg(link)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    match child.wait_timeout(Duration::from_secs(5))? {
+        Some(exit) if exit.success() => Ok(()),
+        None => {
+            child.kill()?;
+            child.wait()?;
+            bail!("browser launch timed out")
+        }
+        _ => bail!("browser launch failed"),
+    }
+}
+fn reopen(dir: &Path, link: &str) {
+    if crate::launch::interactive() {
+        println!(
+            "●  Pantheon Local {} · Workbench already online",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+    println!("{link}");
+    notify_update(dir);
+    if open_browser(link).is_err() {
+        eprintln!("{}", crate::launch::OPEN_LINK);
     }
 }
 fn recipe(path: &Path) -> Result<Value> {
@@ -306,12 +319,9 @@ pub fn execute() -> Result<()> {
                 "web interface missing: build web assets, then rebuild swarm"
             );
             if let Some(link) = Session::running(&dir) {
-                println!("{link}");
-                notify_update(&dir);
-                open_browser(&link);
+                reopen(&dir, &link);
                 return Ok(());
             }
-            println!("Keep this Terminal window open while you use Pantheon Local.");
             match service::serve(&dir, "127.0.0.1:0", true) {
                 Err(e) if e.downcast_ref::<service::AlreadyRunning>().is_some() => {}
                 result => return result,
@@ -319,9 +329,7 @@ pub fn execute() -> Result<()> {
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(3) {
                 if let Some(link) = Session::running(&dir) {
-                    println!("{link}");
-                    notify_update(&dir);
-                    open_browser(&link);
+                    reopen(&dir, &link);
                     return Ok(());
                 }
                 std::thread::sleep(Duration::from_millis(100))

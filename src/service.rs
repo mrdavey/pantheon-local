@@ -214,24 +214,31 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
     let meta = Metadata(dir.join("service.json"));
     write_local(&meta.0, &json!({"url":origin,"token":token}))?;
     let link = crate::cli::workbench_link(&origin, &token);
-    println!("{link}");
+    let (notices, notifications) = tokio::sync::mpsc::unbounded_channel();
+    let update_notice = notices.clone();
     let update_dir = dir.to_path_buf();
     thread::spawn(move || {
         if let Some(msg) = crate::update::check(&update_dir)
             .as_ref()
             .and_then(crate::update::cli_message)
         {
-            eprintln!("{msg}");
+            let _ = update_notice.send(msg);
         }
     });
     if browser {
-        thread::spawn(move || crate::cli::open_browser(&link));
+        let browser_notice = notices.clone();
+        let link = link.clone();
+        thread::spawn(move || {
+            if crate::cli::open_browser(&link).is_err() {
+                let _ = browser_notice.send(crate::launch::OPEN_LINK.into());
+            }
+        });
     }
     let worker = state.clone();
     let scheduler = thread::spawn(move || {
         while !worker.shutdown.load(Ordering::Acquire) {
             if let Err(err) = worker.mutate(Engine::tick) {
-                eprintln!("scheduler: {err:#}")
+                let _ = notices.send(format!("scheduler: {err:#}"));
             }
             thread::park_timeout(Duration::from_millis(150));
         }
@@ -244,16 +251,21 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
             let listener = tokio::net::TcpListener::from_std(listener)?;
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let mut interrupt =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
             let shutting_down = state.clone();
-            axum::serve(
+            let server = axum::serve(
                 listener,
                 Router::new().fallback(handle).with_state(state.clone()),
             )
             .with_graceful_shutdown(async move {
-                tokio::select! {_=term.recv()=>{},_=tokio::signal::ctrl_c()=>{}}
+                tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
                 shutting_down.shutdown.store(true, Ordering::Release);
             })
-            .await
+            .into_future();
+            // A paused terminal can also block ordinary diagnostic output.
+            // Accept browser connections independently of the foreground display.
+            crate::launch::monitor(tokio::spawn(server), browser, &link, notifications).await?
         });
     state.shutdown.store(true, Ordering::Release);
     scheduler.thread().unpark();

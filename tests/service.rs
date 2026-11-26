@@ -357,3 +357,90 @@ fn notifies_cli_and_workbench_when_a_newer_release_is_available() -> Result<()> 
     let _ = server.join();
     Ok(())
 }
+
+#[test]
+fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Result<()> {
+    use std::{io::Write, os::unix::fs::symlink};
+
+    let tmp = tempfile::tempdir()?;
+    let state = tmp.path().join("state");
+    let transcript = tmp.path().join("terminal");
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    symlink("/usr/bin/true", tmp.path().join(opener))?;
+    let path = std::env::join_paths(std::iter::once(tmp.path().to_owned()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))?;
+    // BSD and util-linux script both give the launcher a controlling terminal.
+    let command = r#"stty ixon rows 31 cols 84; exec "$PANTHEON_TEST_BIN""#;
+    let mut script = Command::new("script");
+    if cfg!(target_os = "macos") {
+        script.args(["-q", "/dev/null", "/bin/sh", "-c", command]);
+    } else {
+        script.args(["-q", "-e", "-c", command, "/dev/null"]);
+    }
+    let mut daemon = Daemon(
+        script
+            .env("PANTHEON_TEST_BIN", env!("CARGO_BIN_EXE_swarm"))
+            .env("PATH", &path)
+            .env("TERM", "xterm-256color")
+            .env_remove("SWARM_PLAIN")
+            .env_remove("REDUCE_MOTION")
+            .env("SWARM_STATE_DIR", &state)
+            .env("SWARM_UPDATE_URL", "off")
+            .stdin(Stdio::piped())
+            .stdout(fs::File::create(&transcript)?)
+            .spawn()?,
+    );
+    let session = metadata(&mut daemon, &state.join("service.json"))?;
+    let wait_text = |needle: &str| -> Result<String> {
+        let start = Instant::now();
+        loop {
+            let data = fs::read(&transcript)?;
+            let text = String::from_utf8_lossy(&data);
+            if text.contains(needle) {
+                return Ok(text.into_owned());
+            }
+            ensure!(
+                start.elapsed() < Duration::from_secs(5),
+                "terminal did not render {needle:?}"
+            );
+            thread::sleep(Duration::from_millis(30));
+        }
+    };
+    let first = wait_text("Show browser link")?;
+    assert!(first.contains("Workbench online"));
+    assert!(first.contains("\x1b[?1049h"));
+    let token = session["token"].as_str().context("session token")?;
+    assert!(!first.contains(token));
+    let origin = session["url"].as_str().context("workbench URL")?;
+    let session_check = Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(2))
+        .build()?
+        .get(format!("{origin}/api/session"))
+        .bearer_auth(token);
+    // XOFF pauses terminal output while the browser keeps using the daemon.
+    daemon.0.stdin.as_mut().unwrap().write_all(b"\x13")?;
+    thread::sleep(Duration::from_millis(350));
+    let during_pause = session_check.try_clone().unwrap().send();
+    daemon.0.stdin.as_mut().unwrap().write_all(b"\x11\n")?;
+    assert_eq!(during_pause?.status(), 204);
+    let plain = wait_text(token)?;
+    assert!(plain.contains("\x1b[?25h\x1b[?1049l"));
+    assert_eq!(session_check.send()?.status(), 204);
+    daemon.0.stdin.as_mut().unwrap().write_all(b"\x03")?;
+    let start = Instant::now();
+    while daemon.0.try_wait()?.is_none() {
+        ensure!(
+            start.elapsed() < Duration::from_secs(5),
+            "Ctrl+C did not return to the shell"
+        );
+        thread::sleep(Duration::from_millis(30));
+    }
+    assert!(!state.join("service.json").exists());
+    Ok(())
+}
