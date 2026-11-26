@@ -205,7 +205,7 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
             : <p>Check the executable in <code>profiles.json</code>.</p>}
         </li>;
       })}</ul> : <p>All known profiles are configured. Add a profile in Hermes Desktop or <code>profiles.json</code> to connect another.</p>}
-      <Button asChild variant="link"><a href="https://github.com/mrdavey/pantheon-local/compare/main?quick_pull=1&template=agent_adapter.md&title=Add+agent+adapter" target="_blank" rel="noreferrer">Request new agent integration ↗</a></Button>
+      <Button asChild variant="link"><a href="https://github.com/mrdavey/pantheon-local/issues/new?template=agent_integration.yml" target="_blank" rel="noreferrer">Request new agent integration ↗</a></Button>
       {notices}
       <div className="dialog-footer">{refreshButton}<Button variant="outline" type="button" className="primary" onClick={() => setModal(null)}>Done</Button></div>
     </Dialog>}

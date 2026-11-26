@@ -1,0 +1,20 @@
+name: Request a new agent integration
+description: Suggest a coding agent for Pantheon Local to support.
+body:
+  - type: input
+    id: agent
+    attributes:
+      label: Which agent would you like to use?
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: What would you use it for?
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Agent website or docs (optional)
+      placeholder: https://

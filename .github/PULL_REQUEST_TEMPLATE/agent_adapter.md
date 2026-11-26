@@ -1,12 +1,8 @@
-## Agent and use case
+## Adapter and use case
 
-Which agent would you like Pantheon Local to support? What would you use it for?
+Which agent does this PR integrate? What can a Pantheon Local user do with it?
 
-<!-- For a suggestion, the agent name and use case are enough. If you know the project's website or CLI docs, include a link. You can delete any optional sections below. -->
-
-## Implementation plans (optional)
-
-<!-- If you'd like to build or help test the adapter, say how. It's also fine to leave the implementation to someone else. -->
+<!-- Link the integration request if there is one. -->
 
 ## Installation and setup (optional)
 
@@ -14,7 +10,7 @@ Which agent would you like Pantheon Local to support? What would you use it for?
 
 ## Adapter behavior (optional)
 
-<!-- For an implementation, describe the supported roles, model and reasoning settings, skills, and subagent controls. Mention how sessions, checkout permissions, progress, errors, and cancellation work. If usage is reported, indicate whether tokens and costs are per turn or cumulative. -->
+<!-- Describe the supported roles, model and reasoning settings, skills, and subagent controls. Mention how sessions, checkout permissions, progress, errors, and cancellation work. If usage is reported, indicate whether tokens and costs are per turn or cumulative. -->
 
 ## Testing (optional)
 

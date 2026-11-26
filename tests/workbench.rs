@@ -298,7 +298,14 @@ fn export(h: &Harness) -> Result<()> {
     b.role("heading", "Your configured agents").visible()?;
     h.click("Set up new agent")?;
     b.text("Sign in required").visible()?;
-    ensure!(b.role("link","Request new agent integration ↗").attr("href")?.as_str().is_some_and(|url|url.contains("github.com/mrdavey/pantheon-local/compare/main?quick_pull=1&template=agent_adapter.md")));
+    let request = b.role("link", "Request new agent integration ↗");
+    ensure!(
+        request.attr("href")?.as_str()
+            == Some(
+                "https://github.com/mrdavey/pantheon-local/issues/new?template=agent_integration.yml"
+            )
+    );
+    ensure!(request.attr("target")?.as_str() == Some("_blank"));
     b.role("link", "Install Claude Code").visible()?;
     fs::write(h.dir.path().join("signed-in"), "")?;
     h.click("Check again")?;

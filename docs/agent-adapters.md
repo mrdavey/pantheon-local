@@ -13,8 +13,10 @@ A custom executable is the shortest way to connect another coding agent. Registe
 
 For a built-in adapter, wire the harness into [profile validation and process dispatch](../src/adapter.rs), [model discovery](../src/adapter/models.rs), the compatibility checks, and [Agent setup](../web/src/setup.jsx). Add its installation and account instructions, supported platforms, and an [example profile](../examples/profiles.json). Update the CI target dependencies when the integration introduces new build or test inputs. Run the [contributor checks](../CONTRIBUTING.md).
 
-## Open an integration pull request
+## Request an integration
 
-For a suggestion, give the agent name and what you would use it for. Installation details, implementation plans, and test results are optional. GitHub needs a change to compare when opening a PR, so a branch with a short Markdown proposal is enough.
+In **Agent setup → Set up new agent**, choose **Request new agent integration** to open the [GitHub issue form](https://github.com/mrdavey/pantheon-local/issues/new?template=agent_integration.yml). Enter the agent name and what you would use it for. A link to its website or docs is optional.
 
-For an implemented adapter, push the changes to a topic branch or fork. In **Agent setup → Set up new agent**, choose **Request new agent integration** and select that branch on GitHub. Fill in the parts of the [adapter PR template](../.github/PULL_REQUEST_TEMPLATE/agent_adapter.md) that apply. For a direct PR form, substitute your fork owner and branch in `https://github.com/mrdavey/pantheon-local/compare/main...OWNER:BRANCH?quick_pull=1&template=agent_adapter.md`.
+## Submit an adapter
+
+Push the implementation to a branch or fork and open a pull request using the [adapter PR template](../.github/PULL_REQUEST_TEMPLATE/agent_adapter.md). Link the request issue if there is one. To open the PR form directly, substitute your fork owner and branch in `https://github.com/mrdavey/pantheon-local/compare/main...OWNER:BRANCH?quick_pull=1&template=agent_adapter.md`.
