@@ -1,5 +1,5 @@
 //! Cumulative, turn-local usage receipts. Keep telemetry separate from run revisions.
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -454,6 +454,51 @@ fn legacy_sample(
     })
 }
 
+fn modified_millis(dir: &Path, file: &str) -> Option<i64> {
+    let modified = fs::metadata(dir.join(file)).ok()?.modified().ok()?;
+    Some(chrono::DateTime::<Utc>::from(modified).timestamp_millis())
+}
+
+/// Elapsed wall time begins at dispatch, including waits between attempts.
+/// Read only the first and last receipts when an older run lacks timestamps.
+pub fn milestone_timing(run: &Value, root: &Path, id: &str) -> Result<Value> {
+    let task = run["tasks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|t| t["id"] == id)
+        .context("milestone not found")?;
+    let mut turns = run["turns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| t["role"] == "worker" && t["task"] == id);
+    let Some(first) = turns.next() else {
+        return Ok(json!({"started":null,"ended":null,"running":false}));
+    };
+    let last = turns.next_back().unwrap_or(first);
+    let dir = |turn: &Value| {
+        root.join("turns")
+            .join(turn["id"].as_str().unwrap_or_default())
+    };
+    let started = first["started"]
+        .as_i64()
+        .or_else(|| modified_millis(&dir(first), "job.json"));
+    let running =
+        task["state"] == "running" && last["state"] == "running" && run["state"] != "stopped";
+    let ended = if running {
+        None
+    } else {
+        task["completed_at"]
+            .as_i64()
+            .filter(|_| task["state"] == "committed")
+            .or_else(|| last["finished"].as_i64())
+            .or_else(|| modified_millis(&dir(last), "result.json"))
+            .filter(|end| started.is_some_and(|start| *end >= start))
+    };
+    Ok(json!({"started":started,"ended":ended,"running":running}))
+}
+
 pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
     let turns = run["turns"]
         .as_array()
@@ -525,10 +570,9 @@ pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
                 }
             }
         }
-        let started = t["started"].as_i64().or_else(|| {
-            let time = fs::metadata(dir.join("job.json")).ok()?.modified().ok()?;
-            Some(chrono::DateTime::<Utc>::from(time).timestamp_millis())
-        });
+        let started = t["started"]
+            .as_i64()
+            .or_else(|| modified_millis(&dir, "job.json"));
         rows.push(json!({"id":t["id"],"agent":agent,"role":t["role"],"model":name,"state":t["state"],"started":started,"samples":history,"harness":profile["kind"]}));
     }
     Ok(json!({"turns":rows,"next":next}))
@@ -537,6 +581,40 @@ pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn milestone_clock_spans_attempts_and_stops_on_completion() -> Result<()> {
+        let private = tempfile::tempdir()?;
+        let root = private.path();
+        let mut run = json!({"state":"working","tasks":[{"id":"build","state":"running"}],"turns":[
+            {"id":"one","task":"build","role":"worker","started":1200,"finished":3000,"state":"received"},
+            {"id":"two","task":"build","role":"worker","started":4000,"state":"running"},
+            {"id":"unrelated","task":"other","role":"worker","started":9999,"state":"running"}]});
+        assert_eq!(
+            milestone_timing(&run, root, "build")?,
+            json!({"started":1200,"ended":null,"running":true})
+        );
+        run["tasks"][0]["state"] = json!("committed");
+        run["tasks"][0]["completed_at"] = json!(7000);
+        run["turns"][1]["state"] = json!("received");
+        assert_eq!(
+            milestone_timing(&run, root, "build")?,
+            json!({"started":1200,"ended":7000,"running":false})
+        );
+        assert!(milestone_timing(&run, root, "missing").is_err());
+        // Legacy runs retain dispatch and receipt times on disk.
+        run["turns"][0]["started"] = Value::Null;
+        run["tasks"][0]["completed_at"] = Value::Null;
+        for (turn, file) in [("one", "job.json"), ("two", "result.json")] {
+            let path = root.join("turns").join(turn);
+            fs::create_dir_all(&path)?;
+            fs::write(path.join(file), "{}")?;
+        }
+        let legacy = milestone_timing(&run, root, "build")?;
+        assert!(legacy["started"].is_i64() && legacy["ended"].is_i64());
+        assert_eq!(legacy["running"], false);
+        Ok(())
+    }
+
     #[test]
     fn receipts_replace_live_readings_and_keep_real_zeroes() -> Result<()> {
         let dir = tempfile::tempdir()?;

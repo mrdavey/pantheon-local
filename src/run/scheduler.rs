@@ -195,6 +195,7 @@ impl Engine {
                 continue;
             };
             r["turns"][i]["state"] = json!("received");
+            r["turns"][i]["finished"] = json!(chrono::Utc::now().timestamp_millis());
             if role == "release" {
                 release::finish(r, task, &res)?;
                 return self.save(r, "release-finished");

@@ -33,6 +33,16 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         );
     }
     if id == "recover-export" {
+        if let Some(gate) = env::var_os("SWARM_TEST_MILESTONE_GATE") {
+            let start = std::time::Instant::now();
+            while !Path::new(&gate).is_file() {
+                ensure!(
+                    start.elapsed().as_secs() < 30,
+                    "milestone timing gate timed out"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
         fs::write("export.txt", "ready")?;
         return Ok(json!({"status":"blocked","message":"Cannot write Git metadata."}));
     }

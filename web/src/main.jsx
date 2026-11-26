@@ -5,6 +5,7 @@ import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider } from "./status.jsx";
 import { TurnLog, LogTime } from "./turn-log";
+import { MilestoneTime } from "./milestone-time";
 import { Metrics } from "./metrics";
 import { AssignmentMap } from "./assignment-map.jsx";
 import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
@@ -185,6 +186,7 @@ function Milestone({ task, run, busy, act, order, explain }) {
       <div className="work-details">
         <section><div className="milestone-meta"><Status state={task.state} /><span>{task.worker}</span><span>Milestone {order}</span>{date}
           {task.commit && <code title={task.commit}>{task.commit.slice(0, 10)}</code>}</div>
+          <MilestoneTime {...{api, run, task}} />
           {task.depends?.length > 0 && <p>After {task.depends.join(", ")}</p>}
           <Button variant="outline" className="text-button explain-context" onClick={() => { setOpen(false); explain("milestone", task.id); }}>Explain this</Button>
         </section>
@@ -303,7 +305,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     </div>}
     </div>
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
-    {view === "map" && <AssignmentMap run={run} />}
+    {view === "map" && <AssignmentMap run={run} api={api} />}
     <ReleaseList {...{ run, act, busy }} />
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">

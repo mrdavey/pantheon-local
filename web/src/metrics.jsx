@@ -7,6 +7,7 @@ import { Label } from "./components/ui/label";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "./components/ui/table";
 import { Loading } from "./status";
+import { formatDuration } from "./duration";
 import "./metrics.css";
 
 const number = new Intl.NumberFormat();
@@ -276,17 +277,6 @@ function ShareChart({ groups, field }) {
     </figure>
   );
 }
-function duration(ms) {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(seconds / 3600),
-    minutes = Math.floor(seconds / 60) % 60;
-  return hours
-    ? hours + "h " + minutes + "m"
-    : minutes
-      ? minutes + "m " + (seconds % 60) + "s"
-      : seconds + "s";
-}
-
 export function Metrics({ run, api }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
@@ -469,7 +459,7 @@ export function Metrics({ run, api }) {
               ["Tokens used", format(summary.total.tokens ?? legacyTotal, "tokens")],
               ["Estimated cost (USD)", format(summary.total.usd, "usd")],
               ["Agent turns", summary.turns],
-              ["Elapsed time", duration(window.elapsed)],
+              ["Elapsed time", formatDuration(window.elapsed)],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt>{label}</dt>

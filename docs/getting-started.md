@@ -32,7 +32,7 @@ Use the gear beside a run to pause, resume, require review, or delete it. Deleti
 
 In a run, **Open working folder** opens the milestone checkouts. New runs put them under **Pantheon work <run ID>** in the folder you selected. Each milestone has its own copy so several agents can edit in parallel. Passing work appears on the target branch when it lands. Older runs open their original working folder in the service state directory. Deleting a new run keeps its project-side milestone folders.
 
-In **Agent map**, use **Show jobs for** to switch between one worker and the whole team. Open an assignment to see its dependencies. **Full screen** expands the map and Escape returns to the run.
+In **Agent map**, use **Show jobs for** to switch between one worker and the whole team. Open a milestone in Work or Agent map to see its dependencies and duration. Elapsed time starts at the first worker turn and includes waits between attempts. It updates each second during work and shows the final duration after completion. **Full screen** expands the map and Escape returns to the run.
 
 In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
 

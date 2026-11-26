@@ -6,6 +6,7 @@ import { NativeSelect, NativeSelectOption } from "./components/ui/native-select"
 import { Card } from "./components/ui/card";
 import { Dialog } from "./dialog";
 import { Status, coordinatorStatus } from "./status";
+import { MilestoneTime } from "./milestone-time";
 import { Markdown } from "./markdown";
 
 const stride = 238;
@@ -56,7 +57,7 @@ function layout(tasks, workers, agent) {
   return { width, height: y, lanes, edges: edges.filter(([a,b]) => !agent || (a.task.worker === agent && b.task.worker === agent)), nodes: visible };
 }
 
-export function AssignmentMap({ run }) {
+export function AssignmentMap({ run, api }) {
   const [zoom, setZoom] = useState(1);
   const [selection, select] = useState(null);
   const viewport = useRef(null);
@@ -134,6 +135,7 @@ export function AssignmentMap({ run }) {
       </> : selectedTask ? <>
         <Button variant="outline" onClick={() => select({worker: selection.worker})}>All assignments for {selection.worker}</Button>
         <div><Status state={selectedTask.state} /></div>
+        <MilestoneTime key={selectedTask.id} {...{api, run}} task={selectedTask} />
         <Markdown>{selectedTask.goal}</Markdown>
         {!!selectedTask.depends?.length && <p>Depends on {selectedTask.depends.join(", ")}</p>}
         {selectedTask.parent && <p>Delegated by {selectedTask.parent}</p>}

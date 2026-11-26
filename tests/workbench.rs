@@ -34,6 +34,10 @@ impl Harness {
             ("HERMES_HOME".into(), hermes_home),
             ("SWARM_TEST_SIGNED_IN".into(), dir.path().join("signed-in")),
             ("SWARM_TEST_LIVE".into(), dir.path().join("live.json")),
+            (
+                "SWARM_TEST_MILESTONE_GATE".into(),
+                dir.path().join("milestone-gate"),
+            ),
             ("SWARM_TEST_CHAT_GATE".into(), dir.path().join("chat-gate")),
         ]);
         let svc = Service::with_profiles(dir.path(), env, &profiles)?;
@@ -669,6 +673,16 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     let run = h.svc.post("/runs",&json!({"path":h.repo("recovery")?,"prompt":brief,"coordinator":"first","workers":["writer"],"recipe":{"checks":[["true"]]}}))?;
     let path = common::run_path(&run)?;
     h.goto()?;
+    h.run_button("Recover the fixture milestone").click()?;
+    h.b.xpath("//button[@data-task='recover-export']").click()?;
+    let clock = h.b.xpath("//time[@aria-label='Elapsed time']");
+    let initial = clock.attr("datetime")?;
+    until("milestone clock advances", || {
+        Ok((clock.attr("datetime")? != initial).then_some(()))
+    })?;
+    fs::write(h.dir.path().join("milestone-gate"), "")?;
+    h.b.text("Cannot write Git metadata.").visible()?;
+    h.click("Close dialog")?;
     h.b.xpath("//button[contains(.,'Needs you') and contains(.,'1')]")
         .click()?;
     h.b.role("heading", "recover-export").visible()?;
@@ -693,6 +707,17 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     h.b.xpath("//button[@data-task='recover-export']").click()?;
     h.b.text("Recovered the verified commit from the worker checkout.")
         .visible()?;
+    let duration =
+        h.b.xpath("//time[@aria-label='Completed in']")
+            .attr("datetime")?;
+    h.click("Close dialog")?;
+    h.click("Agent map")?;
+    h.click("Milestone 1: Recover the export.")?;
+    ensure!(
+        h.b.xpath("//time[@aria-label='Completed in']")
+            .attr("datetime")?
+            == duration
+    );
     h.no_overflow()
 }
 scenario!(

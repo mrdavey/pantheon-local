@@ -324,6 +324,7 @@ impl Engine {
         let dirty = project::status(dir).is_ok_and(|x| !x.is_empty());
         let t = &mut r["tasks"][i];
         t["state"] = json!("committed");
+        t["completed_at"] = json!(chrono::Utc::now().timestamp_millis());
         t["commit"] = json!(sha);
         t["question"] = json!("");
         t["reply"] = json!("");
