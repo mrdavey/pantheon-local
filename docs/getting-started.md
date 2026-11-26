@@ -2,7 +2,7 @@
 
 ## Open the workbench
 
-Follow the [source build instructions](../README.md#build-from-source), or run `./swarm open` from an extracted archive. Keep Terminal open while you use the workbench. Press **Enter** on the launch screen to show the browser link. If the browser fails to open, Terminal prints the link automatically.
+Follow the [source build instructions](../README.md#build-from-source), or run `./swarm open` from an extracted archive. Keep Terminal open while you use the workbench. Click the displayed HTTP address using your terminal’s link gesture, or press **Enter** to open the browser. The link includes the session key in its destination. Typing the short address in a fresh tab requires opening the workbench from Terminal to sign in. When an update appears below the address, click it for release details.
 
 ## Connect an agent
 

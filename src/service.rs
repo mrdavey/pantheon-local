@@ -218,27 +218,17 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
     let update_notice = notices.clone();
     let update_dir = dir.to_path_buf();
     thread::spawn(move || {
-        if let Some(msg) = crate::update::check(&update_dir)
-            .as_ref()
-            .and_then(crate::update::cli_message)
-        {
-            let _ = update_notice.send(msg);
+        if let Some(update) = crate::update::check(&update_dir) {
+            let _ = update_notice.send(crate::launch::Notice::Update(update));
         }
     });
-    if browser {
-        let browser_notice = notices.clone();
-        let link = link.clone();
-        thread::spawn(move || {
-            if crate::cli::open_browser(&link).is_err() {
-                let _ = browser_notice.send(crate::launch::OPEN_LINK.into());
-            }
-        });
-    }
     let worker = state.clone();
     let scheduler = thread::spawn(move || {
         while !worker.shutdown.load(Ordering::Acquire) {
             if let Err(err) = worker.mutate(Engine::tick) {
-                let _ = notices.send(format!("scheduler: {err:#}"));
+                let _ = notices.send(crate::launch::Notice::Message(format!(
+                    "Scheduler: {err:#}"
+                )));
             }
             thread::park_timeout(Duration::from_millis(150));
         }
@@ -265,7 +255,12 @@ pub fn serve(dir: &Path, listen: &str, browser: bool) -> Result<()> {
             .into_future();
             // A paused terminal can also block ordinary diagnostic output.
             // Accept browser connections independently of the foreground display.
-            crate::launch::monitor(tokio::spawn(server), browser, &link, notifications).await?
+            let mode = if browser {
+                crate::launch::Mode::Owner
+            } else {
+                crate::launch::Mode::Serve
+            };
+            crate::launch::monitor(tokio::spawn(server), mode, &link, notifications).await?
         });
     state.shutdown.store(true, Ordering::Release);
     scheduler.thread().unpark();

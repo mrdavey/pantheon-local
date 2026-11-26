@@ -39,6 +39,11 @@ if (location.hash && token) {
   history.replaceState(null, "", location.pathname);
 }
 
+// A terminal link can open in a tab already showing the same loopback address.
+window.addEventListener("hashchange", () => {
+  if (/^#[a-f0-9]{64}(?:&|$)/.test(location.hash)) location.reload();
+});
+
 async function api(path, body, signal) {
   const response = await fetch("/api" + path, {
     method: body === undefined ? "GET" : "POST",
@@ -48,7 +53,7 @@ async function api(path, body, signal) {
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    const problem = new Error(response.status === 401 ? "Open Pantheon Local from the link printed in Terminal." : detail?.error || response.statusText || `Request failed (${response.status}).`);
+    const problem = new Error(response.status === 401 ? "Open the workbench link in Terminal. On the Pantheon screen, you can also press Enter." : detail?.error || response.statusText || `Request failed (${response.status}).`);
     problem.status = response.status;
     throw problem;
   }

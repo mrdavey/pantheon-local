@@ -142,7 +142,10 @@ impl Harness {
 }
 fn requires_link(h: &Harness) -> Result<()> {
     h.b.goto(&h.proxy.url)?;
-    h.b.role("alert", "").contains("link printed in Terminal")
+    h.b.role("alert", "")
+        .contains("Open the workbench link in Terminal")?;
+    h.goto()?;
+    h.b.role("heading", "Agent setup").visible()
 }
 fn color_and_keyboard(h: &Harness) -> Result<()> {
     h.goto()?;

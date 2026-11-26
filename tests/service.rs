@@ -359,8 +359,8 @@ fn notifies_cli_and_workbench_when_a_newer_release_is_available() -> Result<()> 
 }
 
 #[test]
-fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Result<()> {
-    use std::{io::Write, os::unix::fs::symlink};
+fn foreground_launcher_keeps_the_link_and_updates_on_screen() -> Result<()> {
+    use std::io::Write;
 
     let tmp = tempfile::tempdir()?;
     let state = tmp.path().join("state");
@@ -370,37 +370,55 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
     } else {
         "xdg-open"
     };
-    symlink("/usr/bin/true", tmp.path().join(opener))?;
+    let opened = tmp.path().join("opened");
+    let opener = tmp.path().join(opener);
+    fs::write(
+        &opener,
+        "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$TEST_BROWSER_LOG\"\nexit 1\n",
+    )?;
+    fs::set_permissions(&opener, fs::Permissions::from_mode(0o700))?;
+    fs::create_dir(&state)?;
+    let release = "https://github.com/mrdavey/pantheon-local/releases/tag/v9.1.0";
+    fs::write(
+        state.join("update-check.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"latest":"9.1.0","checked":chrono::Utc::now(),"url":release}),
+        )?,
+    )?;
     let path = std::env::join_paths(std::iter::once(tmp.path().to_owned()).chain(
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
     ))?;
     // BSD and util-linux script both give the launcher a controlling terminal.
     let command = r#"stty ixon rows 31 cols 84; exec "$PANTHEON_TEST_BIN""#;
-    let mut script = Command::new("script");
-    if cfg!(target_os = "macos") {
-        script.args(["-q", "/dev/null", "/bin/sh", "-c", command]);
-    } else {
-        script.args(["-q", "-e", "-c", command, "/dev/null"]);
-    }
-    let mut daemon = Daemon(
-        script
-            .env("PANTHEON_TEST_BIN", env!("CARGO_BIN_EXE_swarm"))
-            .env("PATH", &path)
-            .env("TERM", "xterm-256color")
-            .env_remove("SWARM_PLAIN")
-            .env_remove("REDUCE_MOTION")
-            .env_remove("NO_COLOR")
-            .env("SWARM_STATE_DIR", &state)
-            .env("SWARM_UPDATE_URL", "off")
-            .stdin(Stdio::piped())
-            .stdout(fs::File::create(&transcript)?)
-            .spawn()?,
-    );
+    let launch_terminal = |transcript: &std::path::Path| -> Result<Daemon> {
+        let mut script = Command::new("script");
+        if cfg!(target_os = "macos") {
+            script.args(["-q", "/dev/null", "/bin/sh", "-c", command]);
+        } else {
+            script.args(["-q", "-e", "-c", command, "/dev/null"]);
+        }
+        Ok(Daemon(
+            script
+                .env("PANTHEON_TEST_BIN", env!("CARGO_BIN_EXE_swarm"))
+                .env("PATH", &path)
+                .env("TERM", "xterm-256color")
+                .env_remove("SWARM_PLAIN")
+                .env_remove("REDUCE_MOTION")
+                .env_remove("NO_COLOR")
+                .env("SWARM_STATE_DIR", &state)
+                .env("SWARM_UPDATE_URL", "http://127.0.0.1:1")
+                .env("TEST_BROWSER_LOG", &opened)
+                .stdin(Stdio::piped())
+                .stdout(fs::File::create(transcript)?)
+                .spawn()?,
+        ))
+    };
+    let mut daemon = launch_terminal(&transcript)?;
     let session = metadata(&mut daemon, &state.join("service.json"))?;
-    let wait_text = |needle: &str| -> Result<String> {
+    let wait_text = |transcript: &std::path::Path, needle: &str| -> Result<String> {
         let start = Instant::now();
         loop {
-            let data = fs::read(&transcript)?;
+            let data = fs::read(transcript)?;
             let text = String::from_utf8_lossy(&data);
             if text.contains(needle) {
                 return Ok(text.into_owned());
@@ -412,18 +430,27 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
             thread::sleep(Duration::from_millis(30));
         }
     };
-    let first = wait_text("Stop service")?;
+    let first = wait_text(&transcript, "Stop service")?;
     for key in ["Enter", "Ctrl+C"] {
         assert!(first.contains(&format!("\x1b[1;36m{key}\x1b[0m")));
     }
-    for description in ["Show browser link", "Stop service"] {
+    for description in ["Open browser", "Stop service"] {
         assert!(first.contains(&format!("H  {description}")));
     }
     assert!(first.contains("Workbench online"));
     assert!(first.contains("\x1b[?1049h"));
     let token = session["token"].as_str().context("session token")?;
-    assert!(!first.contains(token));
+    assert!(first.contains("Keep this window open while using Pantheon Local."));
+    wait_text(&transcript, "Browser did not open")?;
+    let updates = wait_text(&transcript, "Update available · v9.1.0")?;
+    assert!(updates.contains(release));
+    let opened_once = fs::read_to_string(&opened)?;
+    let signed = opened_once.trim_end();
+    assert!(signed.contains(token));
     let origin = session["url"].as_str().context("workbench URL")?;
+    let terminal_link = format!("\x1b]8;;{signed}\x1b\\{origin}\x1b]8;;\x1b\\");
+    assert!(first.contains(&terminal_link));
+    assert!(!first.replace(&terminal_link, origin).contains(token));
     let session_check = Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(2))
@@ -436,9 +463,29 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
     let during_pause = session_check.try_clone().unwrap().send();
     daemon.0.stdin.as_mut().unwrap().write_all(b"\x11\n")?;
     assert_eq!(during_pause?.status(), 204);
-    let plain = wait_text(token)?;
-    assert!(plain.contains("\x1b[?25h\x1b[?1049l"));
+    let start = Instant::now();
+    while fs::read_to_string(&opened)?.lines().count() < 2 {
+        ensure!(
+            start.elapsed() < Duration::from_secs(5),
+            "Enter did not reopen the browser"
+        );
+        thread::sleep(Duration::from_millis(30));
+    }
+    assert!(
+        fs::read_to_string(&opened)?
+            .lines()
+            .all(|target| target == signed)
+    );
+    assert!(!String::from_utf8_lossy(&fs::read(&transcript)?).contains("\x1b[?1049l"));
     assert_eq!(session_check.send()?.status(), 204);
+    let second_log = tmp.path().join("second-terminal");
+    let mut attached = launch_terminal(&second_log)?;
+    let second = wait_text(&second_log, "Close view")?;
+    assert!(second.contains(&terminal_link));
+    assert!(second.contains("Keep the service window open."));
+    attached.0.stdin.as_mut().unwrap().write_all(b"\x03")?;
+    wait_text(&second_log, "\x1b[?1049l")?;
+    assert!(state.join("service.json").is_file());
     daemon.0.stdin.as_mut().unwrap().write_all(b"\x03")?;
     let start = Instant::now();
     while daemon.0.try_wait()?.is_none() {
@@ -448,6 +495,7 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
         );
         thread::sleep(Duration::from_millis(30));
     }
+    assert!(String::from_utf8_lossy(&fs::read(&transcript)?).contains("\x1b[?1049l"));
     assert!(!state.join("service.json").exists());
     Ok(())
 }

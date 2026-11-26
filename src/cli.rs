@@ -213,18 +213,43 @@ pub fn open_browser(link: &str) -> Result<()> {
         _ => bail!("browser launch failed"),
     }
 }
-fn reopen(dir: &Path, link: &str) {
-    if crate::launch::interactive() {
-        println!(
-            "●  Pantheon Local {} · Workbench already online",
-            env!("CARGO_PKG_VERSION")
-        );
+fn reopen(dir: &Path, link: &str) -> Result<()> {
+    if !crate::launch::interactive() {
+        println!("{link}");
+        notify_update(dir);
+        if open_browser(link).is_err() {
+            eprintln!("{}", crate::launch::OPEN_LINK);
+        }
+        return Ok(());
     }
-    println!("{link}");
-    notify_update(dir);
-    if open_browser(link).is_err() {
-        eprintln!("{}", crate::launch::OPEN_LINK);
-    }
+    // This terminal can reconnect to a daemon owned by another window.
+    let (sender, notices) = tokio::sync::mpsc::unbounded_channel();
+    let update_dir = dir.to_owned();
+    std::thread::spawn(move || {
+        if let Some(update) = crate::update::check(&update_dir) {
+            let _ = sender.send(crate::launch::Notice::Update(update));
+        }
+    });
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut interrupt = signal(SignalKind::interrupt())?;
+        let mut terminate = signal(SignalKind::terminate())?;
+        let disconnected = async {
+            let mut misses = 0;
+            while misses < 2 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let dir = dir.to_owned();
+                let active = tokio::task::spawn_blocking(move || Session::running(&dir)).await;
+                if active.ok().flatten().as_deref() == Some(link) { misses = 0; }
+                else { misses += 1; }
+            }
+        };
+        let closed = async {
+            tokio::select! { _ = interrupt.recv() => {}, _ = terminate.recv() => {}, _ = disconnected => {} }
+        };
+        crate::launch::monitor(closed, crate::launch::Mode::Attached, link, notices).await;
+        Ok(())
+    })
 }
 fn recipe(path: &Path) -> Result<Value> {
     let v = serde_json::from_slice(&fs::read(path)?)?;
@@ -319,8 +344,7 @@ pub fn execute() -> Result<()> {
                 "web interface missing: build web assets, then rebuild swarm"
             );
             if let Some(link) = Session::running(&dir) {
-                reopen(&dir, &link);
-                return Ok(());
+                return reopen(&dir, &link);
             }
             match service::serve(&dir, "127.0.0.1:0", true) {
                 Err(e) if e.downcast_ref::<service::AlreadyRunning>().is_some() => {}
@@ -329,8 +353,7 @@ pub fn execute() -> Result<()> {
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(3) {
                 if let Some(link) = Session::running(&dir) {
-                    reopen(&dir, &link);
-                    return Ok(());
+                    return reopen(&dir, &link);
                 }
                 std::thread::sleep(Duration::from_millis(100))
             }
