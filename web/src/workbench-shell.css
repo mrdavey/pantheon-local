@@ -695,3 +695,5 @@ button.board-card {width:100%;text-align:left;align-items:stretch;gap:.45rem;pad
   .run-body:has(.conversation-page) .run-tabs button {white-space:nowrap}
   .run-workspace:has(.conversation-page) {gap:.25rem}
 }
+
+.recovery-decision { white-space: pre-line; overflow-wrap: anywhere; }

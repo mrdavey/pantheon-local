@@ -54,6 +54,8 @@ export function Proposal({ message, run, act, busy, onDecision, openMilestone })
 
 function referenceLabel(run, reference) {
   if (reference.kind === "activity") {
+    const report = run.failure_log?.find(entry => entry.id === reference.id);
+    if (report) return shortSummary(report.detail,60);
     const turn = run.turns?.find(t => t.id === reference.id);
     const item = turn?.role === "chat" ? run.conversation?.find(m => m.id === turn.task)?.text : run.tasks?.find(t => t.id === turn?.task)?.goal;
     return shortSummary(item || turn?.role || reference.id, 60);

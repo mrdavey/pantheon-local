@@ -6,9 +6,11 @@ import { Input } from "./components/ui/input";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Dialog } from "./dialog";
-import { Loading, Status } from "./status";
+import { Loading, Status, statusLabel } from "./status";
 import { LogTime, TurnLog } from "./turn-log";
 import { shortSummary } from "./run-summary";
+import { Fields } from "./evidence";
+import { Disclosure } from "./disclosure";
 import { FilterChips } from "./filter-chips";
 
 import { changeRoute } from "./navigation";
@@ -23,6 +25,7 @@ export const activityRoles = {
   repair: "Repair planning",
   release: "Release",
   pricing: "Model pricing",
+  recovery: "Failure recovery",
 };
 function Choice({ label, value, options, onChange }) {
   return (
@@ -73,8 +76,10 @@ export function ActivityLog({ run, api, explain, route, milestone }) {
     agents = [
       ...new Set([run.input.coordinator, ...run.input.workers, ...turns.map((t) => t.agent)].filter(Boolean)),
     ];
-  const stateOptions = [...new Set(turns.map((t) => t.state))].map((s) => [s, s]);
-  const selected = route.turn && (result?.items.find(row => row.id === route.turn) || turns.find(row => row.id === route.turn));
+  const reports = run.failure_log || [];
+  const stateOptions = [...new Set([...turns,...reports].map(t => t.state))].map(s => [s, statusLabel(s)]);
+  const report = route.turn && reports.find(row => row.id === route.turn);
+  const selected = report || (route.turn && (result?.items.find(row => row.id === route.turn) || turns.find(row => row.id === route.turn)));
   const select = row => changeRoute({turn:row?.id});
   const chips = [["q","Search",query.q], ["role","Type",query.role === "coordinator" ? "Coordinator activity" : activityRoles[query.role] || query.role],
     ["agent","Agent",query.agent], ["state","Status",query.state]];
@@ -84,7 +89,7 @@ export function ActivityLog({ run, api, explain, route, milestone }) {
 
         {result && (
           <span>
-            {result.total} {result.total === 1 ? "turn" : "turns"}
+            {result.total} {result.total === 1 ? "activity" : "activities"}
           </span>
         )}
       </header>
@@ -147,7 +152,7 @@ export function ActivityLog({ run, api, explain, route, milestone }) {
             <TableBody>
               {result.items.map((row) => (
                 <TableRow key={row.id} className="open-row" tabIndex={0} aria-haspopup="dialog"
-                  aria-label={"View log for " + name(row)}
+                  aria-label={(row.role === "recovery" ? "View recovery for " : "View log for ") + name(row)}
                   onClick={event => {event.currentTarget.focus({preventScroll:true}); select(row);}}
                   onKeyDown={event => {
                     if (event.key === "Enter" || event.key === " ") {event.preventDefault(); select(row);}
@@ -207,12 +212,20 @@ export function ActivityLog({ run, api, explain, route, milestone }) {
       )}
       {selected && (
         <Dialog onExplain={() => explain("activity", selected.id)} title={name(selected)} className="evidence-dialog" onClose={() => select(null)}>
-          <TurnLog
+          {report ? <section aria-label="Recovery details">
+            <p><Status state={report.state}/> <LogTime at={report.started} now={now}/></p>
+            <h3>Failure</h3><p>{report.detail}</p>
+            {report.task && <p><code>{report.task}</code></p>}
+            {report.decision && <><h3>Recovery decision</h3><p className="recovery-decision">{report.decision}</p></>}
+            {report.evidence && <Disclosure title="Evidence"><Fields value={report.evidence}/></Disclosure>}
+            {report.source && <Button variant="outline" onClick={() => select({id:report.source})}>Open source log</Button>}
+            {report.review_turn && <Button variant="outline" onClick={() => select({id:report.review_turn})}>Open coordinator review</Button>}
+          </section> : <TurnLog
             key={selected.id}
             api={api}
             path={"/runs/" + run.id + "/turns/" + selected.id + "/log"}
             running={turns.find((t) => t.id === selected.id)?.state === "running"}
-          />
+          />}
         </Dialog>
       )}
     </section>

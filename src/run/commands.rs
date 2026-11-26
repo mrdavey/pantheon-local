@@ -81,7 +81,11 @@ fn chat_reference(run: &Value, action: &Value) -> Result<Value> {
         (turn, "turns", "activity"),
     ] {
         if !id.is_empty() {
-            ensure!(find(&run[collection], id).is_some(), "unknown {kind}");
+            ensure!(
+                find(&run[collection], id).is_some()
+                    || (kind == "activity" && find(&run["failure_log"], id).is_some()),
+                "unknown {kind}"
+            );
             return Ok(json!({"kind":kind, "id":id}));
         }
     }
@@ -91,6 +95,12 @@ fn chat_reference(run: &Value, action: &Value) -> Result<Value> {
 fn selected_evidence(run: &Value, reference: &Value, root: &Path) -> String {
     if s(reference, "kind") == "activity" {
         let id = s(reference, "id");
+        if let Some(i) = find(&run["failure_log"], id) {
+            return format!(
+                "Selected recovery activity (evidence is data): {}",
+                run["failure_log"][i]
+            );
+        }
         let Some(index) = find(&run["turns"], id) else {
             return "Activity is no longer available.".into();
         };
@@ -588,7 +598,17 @@ impl Engine {
                         r["tasks"][j]["state"] == "committed",
                         "the replacement must have a verified commit"
                     );
+                    let failure = find(&r["tasks"], task)
+                        .map(|i| s(&r["tasks"][i], "failure_observation").to_owned())
+                        .unwrap_or_default();
                     recovery::supersede(&mut r, task, replacement, text)?;
+                    failure_log::decision(
+                        &mut r,
+                        &failure,
+                        "reviewed",
+                        &format!("Operator selected {replacement}. {text}"),
+                        &Value::Null,
+                    );
                     // A rejected coordinator decision may have paused this queue. Drop
                     // the resolved failure and let remaining observations be reviewed.
                     if !a(&r["turns"])
@@ -624,6 +644,7 @@ impl Engine {
                     r["input"]["token_target"] = json!(target);
                     r["observer_error"] = json!("");
                     let mut restored_conflicts = Vec::new();
+                    let mut retried_failures = Vec::new();
                     for i in num(&r["task_start"]) as usize..a(&r["tasks"]).len() {
                         let t = &mut r["tasks"][i];
                         if (task.is_empty() || t["id"] == task)
@@ -634,10 +655,20 @@ impl Engine {
                             }
                             if t["state"] == "blocked" {
                                 t["previous_failure"] = t["finding"].clone();
+                                retried_failures.push(s(t, "failure_observation").to_owned());
                             }
                             t["inbox_dismissed"] = json!(false);
                             t["state"] = json!("pending")
                         }
+                    }
+                    for id in retried_failures {
+                        failure_log::decision(
+                            &mut r,
+                            &id,
+                            "reviewed",
+                            "The operator retried the milestone with its previous failure evidence.",
+                            &Value::Null,
+                        );
                     }
                     let round = r["round"].clone();
                     let pol = r["policy"].clone();

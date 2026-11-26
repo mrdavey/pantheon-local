@@ -714,7 +714,15 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     fs::write(h.dir.path().join("milestone-gate"), "")?;
     h.b.xpath("//button[normalize-space(.)='Details']")
         .click()?;
-    h.b.text("Cannot write Git metadata.").visible()?;
+    h.b.label("View recovery for Cannot write Git metadata.")
+        .click()?;
+    let details = h.b.label("Recovery details");
+    details.contains("Cannot write Git metadata.")?;
+    details
+        .xpath(".//button[normalize-space(.)='Open source log']")
+        .click()?;
+    h.b.label("Turn log").visible()?;
+    h.b.key("\u{e00c}")?;
     h.click("Close dialog")?;
     h.b.xpath("//button[contains(.,'Needs you') and contains(.,'1')]")
         .click()?;
@@ -754,6 +762,13 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
             .attr("datetime")?
             == duration
     );
+    h.click("Close dialog")?;
+    h.click("Activity Log")?;
+    h.b.label("Activity type").select("recovery")?;
+    h.b.label("View recovery for Cannot write Git metadata.")
+        .click()?;
+    h.b.label("Recovery details")
+        .contains("The operator retried")?;
     h.no_overflow()
 }
 scenario!(

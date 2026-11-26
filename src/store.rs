@@ -70,6 +70,7 @@ impl Store {
         CREATE TABLE IF NOT EXISTS cases (project TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,body BLOB NOT NULL,PRIMARY KEY(project,id,revision));
         PRAGMA user_version=2;")?;
         let mut ids = HashSet::new();
+        let mut history = Vec::new();
         for mut r in read_values(&tx, "SELECT body FROM runs", [])? {
             if version == 1 {
                 let mut inbox = r["inbox"].as_array().cloned().unwrap_or_default();
@@ -95,12 +96,19 @@ impl Store {
             if scheduled(&r) {
                 ids.insert(r["id"].as_str().context("missing run ID")?.to_owned());
             }
+            if crate::run::failure_log::index_completed(&mut r) {
+                history.push(r);
+            }
         }
         tx.commit()?;
-        Ok(Self(Mutex::new(Database {
+        let store = Self(Mutex::new(Database {
             conn,
             scheduled: ids,
-        })))
+        }));
+        for mut run in history {
+            store.save(&mut run, "indexed-recovery-history", &[])?;
+        }
+        Ok(store)
     }
     pub fn project_id(&self, git_dir: &str) -> Result<String> {
         let db = self.lock()?;

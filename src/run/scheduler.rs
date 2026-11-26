@@ -284,13 +284,7 @@ impl Engine {
                                 self.store.save(&mut next, "coordinator-observed", &cases)
                             });
                         if let Err(e) = result {
-                            if r["review_feedback"].is_null() {
-                                r["review_feedback"] = json!(e.to_string());
-                                r["observer_session"] = Value::Null;
-                            } else {
-                                r["observer_error"] = json!(e.to_string());
-                            }
-                            return self.save(r, "observer-error");
+                            return self.failed_review(r, &turn, &e);
                         }
                         *r = next;
                         return Ok(());
@@ -386,7 +380,13 @@ impl Engine {
             let text = experiment::observer_prompt(r, &cases, &self.root(r));
             let id = s(&obs[obs.len().min(30) - 1], "id").to_owned();
             let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"observer","dir":self.root(r).join("coordinator"),"prompt":text,"session":s(r,"observer_session")});
-            return self.agent_turn(r, "observe", &id, req);
+            let revision = r["revision"].clone();
+            return match self.agent_turn(r, "observe", &id, req) {
+                Err(e) if r["revision"] == revision => {
+                    self.failed_review(r, &json!({"task":id}), &e)
+                }
+                result => result,
+            };
         }
         // While target readback is unavailable, receive turns and let the coordinator
         // review the failure, but do not initiate another landing or release.
@@ -452,6 +452,50 @@ impl Engine {
             Phase::Planning | Phase::Repairing | Phase::Budget => Ok(()),
         }
     }
+    fn failed_review(&self, r: &mut Value, turn: &Value, error: &anyhow::Error) -> Result<()> {
+        let reason = format!("{error:#}");
+        let existing = s(r, "review_failure_id").to_owned();
+        let issue_id = if existing.is_empty() {
+            let id = uid();
+            let report = json!({"id":id,"role":"recovery","kind":"coordinator-review-failed","task":turn["task"],"state":"awaiting-review","agent":r["input"]["coordinator"],"started":chrono::Utc::now().timestamp_millis(),"detail":reason,"source":turn["id"],"milestones":turn["milestones"]});
+            push(&mut r["failure_log"], report);
+            r["review_failure_id"] = json!(id);
+            id
+        } else {
+            existing
+        };
+        if r["review_feedback"].is_null() {
+            failure_log::decision(
+                r,
+                &issue_id,
+                "awaiting-review",
+                "Retrying coordinator review with the error and a fresh session.",
+                turn,
+            );
+            r["review_feedback"] = json!(reason);
+            r["observer_session"] = Value::Null;
+        } else {
+            failure_log::decision(r, &issue_id, "needs-attention", &reason, turn);
+            r["observer_error"] = json!(reason);
+            if let Some(last) = find(&r["observations"], s(turn, "task")) {
+                let ids = a(&r["observations"])[..=last]
+                    .iter()
+                    .map(|o| s(o, "id").to_owned())
+                    .collect::<Vec<_>>();
+                for id in ids {
+                    failure_log::decision(
+                        r,
+                        &id,
+                        "needs-attention",
+                        &format!("Coordinator review failed: {reason}"),
+                        turn,
+                    );
+                }
+            }
+        }
+        self.save(r, "observer-error")
+    }
+
     fn promote_worker_questions(&self, r: &mut Value) -> Result<()> {
         if s(r, "project").is_empty() {
             return Ok(());

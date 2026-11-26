@@ -20,6 +20,8 @@ Use **Evaluation tools → Eval suite** to approve a case or rule revision. If y
 
 When you spot a missed edge case, choose **Give feedback** in **Experiment**. The coordinator can save it under **Evaluation tools → Project eval cases**. It becomes part of a run’s checks when you approve a suite that references it.
 
+To follow a problem across the run, open **Activity Log** and select **Failure recovery** under activity type. Open an entry for the evidence, source log and coordinator decision. **Explain this** sends that record to coordinator chat.
+
 ## Choose and refine
 
 Open the **Experiment** view to see the recommendation and which implementation landed. Choose an implementation for its milestones and measurements, or **View decision details** for the selection rationale. **Explain this** asks the coordinator about that implementation. Expand superseded implementations to inspect earlier attempts. **Select** lets you choose another eligible candidate. **Keep current version** records a decision to retain the target. To borrow a strong feature from another candidate, choose **Combine aspects**, select the starting implementation and donors, and describe what should carry over. The resulting commit has its own checks and measurements.

@@ -11,7 +11,8 @@ const labels = {
   running: "Working", committed: "Committed", interrupted: "Interrupted", passed: "Passed",
   failed: "Failed", conflict: "Merge conflict", inconclusive: "Inconclusive", cancelled: "Canceled",
   superseded: "Superseded", abandoned: "Abandoned", stale: "Stale", queued: "Queued", received: "Finished",
-  "milestone-blocked": "Milestone blocked",
+  "milestone-blocked": "Milestone blocked", "awaiting-review": "Awaiting coordinator",
+  "needs-attention": "Needs attention", reviewed: "Reviewed", recorded: "Recorded",
 };
 
 const PendingOperations = createContext(null);

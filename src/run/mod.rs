@@ -13,6 +13,7 @@ pub mod release;
 use scheduler::budget;
 mod candidate;
 mod commands;
+pub(crate) mod failure_log;
 mod recovery;
 mod scheduler;
 #[cfg(test)]
@@ -93,10 +94,9 @@ fn valid_id(id: &str) -> bool {
 }
 pub fn observe(r: &mut Value, kind: &str, id: &str, text: &str) {
     if !s(r, "project").is_empty() {
-        push(
-            &mut r["observations"],
-            json!({"id":uid(),"kind":kind,"ref":id,"text":text}),
-        )
+        let observation = json!({"id":uid(),"kind":kind,"ref":id,"text":text});
+        failure_log::record(r, &observation);
+        push(&mut r["observations"], observation)
     }
 }
 pub fn held(r: &Value, id: &str) -> bool {

@@ -52,7 +52,18 @@ pub(super) fn report_failures(r: &mut Value) -> bool {
     } else if let Some(fields) = r.as_object_mut() {
         fields.remove("reported_run_failure");
     }
-    let changed = !reports.is_empty();
+    // Preserve issues already queued by an earlier version before their review.
+    let pending = a(&r["observations"])
+        .iter()
+        .filter(|o| {
+            failure_log::is_failure(s(o, "kind")) && find(&r["failure_log"], s(o, "id")).is_none()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let changed = !reports.is_empty() || !pending.is_empty();
+    for observation in pending {
+        failure_log::record(r, &observation);
+    }
     if changed && !s(r, "observer_error").is_empty() {
         r["review_feedback"] = r["observer_error"].take();
     }
@@ -142,7 +153,20 @@ pub(super) fn recover(r: &mut Value, action: &Value, batch: &[Value]) -> Result<
         }
         return Ok(());
     }
-    supersede(r, id, s(action, "replacement"), instruction)
+    let depth = num(&old["replacement_depth"]);
+    let replacement = s(action, "replacement");
+    let j = index(&r["tasks"], replacement)?;
+    let verified = r["tasks"][j]["state"] == "committed";
+    ensure!(
+        verified || depth < 2,
+        "two replacement attempts have blocked; select a verified replacement or ask the developer"
+    );
+    supersede(r, id, replacement, instruction)?;
+    if !verified {
+        r["tasks"][j]["replacement_depth"] =
+            json!(num(&r["tasks"][j]["replacement_depth"]).max(depth + 1));
+    }
+    Ok(())
 }
 
 pub(super) fn supersede(

@@ -19,8 +19,9 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - {"kind":"message_worker","ref":"task ID","text":"specific handoff for this worker's next turn"}. Use this to pass an interface decision or dependency finding to another active milestone. It does not resolve a question.
 - {"kind":"propose_suite","recipe":{"checks":[["command"]],"cases":[]}} for developer review. Include "rule" only when defining measured metrics and an objective. A case can use a known absolute driver or a self-contained interpreted program. Give its observable expectation and why it matters. Do not propose an empty policy.
 - {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Only a pending, running or questioning parent can receive children. During the working phase, omit ref to assign additional work. When a handoff identifies a defect within the approved brief, assign a new scoped milestone depending on the relevant commits. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
-- On worker-blocked, diagnose the failure. Use {"kind":"retry_milestone","ref":"blocked task ID","text":"concrete corrective instructions"} when the checkout can be repaired. For a bad base, assign a fresh top-level replacement with delegate, then {"kind":"supersede_milestone","ref":"blocked task ID","replacement":"replacement task ID","text":"why it covers the original goal"}. Reuse a suitable existing replacement. Preserve prerequisites and acceptance criteria. Use class testing for verification. After two automatic retries, choose a replacement or ask for help. Ask only when a decision, permission or external intervention is needed.
-- For a blocked run, {"kind":"retry_run","ref":"run ID","text":"diagnosis and how the next attempt should recover"} resumes the interrupted planning or repair phase. For failed candidate checks, use {"kind":"repair_candidate","ref":"failed candidate ID","text":"specific correction and checks"} in a blocked run. These actions preserve approved checks.
+- On worker-blocked, diagnose the failure. Use {"kind":"retry_milestone","ref":"blocked task ID","text":"concrete corrective instructions"} when the checkout can be repaired. For a bad base, assign a fresh top-level replacement with delegate, then {"kind":"supersede_milestone","ref":"blocked task ID","replacement":"replacement task ID","text":"why it covers the original goal"}. Reuse a suitable existing replacement. Preserve prerequisites and acceptance criteria. Use class testing for verification. After two automatic retries, choose a replacement or ask for help. After two consecutive blocked replacements, use an already verified replacement or ask for help. Ask only when a decision, permission or external intervention is needed.
+- For a blocked run, {"kind":"retry_run","ref":"run ID","text":"diagnosis and how the next attempt should recover"} resumes an interrupted planning, repair or approved work phase. Use it for a transient scheduler or integration failure after its cause has changed. For failed candidate checks, use {"kind":"repair_candidate","ref":"failed candidate ID","text":"specific correction and checks"} in a blocked run. These actions preserve approved checks.
+- For each failure, inspect its evidence, identify the likely cause and decide whether a safe correction is possible. Record the diagnosis and next step using {"kind":"assess_failure","ref":"observation ID","text":"cause, evidence, and action or reason for waiting"}. This note accompanies any repair action. If an otherwise successful observation reveals a new issue, use assess_failure with that observation ID and describe the issue, then assign the corrective work. Prefer an already verified replacement if it covers the original goal. Ask for help if a repeated attempt would have the same inputs and outcome.
 - Evaluate run, candidate, conversation and release failures. Address recoverable work with available actions or ask a focused question describing the intervention required. Respect approvals, token targets and deployment decisions.
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.
 - For a requested combination, {"kind":"combine","ref":"combination ID","text":"scoped implementation instructions","tasks":[{"id":"new-slug","worker":"profile","goal":"specific change","paths":[]}]}.
@@ -58,6 +59,7 @@ pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
                     "previous_failure",
                     "failed_receipt",
                     "automatic_retries",
+                    "replacement_depth",
                     "superseded_by",
                 ],
             )
@@ -89,7 +91,32 @@ pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
             }
         }
     }
-    let state = json!({"Phase":r["state"],"Observations":batch,"Cases":cases,"Tasks":tasks,"Candidates":candidates,"Questions":r["inbox"],"Combination":r["combination"],"Evidence":evidence,"LastReviewError":r["review_feedback"],"RunFailure":r["detail"]});
+    let failures = batch
+        .iter()
+        .filter_map(|o| find(&r["failure_log"], s(o, "id")).map(|i| &r["failure_log"][i]))
+        .map(|entry| {
+            let mut summary = entry.clone();
+            if matches!(
+                s(entry, "kind"),
+                "eval-failed" | "eval-inconclusive" | "candidate-failed"
+            ) && !a(&r["input"]["recipe"]["cases"])
+                .iter()
+                .any(|c| c["holdback"] == true)
+                && let Some(i) = find(&r["turns"], s(entry, "source"))
+                && let Ok(excerpt) = crate::supervisor::log_tail(
+                    &root
+                        .join("turns")
+                        .join(s(&r["turns"][i], "id"))
+                        .join("events.log"),
+                    4000,
+                )
+            {
+                summary["check_output"] = json!(excerpt);
+            }
+            summary
+        })
+        .collect::<Vec<_>>();
+    let state = json!({"Failures":failures, "Phase":r["state"],"Observations":batch,"Cases":cases,"Tasks":tasks,"Candidates":candidates,"Questions":r["inbox"],"Combination":r["combination"],"Evidence":evidence,"LastReviewError":r["review_feedback"],"RunFailure":r["detail"]});
     format!(
         "{OBSERVER}Available profiles: {}.\nBrief: {}\nState: {}",
         r["input"]["workers"],
@@ -425,10 +452,28 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
         .map(|o| s(o, "id").to_owned())
         .collect();
     if !stale.is_empty() {
+        for id in &stale {
+            if find(&run["failure_log"], id)
+                .is_some_and(|i| run["failure_log"][i]["state"] != "reviewed")
+            {
+                super::failure_log::decision(
+                    run,
+                    id,
+                    "reviewed",
+                    "The milestone changed before this review finished.",
+                    turn,
+                );
+            }
+        }
         run["observations"]
             .as_array_mut()
             .unwrap()
             .retain(|o| !stale.contains(s(o, "id")));
+        super::failure_log::finish_review(
+            run,
+            turn,
+            "The earlier blocker changed while the review was running.",
+        );
         run["review_feedback"] = Value::Null;
         return Ok(vec![]);
     }
@@ -449,6 +494,19 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
         );
         let target = s(action, "ref");
         match s(action, "kind") {
+            "assess_failure" => {
+                let observation = batch
+                    .iter()
+                    .find(|o| o["id"] == target)
+                    .context("select an observation from this review")?;
+                let diagnosis = text(action, "text")?;
+                if find(&r["failure_log"], target).is_none() {
+                    let mut issue = observation.clone();
+                    issue["kind"] = json!("coordinator-finding");
+                    issue["text"] = json!(diagnosis);
+                    super::failure_log::record(&mut r, &issue);
+                }
+            }
             "save_case_revision" => {
                 let mut c = action["case"].clone();
                 ensure!(
@@ -544,8 +602,19 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
                 } else {
                     ensure!(r["id"] == target, "wrong run");
                     let phase = super::commands::resume_phase(&r);
+                    let retry_work = phase == "working"
+                        && r["recipe_approved"] == true
+                        && !super::waiting(&r)
+                        && !super::active(&r)
+                            .iter()
+                            .any(|t| matches!(s(t, "state"), "blocked" | "question"))
+                        && !a(&r["candidates"]).iter().any(|c| {
+                            c["round"] == r["round"]
+                                && c["policy"] == r["policy"]
+                                && matches!(s(c, "state"), "failed" | "inconclusive")
+                        });
                     ensure!(
-                        matches!(phase, "planning" | "repairing"),
+                        matches!(phase, "planning" | "repairing") || retry_work,
                         "choose a milestone or candidate recovery"
                     );
                     r["state"] = json!(phase);
@@ -566,6 +635,12 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
             "repair_conflict" | "combine" => repair_or_combine(&mut r, action)?,
             k => bail!("unknown coordinator action {k}"),
         }
+    }
+    if r["state"] == "blocked" && batch.iter().any(|o| o["kind"] == "run-blocked") {
+        ensure!(
+            a(&r["inbox"]).iter().any(|q| q["state"] == "open"),
+            "The run is still blocked. Choose a safe retry or repair, or ask the developer for the specific intervention needed."
+        );
     }
     for failure in batch.iter().filter(|o| o["kind"] == "worker-blocked") {
         let target = s(failure, "ref");
@@ -612,6 +687,8 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
             "The coordinator must propose a combination or ask for clarification."
         );
     }
+    super::failure_log::reviewed(&mut r, batch, actions, turn);
+    super::failure_log::finish_review(&mut r, turn, "Coordinator review succeeded.");
     r["observations"] = json!(&a(&r["observations"])[last + 1..]);
     if let Some(i) = find(&r["turns"], s(turn, "id")) {
         let mut ids = super::strings(&r["turns"][i]["milestones"]);

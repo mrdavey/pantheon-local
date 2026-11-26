@@ -338,6 +338,14 @@ fn coordinator_recovers_blocked_workers_without_operator_input() -> Result<()> {
     }
     let page = svc.get(&format!("{url}/activity?milestone=retry-work"))?;
     let activity = rows(&page["items"]);
+    let failures = svc.get(&format!(
+        "{url}/activity?role=recovery&milestone=retry-work&q=rebuild"
+    ))?;
+    assert_eq!(failures["total"], 1);
+    let report = item(&run["failure_log"], "id", &failures["items"][0]["id"])?;
+    assert_eq!(report["state"], "reviewed");
+    assert_eq!(report["evidence"]["worker"], "writer");
+    assert!(report["source"].is_string() && report["review_turn"].is_string());
     assert_eq!(activity.iter().filter(|r| r["role"] == "worker").count(), 2);
     assert!(activity.iter().any(|r| r["role"] == "observe"));
     assert!(activity.iter().any(|r| r["role"] == "eval"));

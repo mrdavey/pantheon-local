@@ -8,6 +8,111 @@ fn fixture() -> Result<(tempfile::TempDir, Engine)> {
     Ok((dir, e))
 }
 #[test]
+fn historical_failures_are_indexed_once_without_waking_a_landed_run() -> Result<()> {
+    let (dir, engine) = fixture()?;
+    let mut r = json!({"id":"legacy","state":"landed","tasks":[{"id":"verify","state":"superseded","previous_failure":"incorrect base","superseded_by":"recheck"}],
+        "turns":[{"id":"worker-log","role":"worker","task":"verify","finished":100}]});
+    engine.store.save(&mut r, "landed", &[])?;
+    drop(engine);
+    for _ in 0..2 {
+        let db = Store::open(dir.path())?;
+        let saved = db.get("legacy")?;
+        let items = a(&saved["failure_log"]);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["started"], 100);
+        assert_eq!(items[0]["decision"], "Superseded by recheck.");
+        assert_eq!(saved["revision"], 2);
+        assert!(db.scheduled_runs()?.is_empty());
+    }
+    Ok(())
+}
+#[test]
+fn coordinator_can_identify_and_log_an_issue_in_an_ordinary_handoff() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut r = json!({"state":"working","project":"project","input":{"workers":["writer"]},"tasks":[{"id":"export","state":"committed"}]});
+    observe(
+        &mut r,
+        "worker-completed",
+        "export",
+        "Export is complete but large input is slow.",
+    );
+    let event = r["observations"][0]["id"].clone();
+    let actions = json!({"actions":[{"id":"diagnose","kind":"assess_failure","ref":event,"text":"The large-input check found repeated parsing."},
+        {"id":"schedule","kind":"delegate","tasks":[{"id":"optimize","worker":"writer","goal":"Avoid repeated parsing and verify unchanged results","depends":["export"]}]}]});
+    experiment::finish_observation(
+        &mut r,
+        &json!({"task":event,"id":"review"}),
+        &json!({"text":actions.to_string()}),
+    )?;
+    assert_eq!(r["failure_log"][0]["state"], "reviewed");
+    assert_eq!(r["tasks"][1]["id"], "optimize");
+    assert!(s(&r["failure_log"][0], "decision").contains("optimize"));
+    assert!(a(&r["observations"]).is_empty());
+    let page = crate::activity::page(&r, dir.path(), "role=recovery&milestone=export&q=parsing")?;
+    assert_eq!(page["total"], 1);
+    Ok(())
+}
+
+#[test]
+fn failed_checks_supply_diagnostics_but_holdback_output_stays_private() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let job = dir.path().join("turns/check");
+    std::fs::create_dir_all(&job)?;
+    std::fs::write(
+        job.join("events.log"),
+        "Chromium could not create its profile socket",
+    )?;
+    let mut r = json!({"id":"run","project":"p","state":"evaluating","turns":[{"id":"check","task":"candidate","role":"eval","state":"received"}],"candidates":[{"id":"candidate","tasks":["worker"],"state":"failed","commit":"deadbeef"}]});
+    observe(
+        &mut r,
+        "eval-failed",
+        "candidate",
+        "Command exited with code 1",
+    );
+    assert_eq!(r["failure_log"][0]["source"], "check");
+    assert_eq!(r["failure_log"][0]["milestones"], json!(["worker"]));
+    assert!(experiment::observer_prompt(&r, &[], dir.path()).contains("Chromium could not create"));
+    r["input"]["recipe"]["cases"] = json!([{"holdback":true}]);
+    assert!(
+        !experiment::observer_prompt(&r, &[], dir.path()).contains("Chromium could not create")
+    );
+    Ok(())
+}
+#[test]
+fn restarting_an_old_run_can_supersede_a_blocker_with_work_already_committed() -> Result<()> {
+    let (dir, engine) = fixture()?;
+    // A pre-recovery daemon persisted the failed validation, then a later
+    // worker completed an equivalent verification milestone on a fresh base.
+    let mut legacy = json!({"id":"legacy","project":"project","state":"working","recipe_approved":true,
+        "tasks":[{"id":"fix","state":"committed","commit":"abc"},{"id":"verify","depends":["fix"],"state":"blocked","finding":"milestone must commit a descendant of its assigned base"},
+            {"id":"recheck","depends":["fix"],"goal":"Verify the combined fixes","finding":"Both checks passed","commit":"def","state":"committed"}]});
+    engine.store.save(&mut legacy, "seed", &[])?;
+    drop(engine);
+    let engine = Engine {
+        dir: dir.path().to_owned(),
+        store: Store::open(dir.path())?,
+    };
+    engine.tick()?;
+    let mut run = engine.store.get("legacy")?;
+    let failure = &run["observations"][0];
+    assert_eq!(failure["ref"], "verify");
+    assert_eq!(failure["kind"], "worker-blocked");
+    let turn = json!({"id":"review","role":"observe","task":failure["id"]});
+    let prompt = experiment::observer_prompt(&run, &[], dir.path());
+    assert!(
+        prompt.contains("Both checks passed") && prompt.contains("descendant of its assigned base")
+    );
+    let decision = json!({"actions":[{"id":"reuse","kind":"supersede_milestone","ref":"verify","replacement":"recheck","text":"The committed recheck covers both fixes"}]});
+    experiment::finish_observation(&mut run, &turn, &json!({"text":decision.to_string()}))?;
+    assert_eq!(run["tasks"][1]["superseded_by"], "recheck");
+    assert_eq!(run["tasks"][2]["commit"], "def");
+    assert_eq!(a(&run["tasks"]).len(), 3);
+    assert!(committed(&run));
+    assert!(a(&run["observations"]).is_empty());
+    assert!(a(&run["inbox"]).is_empty());
+    Ok(())
+}
+#[test]
 fn operator_can_resolve_a_blocked_review_with_a_committed_replacement() -> Result<()> {
     let (_dir, e) = fixture()?;
     let mut r = json!({"id":"run","state":"working","project":"test","tasks":[{"id":"failed","state":"blocked","finding":"bad base"},{"id":"replacement","state":"pending"},{"id":"downstream","state":"pending","depends":["failed"]}]});

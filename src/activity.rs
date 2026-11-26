@@ -88,6 +88,12 @@ fn related(
             match ctx["kind"].as_str() {
                 Some("milestone") => ctx["id"] == milestone,
                 Some("implementation") => candidate_contains(run, &ctx["id"], milestone),
+                Some("activity")
+                    if lookup(run, "failure_log", &ctx["id"])
+                        .is_some_and(|e| references(&e["milestones"], milestone)) =>
+                {
+                    true
+                }
                 Some("activity") => ctx["id"]
                     .as_str()
                     .is_some_and(|id| related_turns.contains(id)),
@@ -135,7 +141,11 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
     }
     let mut rows = Vec::new();
     let mut related_turns = HashSet::new();
-    for t in turns {
+    let failures = run["failure_log"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for t in turns.iter().chain(failures) {
         let role = t["role"].as_str().unwrap_or("");
         let task = t["task"].as_str().unwrap_or("");
         let milestone = get("milestone");
@@ -170,12 +180,15 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
         };
         let role_matches = match get("role") {
             "" => true,
-            "coordinator" => matches!(role, "plan" | "observe" | "repair" | "chat" | "pricing"),
+            "coordinator" => matches!(
+                role,
+                "plan" | "observe" | "repair" | "chat" | "pricing" | "recovery"
+            ),
             specific => role == specific,
         };
-        let detail = descriptions
-            .get(&(role, task))
-            .copied()
+        let detail = t["detail"]
+            .as_str()
+            .or_else(|| descriptions.get(&(role, task)).copied())
             .unwrap_or(match role {
                 "plan" => "Create the run plan",
                 "observe" => "Review milestone progress",
@@ -196,6 +209,8 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
                     label,
                     task,
                     detail,
+                    t["kind"].as_str().unwrap_or(""),
+                    t["decision"].as_str().unwrap_or(""),
                     agent,
                     t["state"].as_str().unwrap_or(""),
                     t["id"].as_str().unwrap_or(""),
@@ -208,6 +223,9 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
         rows.push((t, agent, detail));
     }
     // Dispatch appends turns in chronological order, even in older runs without timestamps.
+    if !failures.is_empty() {
+        rows.sort_by_key(|(t, _, _)| t["started"].as_i64().unwrap_or(0));
+    }
     if get("sort") != "oldest" {
         rows.reverse()
     }
