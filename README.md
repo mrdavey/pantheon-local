@@ -30,11 +30,11 @@ In an interactive terminal, `swarm` and `swarm open` open the browser and show a
 
 1. Configure your agent in its CLI or Hermes Desktop. Open **New run**, describe the goal, and attach any reference files. Choose a coordinator and workers under **Team**. Open a worker’s settings to change its model or thinking effort, and choose whether to allow or limit subagents.
 2. Confirm the project folder (it defaults to the folder where you ran `swarm open`), then select **Start run**.
-3. Answer any planning questions, then approve the checks. Follow live assignments and dependencies in **Agent map** and monitor tokens and estimated cost in **Metrics**. Passing work auto-lands on your clean target branch unless you choose **Review before landing** in **Advanced settings**. [First run and troubleshooting](docs/getting-started.md)
+3. Answer any planning questions, then approve the checks. Follow live assignments and dependencies in **Milestones → Map** and monitor tokens and estimated cost in **Metrics**. Passing work auto-lands on your clean target branch unless you choose **Review before landing** in **Advanced settings**. [First run and troubleshooting](docs/getting-started.md)
 
 ## What runs where
 
-Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Agent map** shows assignments and dependencies. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
+Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Milestones** offers table, map, and Kanban views. Use **Add task** or **Coordinator chat** to propose more work. **Activity Log** lets you search turns and inspect their output. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 

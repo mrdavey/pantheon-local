@@ -717,3 +717,50 @@ fn benchmark_routing_respects_the_planners_capability_pool() -> Result<()> {
     assert_eq!(tasks[0]["worker"], "strong");
     Ok(())
 }
+
+#[test]
+fn chat_files_and_proposal_acceptance_replay_once() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut run = json!({"id":"files","state":"checks","input":{"workers":["writer"]},"round":1,"proposed_recipe":{"checks":[["original"]]}});
+    fs::create_dir_all(engine.root(&run))?;
+    engine.save(&mut run, "seed")?;
+    let upload = json!({"id":"upload","kind":"chat","text":"Review scope","attachments":[{"name":"scope.md","data":"b25l"}]});
+    let uploaded = engine.command("files", upload.clone())?;
+    let file = &uploaded["conversation"][0]["attachments"][0];
+    assert_eq!(
+        fs::read_to_string(engine.root(&uploaded).join(s(file, "path")))?,
+        "one"
+    );
+    assert!(file.get("data").is_none());
+    assert_eq!(
+        engine.command("files", upload.clone())?["conversation"],
+        uploaded["conversation"]
+    );
+    let mut changed = upload;
+    changed["attachments"][0]["data"] = json!("dHdv");
+    assert!(engine.command("files", changed).is_err());
+    let mut run = uploaded;
+    run["conversation"][0]["state"] = json!("answered");
+    engine.save(&mut run, "chat completed")?;
+    let mut run = engine.command(
+        "files",
+        json!({"kind":"propose-milestones","id":"request","text":"Add tests"}),
+    )?;
+    assert_eq!(run["conversation"][1]["intent"], "add");
+    let id = s(&run["conversation"][1], "id").to_owned();
+    let proposal = json!({"reply":"Test the parser.","tasks":[{"id":"test","worker":"writer","goal":"Test parsing"}],"checks":[["extra"]]});
+    engine.finish_chat(&mut run, &id, &json!({"text":proposal.to_string()}));
+    assert_eq!(run["conversation"][2]["reply_to"], id);
+    engine.save(&mut run, "proposed")?;
+    let accept =
+        json!({"kind":"accept-proposal","id":"accept","task":run["conversation"][2]["id"]});
+    let accepted = engine.command("files", accept.clone())?;
+    assert_eq!(accepted["state"], "checks");
+    assert_eq!(
+        accepted["proposed_recipe"]["checks"],
+        json!([["original"], ["extra"]])
+    );
+    assert_eq!(accepted["tasks"][0]["round"], 1);
+    assert_eq!(engine.command("files", accept)?["tasks"], accepted["tasks"]);
+    Ok(())
+}

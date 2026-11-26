@@ -4,10 +4,9 @@ import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider } from "./status.jsx";
-import { TurnLog, LogTime } from "./turn-log";
-import { MilestoneTime } from "./milestone-time";
+import { ActivityLog } from "./activity-log";
+import { Milestones } from "./milestones";
 import { Metrics } from "./metrics";
-import { AssignmentMap } from "./assignment-map.jsx";
 import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
 import React, { useEffect, useRef, useState } from "react";
@@ -17,11 +16,11 @@ import "./style.css";
 import "./work.css";
 import { DiffExplorer, TurnOutput } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
-import { runTitle, shortSummary, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
+import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
 import { AgentSetup } from "./setup.jsx";
 import { Brief } from "./brief.jsx";
-import { Experiment, Inbox, ReleaseList, title } from "./experiments.jsx";
-import { Conversation, RoutingEvidence } from "./conversation.jsx";
+import { Experiment, Inbox, ReleaseList } from "./experiments.jsx";
+import { Conversation } from "./conversation.jsx";
 import { RecipeEditor, branchName } from "./review.jsx";
 
 import "./workspace.css";
@@ -161,91 +160,13 @@ function Candidate({ run, candidate, act, perform, busy, name, explain }) {
   </article>;
 }
 
-const turnLabel = {
-  plan: "Planning", advisor: "Advisor", observe: "Coordinator review", worker: "Worker", eval: "Evaluation",
-  chat: "Conversation", repair: "Repair planning", release: "Release",
-};
-
-function Milestone({ task, run, busy, act, order, explain }) {
-  const [open, setOpen] = useState(false);
-  const name = shortSummary(task.goal, 90) || task.id.replace(/[-_]+/g, " ");
-  const added = new Date(task.assigned_at);
-  const hasDate = Boolean(task.assigned_at) && Number.isFinite(added.getTime());
-  const date = hasDate && <time dateTime={task.assigned_at} title={added.toLocaleString()}>{added.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>;
-  const retry = canRetryMilestone(run, task);
-  return <li className="milestone">
-    <Button variant="outline" className="milestone-link" data-task={task.id} onClick={() => setOpen(true)} aria-haspopup="dialog">
-      <span className="milestone-order" aria-label={"Milestone " + order}>{order}</span>
-      <span className="milestone-title"><strong>{name}</strong>{date}</span>
-      <span className="milestone-owner">{task.worker}{task.variant && " · " + task.variant}</span>
-      <Status state={task.state} />
-    </Button>
-    {retry && <Button variant="outline" disabled={busy} onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}>Retry milestone</Button>}
-    {task.question && task.state === "question" && !run.project && <Question text={task.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text, task: task.id })} />}
-    {open && <Dialog title={task.id.replace(/[-_]+/g, " ")} className="work-detail-dialog" onClose={() => setOpen(false)}>
-      <div className="work-details">
-        <section><div className="milestone-meta"><Status state={task.state} /><span>{task.worker}</span><span>Milestone {order}</span>{date}
-          {task.commit && <code title={task.commit}>{task.commit.slice(0, 10)}</code>}</div>
-          <MilestoneTime {...{api, run, task}} />
-          {task.depends?.length > 0 && <p>After {task.depends.join(", ")}</p>}
-          <Button variant="outline" className="text-button explain-context" onClick={() => { setOpen(false); explain("milestone", task.id); }}>Explain this</Button>
-        </section>
-        <section><h3>Assignment</h3><Markdown>{task.goal}</Markdown></section>
-        {task.finding && <section><h3>Result</h3><Markdown>{task.finding}</Markdown></section>}
-        {task.notes?.length > 0 && <section><h3>Notes</h3>{task.notes.map((note, i) => <Markdown key={i}>{note}</Markdown>)}</section>}
-        {task.route && <RoutingEvidence route={task.route} />}
-      </div>
-    </Dialog>}
-  </li>;
-}
-
-function Activity({ run }) {
-  const [open, setOpen] = useState(false);
-  const [id, setId] = useState(null);
-  const back = useRef(null);
-  const origin = useRef(null);
-  const lastTurn = useRef(null);
-  useEffect(() => {
-    if (open && id) back.current?.focus();
-    if (open && !id && lastTurn.current) origin.current?.focus();
-    lastTurn.current = id;
-  }, [open, id]);
-  const turns = run.turns || [];
-  const turn = turns.find((t) => t.id === id);
-  const turnName = (t) => {
-    const candidate = t.role === "eval" && run.candidates?.find((c) => c.id === t.task);
-    const detail = t.role === "chat" ? run.conversation?.find(message => message.id === t.task)?.text :
-      candidate ? title(candidate) : t.task;
-    return (turnLabel[t.role] || t.role) + (detail ? " · " + shortSummary(detail, 55) : "");
-  };
-  if (!turns.length) return null;
-  return <>
-    <Button variant="outline" onClick={() => { setOpen(true); setId(null); }}>View activity ({turns.length})</Button>
-    {open && <Dialog className="evidence-dialog" title={turn ? turnName(turn) : "Run activity"} onClose={() => setOpen(false)}>
-      {turn ? <>
-        <Button variant="outline" ref={back} onClick={() => setId(null)}>Back to activity</Button>
-        <TurnLog key={turn.id} api={api} path={"/runs/" + run.id + "/turns/" + turn.id + "/log"} running={turn.state === "running"} />
-      </> : <>
-        {(run.tokens > 0 || run.unknown_turns > 0) && <p className="usage-note">{[
-          run.tokens > 0 && `${run.tokens.toLocaleString()} recorded tokens`,
-          run.unknown_turns > 0 && `${run.unknown_turns} turns without usage`,
-        ].filter(Boolean).join(" · ")}</p>}
-        {[...turns].reverse().map((t) => <div className="activity activity-entry" key={t.id}>
-          <span>{turnName(t)}{t.started && <small className="activity-start"><LogTime at={t.started} now={Date.now()} /></small>}</span><Status state={t.state} />
-          <Button variant="outline" ref={lastTurn.current === t.id ? origin : undefined} aria-label={"View log for " + turnName(t)} onClick={() => setId(t.id)}>View log</Button>
-        </div>)}
-      </>}
-    </Dialog>}
-  </>;
-}
-
 function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const [view, setTab] = useState(() => run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "work");
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
-  const [previous, setPrevious] = useState(false);
+  const lastView = useRef(view);
+  const expandChat = () => { if (view !== "chat") lastView.current = view; setTab("chat"); };
   const [chatRequest, setChatRequest] = useState(null);
   const explain = (kind, id) => {
-    setPrevious(false);
     setChatRequest({kind, id, key: crypto.randomUUID()});
   };
   const act = (body) => send(run, body);
@@ -253,7 +174,6 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const landed = run.state === "landed" && run.detail;
   const showExperiment = () => { setExperimentOpened(true); setTab("experiment"); };
   const tasks = run.tasks || [];
-  const currentTasks = tasks.slice(run.task_start || 0);
   const candidates = (run.candidates || []).filter(c => (c.round || 1) === (run.round || 1));
   const activeCandidates = candidates.filter(c => (c.policy || 0) === (run.policy || 0) && c.state !== "superseded");
   const superseded = candidates.filter(c => c.state === "superseded");
@@ -261,7 +181,6 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     {...{ candidate, run, act, perform, busy, explain }} />;
   const subdir = run.repo.Subdir;
   const projectPath = subdir && subdir !== "." ? run.repo.Root.replace(/\/$/, "") + "/" + subdir : run.repo.Root;
-  const completed = currentTasks.filter((t) => t.state === "committed").length;
   return <section className="panel run-workspace">
     <header className="run-heading">
       <div className="run-meta">
@@ -278,14 +197,15 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
         {!!run.input.attachments?.length && <ul aria-label="Brief attachments">{run.input.attachments.map(file => <li key={file.path}>{file.name}</li>)}</ul>}
       </details>}
     </header>
-    <Conversation {...{ run, act, busy, api, chatRequest }} />
     <div className="run-body">
     <nav className="run-tabs" aria-label="Run views">
-      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</Button>
-      <Button variant="outline" aria-pressed={view === "map"} onClick={() => setTab("map")}>Agent map</Button>
+      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Milestones</Button>
+      <Button variant="outline" aria-pressed={view === "activity"} onClick={() => setTab("activity")}>Activity Log</Button>
       <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}>Metrics</Button>
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
+      <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}>Coordinator chat</Button>
     </nav>
+    <Conversation {...{ run, act, busy, api, chatRequest }} expanded={view === "chat"} onExpand={expandChat} onDock={() => setTab(lastView.current)} />
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
@@ -305,10 +225,11 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     </div>}
     </div>
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
-    {view === "map" && <AssignmentMap run={run} api={api} />}
-    <ReleaseList {...{ run, act, busy }} />
+    {view === "activity" && <ActivityLog {...{run,api}} />}
+    {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
+      <Milestones {...{run,api,act,busy,explain}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
       {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
         {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
           <Button variant="outline" className="text-button" onClick={showExperiment}>Compare in Experiment</Button></header>}
@@ -318,18 +239,6 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
           {superseded.map(renderCandidate)}
         </details>}
       </section>}
-      <section aria-labelledby="milestone-heading">
-        <header className="work-section-heading"><h2 id="milestone-heading">Milestones</h2>
-          {currentTasks.length > 0 && <span>{completed} of {currentTasks.length} complete</span>}</header>
-        {run.benchmark_note && <Markdown>{run.benchmark_note}</Markdown>}
-        {!currentTasks.length && <p>Waiting for the coordinator’s plan.</p>}
-        <ol className="milestones" aria-label="Milestones in order added">{currentTasks.map((task, i) => <Milestone key={task.id} order={(run.task_start || 0) + i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
-        {run.task_start > 0 && <Button variant="outline" onClick={() => setPrevious(true)}>Earlier milestones</Button>}
-        {previous && <Dialog title="Earlier milestones" onClose={() => setPrevious(false)}>
-          <ol className="milestones">{tasks.slice(0, run.task_start).map((task, i) => <Milestone key={task.id} order={i + 1} {...{ task, run, busy, act, explain }} />)}</ol>
-        </Dialog>}
-      </section>
-      <footer className="work-footer"><span>Coordinator · <strong>{run.input.coordinator}</strong></span><Activity run={run} /></footer>
     </div>
     </div>
   </section>;
@@ -439,7 +348,7 @@ function App() {
     const guarded = ["dismiss-issue", "restore-issue", "answer-inbox", "select", "keep-baseline", "combine", "new-round", "land", "hold", "unhold",
       "hold-release", "resume-release", "cancel-release", "update-suite"].includes(body.kind);
     const path = "/runs/" + run.id;
-    const id = crypto.randomUUID();
+    const id = body.id || crypto.randomUUID();
     const original = guarded ? decisionInputs(run, body) : "";
     let revision = run.revision;
     for (let attempt = 0; ; attempt++) {

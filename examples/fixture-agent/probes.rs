@@ -113,7 +113,11 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
             ensure!(
                 start["method"] == "turn/start"
                     && start["params"]["threadId"] == "native-chat"
-                    && start["params"]["input"][0]["text"] == "hello",
+                    && start["params"]["input"][0]["text"] == "hello"
+                    && start["params"]["input"][1]["type"] == "localImage"
+                    && start["params"]["input"][1]["path"]
+                        .as_str()
+                        .is_some_and(|s| s.ends_with("/screen.png")),
                 "missing prompt"
             );
             println!("{}", json!({"id":start["id"],"result":{"turn":{"id":"t"}}}));
@@ -262,6 +266,16 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
             }
             let prompt = next(&mut input)?;
             ensure!(prompt["method"] == "session/prompt", "expected ACP prompt");
+            if name == "mock-acp" {
+                let link = &prompt["params"]["prompt"][1];
+                ensure!(
+                    link["type"] == "resource_link"
+                        && link["name"] == "scope.md"
+                        && link["uri"]
+                            .as_str()
+                            .is_some_and(|s| s.starts_with("file:") && s.ends_with("/scope.md"))
+                );
+            }
             let options = if fresh {
                 json!([{"kind":"allow_once","optionId":"yes"},{"kind":"reject_once","optionId":"no"}])
             } else {

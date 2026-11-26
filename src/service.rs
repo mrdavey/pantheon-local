@@ -309,12 +309,16 @@ async fn handle(State(state): State<Arc<Local>>, req: Request) -> Response {
         } else if path == "/api/session" && method == Method::GET {
             StatusCode::NO_CONTENT.into_response()
         } else {
-            let limit =
-                if method == Method::POST && matches!(path.as_str(), "/api/runs" | "/api/advice") {
-                    crate::attachments::REQUEST_LIMIT
-                } else {
-                    1024 * 1024
-                };
+            let limit = if method == Method::POST
+                && (matches!(path.as_str(), "/api/runs" | "/api/advice")
+                    || path
+                        .strip_prefix("/api/runs/")
+                        .is_some_and(|id| !id.contains('/')))
+            {
+                crate::attachments::REQUEST_LIMIT
+            } else {
+                1024 * 1024
+            };
             let body = match tokio::time::timeout(
                 Duration::from_secs(25),
                 to_bytes(req.into_body(), limit),
@@ -632,6 +636,10 @@ impl Local {
                     }),
                     ("GET", ["milestones", task, "timing"]) => {
                         crate::metrics::milestone_timing(&run, &root, task)
+                    }
+                    ("GET", ["activity"]) => crate::activity::page(&run, &root, query),
+                    ("GET", ["milestones", task, "usage"]) => {
+                        crate::metrics::milestone_usage(&run, &root, task)
                     }
                     ("GET", ["metrics"]) => {
                         crate::metrics::report(&run, &root, cursor("from").max(0) as usize)

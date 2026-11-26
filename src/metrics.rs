@@ -499,7 +499,52 @@ pub fn milestone_timing(run: &Value, root: &Path, id: &str) -> Result<Value> {
     Ok(json!({"started":started,"ended":ended,"running":running}))
 }
 
+pub fn milestone_usage(run: &Value, root: &Path, task: &str) -> Result<Value> {
+    anyhow::ensure!(
+        run["tasks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|t| t["id"] == task),
+        "milestone not found"
+    );
+    let report = filtered_report(run, root, 0, Some(task))?;
+    let turns = report["turns"].as_array().context("missing usage report")?;
+    let mut tokens: Option<u64> = None;
+    let mut cost = None;
+    let mut partial_tokens = false;
+    let mut partial_cost = false;
+    for turn in turns {
+        let models = turn["samples"]
+            .as_array()
+            .and_then(|v| v.last())
+            .and_then(|v| v["models"].as_object());
+        if let Some(models) = models {
+            for receipt in models.values() {
+                if let Some(n) = receipt["tokens"].as_u64() {
+                    tokens = Some(tokens.unwrap_or(0).saturating_add(n))
+                } else {
+                    partial_tokens = true;
+                }
+                if let Some(n) = receipt["usd"].as_f64() {
+                    *cost.get_or_insert(0.) += n
+                } else {
+                    partial_cost = true;
+                }
+            }
+        } else {
+            partial_tokens = true;
+            partial_cost = true;
+        }
+    }
+    Ok(
+        json!({"tokens":tokens,"usd":cost,"partial_tokens":partial_tokens,"partial_cost":partial_cost,"turns":turns.len()}),
+    )
+}
 pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
+    filtered_report(run, root, from, None)
+}
+fn filtered_report(run: &Value, root: &Path, from: usize, task: Option<&str>) -> Result<Value> {
     let turns = run["turns"]
         .as_array()
         .map(Vec::as_slice)
@@ -507,7 +552,9 @@ pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
     let mut rows = Vec::new();
     let mut next = turns.len();
     for (index, t) in turns.iter().enumerate().skip(from) {
-        if matches!(t["role"].as_str(), Some("eval" | "release")) {
+        if task.is_some_and(|id| t["task"] != id || t["role"] != "worker")
+            || matches!(t["role"].as_str(), Some("eval" | "release"))
+        {
             continue;
         }
         if t["state"] == "running" {
@@ -654,6 +701,11 @@ mod tests {
         assert_eq!(r["turns"].as_array().unwrap().len(), 2);
         let reading = &r["turns"][0]["samples"][0]["models"]["gpt-6.2-sol"];
         assert_eq!(reading["tokens"], 11);
+        let individual = milestone_usage(&run, root.path(), "legacy-task")?;
+        assert_eq!(individual["tokens"], 11);
+        assert_eq!(individual["usd"], reading["usd"]);
+        assert_eq!(individual["turns"], 1);
+        assert!(milestone_usage(&run, root.path(), "missing").is_err());
         assert!((reading["usd"].as_f64().unwrap() - 0.0000224).abs() < 1e-12);
         assert_eq!(
             report(&run, root.path(), 2)?["turns"][0]["samples"],

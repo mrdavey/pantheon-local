@@ -23,10 +23,10 @@ export async function encodeAttachments(files) {
   })));
 }
 
-export function AttachmentButton({ add, busy }) {
+export function AttachmentButton({ add, busy, label = "Brief attachments" }) {
   const picker = useRef(null);
   return <>
-    <Input ref={picker} type="file" multiple hidden aria-label="Brief attachments" onChange={event => {
+    <Input ref={picker} type="file" multiple hidden aria-label={label} onChange={event => {
       add(Array.from(event.target.files));
       event.target.value = "";
     }} />
@@ -38,8 +38,8 @@ export function AttachmentButton({ add, busy }) {
   </>;
 }
 
-export function FileList({ names, remove }) {
+export function FileList({ names, remove, disabled }) {
   if (!names.length) return null;
   return <ul className="brief-files">{names.map((name, index) =>
-    <li key={index}><span title={name}>{name}</span><Button variant="outline" type="button" aria-label={"Remove " + name} onClick={() => remove(index)}>×</Button></li>)}</ul>;
+    <li key={index}><span title={name}>{name}</span><Button variant="outline" type="button" disabled={disabled} aria-label={"Remove " + name} onClick={() => remove(index)}>×</Button></li>)}</ul>;
 }

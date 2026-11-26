@@ -26,3 +26,5 @@ Use the checked-in shadcn/ui primitives in `web/src/components/ui` and the share
 The interactive terminal launcher lives in `src/launch.rs` and `src/launch/`. Preserve plain link output for pipes and `swarm serve`. Use the pseudo-terminal regression in `tests/service.rs` when changing rendering, input or shutdown.
 
 Worker checkouts for new runs live in a Git-ignored folder inside the selected project. Keep existing runs compatible with their saved workspace paths. Pricing lookups use the configured coordinator and the same supervised turn lifecycle as other agent work.
+
+Keep the milestone table, map and Kanban board on the same assignment details component. Route Add task and chat proposals through the coordinator conversation and the same acceptance command. Fetch activity pages and milestone receipts on demand.

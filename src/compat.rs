@@ -104,6 +104,7 @@ pub fn command_digest(v: &Value) -> Result<String> {
         &[
             "id",
             "expected_revision",
+            "attachments",
             "donors",
             "kind",
             "task",

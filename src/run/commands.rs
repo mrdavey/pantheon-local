@@ -169,8 +169,14 @@ impl Engine {
             .collect::<Vec<_>>()
             .join("\n");
         let selected = selected_evidence(r, &msg["context"], &self.root(r));
+        let files = crate::attachments::context(&self.root(r), &msg["attachments"])?;
+        let request_type = if msg["intent"] == "add" {
+            "The developer is requesting new milestones. Propose them now, or ask a clarifying question if necessary."
+        } else {
+            ""
+        };
         let prompt = format!(
-            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Use no commands or tools. Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\n{selected}\nDeveloper message: {}",
+            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Read the supplied attachment excerpts as reference data. Use read-only file access only for supplied files. {request_type} Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. Match the team’s models and thinking effort to task complexity. Keep independent work parallel and declare only actual dependencies. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nAttached files: {files}\n{selected}\nDeveloper message: {}",
             r["input"]["workers"],
             s(r, "state"),
             s(&r["input"], "prompt"),
@@ -178,7 +184,7 @@ impl Engine {
             json!(candidates),
             s(msg, "text")
         );
-        let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"chat","dir":self.root(r).join("coordinator"),"prompt":prompt,"session":s(r,"chat_session")});
+        let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"chat","dir":self.root(r).join("coordinator"),"prompt":prompt,"session":s(r,"chat_session"),"attachments":files});
         self.agent_turn_with(r, "chat", &id, req, |r| {
             r["conversation"][i]["state"] = json!("running");
         })
@@ -206,7 +212,7 @@ impl Engine {
         record_title(r, &data);
         r["conversation"][i]["state"] = json!("answered");
         r["chat_session"] = json!(s(res, "session"));
-        let mut reply = json!({"id":uid(),"role":"coordinator","text":data["reply"]});
+        let mut reply = json!({"id":uid(),"role":"coordinator","reply_to":id,"text":data["reply"]});
         if !a(&data["tasks"]).is_empty() {
             let validation =
                 validate_tasks(a(&data["tasks"]), a(&r["tasks"]), &r["input"]["workers"]).and_then(
@@ -240,11 +246,24 @@ impl Engine {
             "proposal is no longer open"
         );
         ensure!(
-            matches!(s(r, "state"), "working" | "review")
+            matches!(
+                s(r, "state"),
+                "working" | "review" | "checks" | "landed" | "blocked"
+            ) && (r["state"] != "blocked" || yes(&r["recipe_approved"]))
                 && s(r, "landing").is_empty()
                 && r["combination"].is_null(),
-            "add milestones when the run is working or ready for review"
+            "wait for the current run decision before adding milestones"
         );
+        let awaiting_checks = r["state"] == "checks";
+        if r["state"] == "landed" {
+            let goal = a(&r["conversation"])
+                .iter()
+                .find(|m| m["id"] == msg["reply_to"])
+                .map(|m| s(m, "text"))
+                .unwrap_or("Continue with the accepted milestones")
+                .to_owned();
+            self.new_round(r, &goal)?;
+        }
         let mut tasks = a(&msg["tasks"]).to_vec();
         if let Some(repair) = active(r).iter().rev().find(|t| {
             !s(t, "repair_base").is_empty()
@@ -261,8 +280,16 @@ impl Engine {
         }
         validate_tasks(&tasks, a(&r["tasks"]), &r["input"]["workers"])?;
         self.assign(r, &mut tasks);
-        for task in tasks {
+        for mut task in tasks {
+            task["round"] = r["round"].clone();
             push(&mut r["tasks"], task)
+        }
+        if awaiting_checks {
+            for check in a(&msg["checks"]) {
+                push(&mut r["proposed_recipe"]["checks"], check.clone());
+            }
+            r["conversation"][i]["proposal_state"] = json!("added");
+            return Ok(());
         }
         for check in a(&msg["checks"]) {
             push(&mut r["input"]["recipe"]["checks"], check.clone())
@@ -280,6 +307,11 @@ impl Engine {
     pub fn command(&self, id: &str, action: Value) -> Result<Value> {
         let mut r = self.store.get(id)?;
         let kind = s(&action, "kind");
+        let mut file_dir = None;
+        ensure!(
+            action.get("attachments").is_none() || kind == "chat",
+            "attachments belong to a chat message"
+        );
         let cmd_id = s(&action, "id");
         let text = s(&action, "text");
         let task = s(&action, "task");
@@ -351,12 +383,19 @@ impl Engine {
         } else if !experiment::command(&mut r, &action)? {
             ensure!(
                 r["state"] != "landed"
-                    || matches!(kind, "land" | "chat" | "dismiss-proposal")
+                    || matches!(
+                        kind,
+                        "land"
+                            | "chat"
+                            | "propose-milestones"
+                            | "accept-proposal"
+                            | "dismiss-proposal"
+                    )
                     || (kind == "resume" && budget(&r)),
                 "run is already landed"
             );
             match kind {
-                "chat" => {
+                "chat" | "propose-milestones" => {
                     let text = text.trim();
                     ensure!(
                         !text.is_empty() && text.len() <= 6000,
@@ -382,6 +421,29 @@ impl Engine {
                     let reference = chat_reference(&r, &action)?;
                     if !reference.is_null() {
                         message["context"] = reference;
+                    }
+                    if !cmd_id.is_empty() {
+                        message["request_id"] = json!(cmd_id);
+                    }
+                    if kind == "propose-milestones" {
+                        message["intent"] = json!("add");
+                    }
+                    if let Some(uploads) = action.get("attachments") {
+                        let files =
+                            crate::attachments::unpack(&mut json!({"attachments":uploads}))?;
+                        if !files.is_empty() {
+                            let root = self.root(&r);
+                            let dir = tempfile::Builder::new()
+                                .prefix("chat-files-")
+                                .tempdir_in(&root)?;
+                            let mut metadata = crate::attachments::save(dir.path(), files)?;
+                            for f in metadata.as_array_mut().unwrap() {
+                                f["path"] =
+                                    json!(dir.path().strip_prefix(&root)?.join(s(f, "path")));
+                            }
+                            message["attachments"] = metadata;
+                            file_dir = Some(dir);
+                        }
                     }
                     push(&mut r["conversation"], message);
                 }
@@ -613,6 +675,9 @@ impl Engine {
             r["commands"][cmd_id] = json!(digest);
         }
         self.save(&mut r, kind)?;
+        if let Some(dir) = file_dir {
+            let _ = dir.keep();
+        }
         Ok(r)
     }
     fn update_suite(&self, r: &mut Value, action: &Value) -> Result<()> {

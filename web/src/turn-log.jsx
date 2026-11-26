@@ -98,12 +98,13 @@ export function TurnLog({ api, path, running }) {
       {current?.entries.map(record => {
         const rows = messageRows(record);
         if (!rows.length) return null;
+        const important = rows.some(row => /^(Agent|Text|Message|Result|Error|Standard error|Output)$/i.test(row.title) || (row.title === "Exit code" && row.body !== "0"));
         return <article key={record.id} className="log-event">
-          <header><h4>{rows[0].title}</h4><LogTime at={record.at} now={now}/></header>
+          <details open={important}><summary><strong>{rows[0].title}</strong><LogTime at={record.at} now={now}/></summary>
           {rows.map(({title,body,kind},i) => <React.Fragment key={i}>
             {i>0 && <h5>{title}</h5>}<LogBody body={body} kind={kind}/>
           </React.Fragment>)}
-        </article>;
+        </details></article>;
       })}
     </div>
   </section>;

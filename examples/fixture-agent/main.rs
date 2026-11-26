@@ -233,7 +233,19 @@ fn main() -> Result<()> {
             );
             json!({"reply":"This implementation adds the checked export file."})
         }
-        "chat" if prompt.contains("Add a timing milestone") => {
+        "chat" if prompt.ends_with("Read the attachment") => {
+            let attachment = &r["attachments"][0];
+            ensure!(
+                attachment["name"] == "work-notes.txt"
+                    && prompt.contains("Measure receipt latency")
+            );
+            ensure!(
+                std::fs::read_to_string(attachment["path"].as_str().context("file path")?)?
+                    == "Measure receipt latency"
+            );
+            json!({"reply":"The notes ask to measure receipt latency."})
+        }
+        "chat" if prompt.ends_with("Add a timing milestone") => {
             json!({"reply":"We can record timings after the export is ready.",
             "tasks":[task("timing","Record export timing.","writer",json!({"depends":["export"],"class":"testing"}))],
             "checks":[check(&["timing.txt","measured"])?]})

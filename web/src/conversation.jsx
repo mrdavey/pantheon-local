@@ -1,5 +1,7 @@
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
+import { Maximize2, Minimize2 } from "lucide-react";
+import { AttachmentButton, FileList, addAttachments, encodeAttachments } from "./brief-files";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Command } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
@@ -18,18 +20,20 @@ function ChatIcon({ minimize = false }) {
   </svg>;
 }
 
-function Proposal({ message, run, act, busy }) {
+export function Proposal({ message, run, act, busy, onDecision }) {
   const [failed, setFailed] = useState(false);
-  const canAdd = ["working", "review"].includes(run.state) && !run.landing;
+  const canAdd = ["working", "review", "landed", "blocked", "checks"].includes(run.state) && (run.state !== "blocked" || run.recipe_approved) && !run.landing && !run.combination;
   async function decide(kind) {
     setFailed(false);
-    setFailed(!await act({ kind, task: message.id }));
+    if (await act({ kind, task: message.id })) onDecision?.();
+    else setFailed(true);
   }
 
   return <section className="chat-proposal">
     <h3>Proposed milestones</h3>
     <ul>{message.tasks.map((task) => <li key={task.id}>
       <Markdown>{task.goal}</Markdown>
+      <small>{task.worker}</small>{" "}
       {task.depends?.length > 0 && <small>After {task.depends.join(", ")}</small>}
     </li>)}</ul>
     {message.checks?.length > 0 && <>
@@ -38,10 +42,11 @@ function Proposal({ message, run, act, busy }) {
     </>}
     {message.proposal_state === "pending" ? <>
       <div className="chat-proposal-actions">
-        <Button variant="outline" type="button" className="primary" disabled={busy || !canAdd} onClick={() => decide("accept-proposal")}>Add milestones</Button>
+        <Button variant="outline" type="button" className="primary" disabled={busy || !canAdd} onClick={() => decide("accept-proposal")}>Add to run</Button>
         <Button variant="outline" type="button" disabled={busy} onClick={() => decide("dismiss-proposal")}>Dismiss proposal</Button>
       </div>
-      {!canAdd && <p>{run.state === "landed" ? "Open Experiment to start another round." : "You can add milestones when the run is working or ready for review."}</p>}
+      {run.state === "landed" && <p>Adding these milestones starts a new round.</p>}
+      {!canAdd && <p>Wait for the current run decision before adding milestones.</p>}
       {failed && <p role="alert">Couldn’t update the proposal. Try again.</p>}
     </> : <p className="proposal-outcome">{message.proposal_state === "added" ? "Milestones added" : "Proposal dismissed"}</p>}
   </section>;
@@ -73,10 +78,13 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock }) {
   const panelId = useId();
   const titleId = useId();
-  const [open, setOpen] = useState(true);
+  const [dockOpen, setOpen] = useState(true);
+  const open = expanded || dockOpen;
+  const [files,setFiles] = useState([]);
+  const [fileError,setFileError] = useState("");
   const activated = useRef(false);
   const [text, setText] = useState(() => drafts.get(run.id) || "");
   const [sendError, setSendError] = useState(false);
@@ -101,7 +109,7 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
   const overLimit = new TextEncoder().encode(text.trim()).length > 6000;
   const full = messages.length >= 200;
   const available = !paused && !waiting && !busy && !sending && !full;
-  const canSend = available && !overLimit && !!text.trim() && !attachment;
+  const canSend = available && !overLimit && (!!text.trim() || files.length > 0) && !attachment;
 
   useEffect(() => {
     if (!chatRequest) return;
@@ -136,7 +144,7 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
     if (!open) return;
     const log = history.current;
     log.scrollTop = readingPositions.get(run.id) ?? log.scrollHeight;
-  }, [open, run.id, messages.length, waiting, liveReply, chatRequest]);
+  }, [open, expanded, run.id, messages.length, waiting, liveReply, chatRequest]);
 
   function trackPosition() {
     const log = history.current;
@@ -154,9 +162,10 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
       launcher.current.focus({ preventScroll: true });
       restoreFocus.current = false;
     }
-  }, [open]);
+  }, [open, expanded]);
 
   function close() {
+    if (expanded) { setOpen(true); onDock(); return; }
     restoreFocus.current = true;
     setOpen(false);
   }
@@ -172,7 +181,12 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
     event.preventDefault();
     if (!canSend) return;
     setSending(true);
-    const ok = await act({ kind: "chat", text });
+    let ok;
+    try {
+      const attachments = await encodeAttachments(files);
+      ok = await act({ kind: "chat", text: text.trim() || "Review the attached files.", ...(attachments.length ? {attachments} : {}) });
+    } catch (error) { setFileError(error.message); }
+    if (ok) { setFiles([]); setFileError(""); }
     setSending(false);
     if (!ok) {
       setSendError(true);
@@ -182,19 +196,20 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
     composer.current?.focus({ preventScroll: true });
   }
 
-  return <div className="coordinator-chat">
+  return <div className={expanded ? "conversation-page" : "coordinator-chat"}>
     <Button variant="outline" ref={launcher} type="button" className="chat-launcher" aria-label="Coordinator chat"
       aria-description={unread ? "New reply" : undefined} aria-expanded={open} aria-controls={panelId}
       aria-haspopup="dialog" hidden={open} onClick={() => { activated.current = true; setOpen(true); }}>
       <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
     </Button>
-    <div id={panelId}>{open && <section role="dialog" aria-labelledby={titleId} className="chat-panel"
+    <div id={panelId}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
       <header className="chat-header"><div><h2 id={titleId}>Coordinator chat</h2>
         <span>{run.input.coordinator}</span></div>
-        <Button variant="outline" ref={minimize} type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><ChatIcon minimize /></Button>
+        <div className="chat-window-actions">{!expanded && <Button variant="ghost" size="icon" aria-label="Full screen coordinator chat" title="Full screen" onClick={() => {activated.current=true; onExpand();}}><Maximize2/></Button>}
+        <Button variant="ghost" ref={minimize} type="button" title={expanded ? "Return to dock" : "Minimize chat"} aria-label={expanded ? "Return to dock" : "Minimize chat"} onClick={close}>{expanded ? <Minimize2/> : <ChatIcon minimize />}</Button></div>
       </header>
       <div className="coordinator-status" role="status">{coordinatorStatus(run)}</div>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
@@ -204,6 +219,7 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
           <strong className="chat-author">{message.role === "user" ? "You" : "Coordinator"}</strong>
           {message.context && <small className="chat-context">{referenceLabel(run, message.context)}</small>}
           <Markdown>{message.text}</Markdown>
+          {!!message.attachments?.length && <ul aria-label="Attached files">{message.attachments.map(f=><li key={f.path}>{f.name}</li>)}</ul>}
           {message.error && <p className="chat-error" role="alert">{message.error}</p>}
           {message.tasks?.length > 0 && <Proposal {...{ message, run, act, busy }} />}
         </article>)}
@@ -223,6 +239,11 @@ export function Conversation({ run, act, busy, api, chatRequest }) {
           {sendError && <Button variant="outline" type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</Button>}
           {!sending && <Button variant="outline" type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</Button>}
         </div>}
+        {expanded && <AttachmentButton busy={sending || paused} label="Chat attachments" add={picked=>{
+          try { setFiles(addAttachments(files,picked)); setFileError(""); } catch (error) {setFileError(error.message);}
+        }}/>}
+        <FileList names={files.map(f=>f.name)} disabled={sending} remove={index=>setFiles(files.filter((_,i)=>i!==index))}/>
+        {fileError && <p role="alert">{fileError}</p>}
         {sending && <p role="status">Sending…</p>}
         {paused && <p>Resume the run to send a message.</p>}
         {full && <p>This conversation is full.</p>}

@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+mod activity;
 mod adapter;
 mod attachments;
 mod chat_stream;

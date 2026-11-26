@@ -166,10 +166,20 @@ pub(super) fn exchange(
                     .context("Codex returned no chat session")?
                     .into();
                 emit(json!({"type":"session","session":session}));
+                let mut content = vec![json!({"type":"text","text":request["prompt"]})];
+                for file in request["attachments"].as_array().into_iter().flatten() {
+                    let name = field(file, "name").to_lowercase();
+                    if [".png", ".jpg", ".jpeg", ".webp", ".gif"]
+                        .iter()
+                        .any(|ext| name.ends_with(ext))
+                    {
+                        content.push(json!({"type":"localImage","path":file["path"]}));
+                    }
+                }
                 send(
                     &mut input,
                     json!({"id":3,"method":"turn/start","params":{
-                        "threadId":session,"input":[{"type":"text","text":request["prompt"]}]
+                        "threadId":session,"input":content
                     }}),
                 )?;
             }

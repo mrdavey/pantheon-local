@@ -395,15 +395,14 @@ fn export(h: &Harness) -> Result<()> {
     b.label("Acceptance recipe")
         .fill(&json!({"checks":[check],"preview":[fixture,"serve-preview"]}).to_string())?;
     h.click("Approve checks")?;
-    h.click("Agent map")?;
+    h.click("Map")?;
     h.click("Zoom in")?;
     h.b.label("Map zoom").contains("125%")?;
-    h.click("View assignments for second")?;
-    h.b.role("heading", "second").visible()?;
-    h.click("Close dialog")?;
+    h.click("Filter second assignments")?;
+    ensure!(h.button("Filter second assignments").attr("aria-pressed")? == "true");
     h.click("Fit")?;
     h.no_overflow()?;
-    h.click("Work")?;
+    h.click("Table")?;
     h.button("Land on main").visible()?;
     b.xpath("//section[header[contains(@class,'run-heading')]]//select[@aria-label='Coordinator' or parent::label[contains(.,'Coordinator')]]").absent()?;
     h.button("Open project folder").visible()?;
@@ -412,6 +411,7 @@ fn export(h: &Harness) -> Result<()> {
         .xpath(".//strong[.='Write the open quotes export.']")
         .visible()?;
     milestone.click()?;
+    b.xpath("//details/summary[.='Details']").click()?;
     b.xpath("//*[@data-slot='dialog-content']//code[.='open quotes']")
         .visible()?;
     b.text("Why this model?").click()?;
@@ -441,10 +441,10 @@ fn export(h: &Harness) -> Result<()> {
     b.label("Message").fill("Add a timing milestone")?;
     h.click("Send")?;
     b.role("heading", "Proposed milestones").visible()?;
-    h.click("Add milestones")?;
+    h.click("Add to run")?;
     b.text("Milestones added").visible()?;
     h.click("Minimize chat")?;
-    h.click("Work")?;
+    h.click("Milestones")?;
     h.button("Land on main").visible()?;
     b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 2']")
         .visible()?;
@@ -458,7 +458,7 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Show superseded implementations (1)")?;
     b.xpath("//tbody//td/span[.='superseded']").visible()?;
     h.click("Hide superseded implementations (1)")?;
-    h.click("Work")?;
+    h.click("Milestones")?;
     h.proxy.inject(Once::SnapshotRace);
     b.reload()?;
     until("events poll after snapshot cursor", || {
@@ -471,7 +471,7 @@ fn export(h: &Harness) -> Result<()> {
     b.text("Milestones added").visible()?;
     b.text("Explain the result after reopening.").visible()?;
     h.click("Minimize chat")?;
-    h.click("Work")?;
+    h.click("Milestones")?;
     let candidate = b.xpath("//article[.//button[normalize-space(.)='Land on main']]");
     candidate.xpath(".//button[.='View diff']").click()?;
     b.label("Candidate diff").contains("timing.txt")?;
@@ -532,7 +532,7 @@ fn compare(h: &Harness) -> Result<()> {
     h.button("Help with experiment actions").focused()?;
     b.text("relevance (hits) by latency (ms)").visible()?;
     valid_commit(b)?;
-    h.click("Work")?;
+    h.click("Milestones")?;
     valid_commit(b)?;
     h.click("Experiment")?;
     b.text("Eval suite").click()?;
@@ -681,6 +681,7 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
         Ok((clock.attr("datetime")? != initial).then_some(()))
     })?;
     fs::write(h.dir.path().join("milestone-gate"), "")?;
+    h.b.xpath("//details/summary[.='Details']").click()?;
     h.b.text("Cannot write Git metadata.").visible()?;
     h.click("Close dialog")?;
     h.b.xpath("//button[contains(.,'Needs you') and contains(.,'1')]")
@@ -705,14 +706,15 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     h.b.role("heading", "Recover the fixture milestone")
         .visible()?;
     h.b.xpath("//button[@data-task='recover-export']").click()?;
+    h.b.xpath("//details/summary[.='Details']").click()?;
     h.b.text("Recovered the verified commit from the worker checkout.")
         .visible()?;
     let duration =
         h.b.xpath("//time[@aria-label='Completed in']")
             .attr("datetime")?;
     h.click("Close dialog")?;
-    h.click("Agent map")?;
-    h.click("Milestone 1: Recover the export.")?;
+    h.click("Map")?;
+    h.click("Details for recover-export")?;
     ensure!(
         h.b.xpath("//time[@aria-label='Completed in']")
             .attr("datetime")?
@@ -775,7 +777,13 @@ fn turn_activity(h: &Harness) -> Result<()> {
     fs::write(
         &log,
         (0..52)
-            .map(|i| format!("Earlier message {i}"))
+            .map(|i| {
+                if i == 51 {
+                    json!({"type":"usage_update","raw":{"usage":{"tokens":12}}}).to_string()
+                } else {
+                    format!("Earlier message {i}")
+                }
+            })
             .chain(events.iter().map(Value::to_string))
             .collect::<Vec<_>>()
             .join("\n"),
@@ -787,8 +795,7 @@ fn turn_activity(h: &Harness) -> Result<()> {
     ensure!(
         folder_button.attr("title")?.as_str() == Some(folder.canonicalize()?.to_str().unwrap())
     );
-    h.b.xpath("//button[starts-with(.,'View activity')]")
-        .click()?;
+    h.click("Activity Log")?;
     h.proxy.inject(Once::LogFailure);
     h.click("View log for Planning")?;
     h.click("Try again")?;
@@ -804,6 +811,10 @@ fn turn_activity(h: &Harness) -> Result<()> {
     log.xpath(".//dt[.='Files']").visible()?;
     log.contains("src/main.rs")?;
     log.contains("Public response.")?;
+    let usage = log.xpath(".//details[summary/strong[.='Usage update']]");
+    ensure!(usage.property("open")? == false);
+    usage.xpath(".//summary").click()?;
+    usage.xpath(".//dt[.='Tokens']").visible()?;
     ensure!(!log.text_content()?.contains("private-fixture"));
     log.contains("Time unavailable")?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
@@ -825,14 +836,13 @@ fn turn_activity(h: &Harness) -> Result<()> {
     h.click("Latest")?;
     first.contains("src/main.rs")?;
     h.no_overflow()?;
-    h.click("Back to activity")?;
+    h.click("Close dialog")?;
     h.button("View log for Planning").focused()?;
     fs::write(log_file, "")?;
     h.click("View log for Planning")?;
     log.contains("This turn has no log output yet.")?;
     h.click("Close dialog")?;
-    h.b.xpath("//button[starts-with(.,'View activity')]")
-        .focused()
+    h.button("View log for Planning").focused()
 }
 scenario!(desktop_turn_activity, mobile_turn_activity, turn_activity);
 fn live_turn_log(h: &Harness) -> Result<()> {
@@ -844,8 +854,7 @@ fn live_turn_log(h: &Harness) -> Result<()> {
     h.run_button("Quote export").click()?;
     h.svc
         .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
-    h.b.xpath("//button[starts-with(.,'View activity') and contains(.,'2')]")
-        .click()?;
+    h.click("Activity Log")?;
     h.click("View log for Conversation · Stream this answer")?;
     let log = h.b.label("Turn log");
     log.contains("The live answer")?;
@@ -1013,12 +1022,15 @@ fn explain_context(h: &Harness) -> Result<()> {
     b.role("dialog", "Coordinator chat").visible()?;
     b.label("Message").fill("An unfinished follow-up")?;
     h.click("Minimize chat")?;
-    b.xpath("//button[@data-task='export']").click()?;
+    h.click("Map")?;
+    h.click("Full screen")?;
+    h.click("Details for export")?;
     h.click("Explain this")?;
     b.role("log", "Coordinator conversation")
         .contains("This milestone writes the open quotes export.")?;
     b.label("Message").value("An unfinished follow-up")?;
     h.click("Minimize chat")?;
+    h.click("Table")?;
     h.click("View details")?;
     h.click("Explain this")?;
     b.role("log", "Coordinator conversation")
@@ -1234,7 +1246,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
         .visible()?;
     b.text("Install locked dependencies").click()?;
     h.click("Minimize chat")?;
-    h.click("Agent map")?;
+    h.click("Map")?;
     h.click("View coordinator activity")?;
     b.role("heading", "Coordinator activity").visible()?;
     h.click("Close dialog")?;
@@ -1246,9 +1258,9 @@ fn assignment_map(h: &Harness) -> Result<()> {
             vec![]
         )? == 2
     );
-    b.role("combobox", "Show jobs for").select("writer-two")?;
-    ensure!(b.eval("return [...document.querySelectorAll('.map-agent')].length === 1 && document.querySelector('.map-agent').textContent.includes('writer-two')", vec![])? == true);
-    b.role("combobox", "Show jobs for").select("")?;
+    h.click("Filter writer-two assignments")?;
+    ensure!(b.eval("return document.querySelectorAll('.map-node').length === 3 && document.querySelectorAll('.map-node[data-faded=true]').length === 2",vec![])?==true);
+    h.click("All")?;
     h.click("Full screen")?;
     b.role("heading", "Full-screen agent map").visible()?;
     b.key("\u{e00c}")?;
@@ -1270,9 +1282,15 @@ fn assignment_map(h: &Harness) -> Result<()> {
     })?;
     h.click("Fit")?;
     h.click("Milestone 3: Implement the interface.")?;
+    ensure!(
+        b.eval(
+            "return document.querySelectorAll('.map-node[data-faded=true]').length === 1",
+            vec![]
+        )? == true
+    );
+    h.click("Details for ui")?;
     b.text("Depends on foundation").visible()?;
-    h.click("All assignments for writer-two")?;
-    b.role("heading", "writer-two").visible()?;
+    h.button("Explain this").visible()?;
     h.click("Close dialog")?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
         view.focus()?;
@@ -1356,7 +1374,7 @@ fn run_metrics(h: &Harness) -> Result<()> {
             "metrics-desktop.png"
         }))?;
     }
-    h.click("Work")?;
+    h.click("Milestones")?;
     b.eval(
         "const now = Date.now; Date.now = () => now() + 86400000;",
         vec![],
@@ -1367,3 +1385,83 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.no_overflow()
 }
 scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);
+
+fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
+    let b = &h.b;
+    let run = h.svc.post("/runs", &json!({"path":h.repo("proposal")?,"prompt":"Add quote export","coordinator":"first","workers":["writer"],"delivery":"review"}))?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    h.svc
+        .post(&path, &json!({"kind":"answer","text":"private"}))?;
+    let checks = h.svc.wait_state(&path, "checks")?;
+    h.svc.post(
+        &path,
+        &json!({"kind":"approve","recipe":checks["proposed_recipe"]}),
+    )?;
+    let review = h.svc.wait_state(&path, "review")?;
+    h.svc.post(
+        &path,
+        &json!({"kind":"land","candidate":review["candidates"][0]["id"]}),
+    )?;
+    h.svc.wait_state(&path, "landed")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    b.label("Message").fill("Read the attachment")?;
+    h.click("Full screen coordinator chat")?;
+    b.role("region", "Coordinator chat").visible()?;
+    b.label("Message").value("Read the attachment")?;
+    b.eval(r#"const dt = new DataTransfer(); dt.items.add(new File(["Measure receipt latency"], "work-notes.txt"));
+      const picker = document.querySelector('input[aria-label="Chat attachments"]'); picker.files = dt.files;
+      picker.dispatchEvent(new Event("change",{bubbles:true}));"#,vec![])?;
+    h.button("Remove work-notes.txt").visible()?;
+    h.click("Send")?;
+    b.role("log", "Coordinator conversation")
+        .contains("The notes ask to measure receipt latency.")?;
+    h.no_overflow()?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "chat-tab-mobile.png"
+        } else {
+            "chat-tab-desktop.png"
+        }))?;
+    }
+    h.click("Return to dock")?;
+    h.click("Minimize chat")?;
+    h.click("Milestones")?;
+    h.click("Add task")?;
+    b.label("What do you want to add?")
+        .fill("Add a timing milestone")?;
+    h.click("Create milestone(s)")?;
+    b.role("dialog", "Add task")
+        .contains("Record export timing.")?;
+    h.click("Add to run")?;
+    h.click("Kanban")?;
+    b.xpath("//div[@class='board-card']//button[@data-task='timing']")
+        .click()?;
+    b.text("Depends on export").visible()?;
+    b.xpath("//details[not(@open)]/summary[.='Details']")
+        .visible()?;
+    h.click("Close dialog")?;
+    let current = h.svc.wait_state(&path, "review")?;
+    ensure!(current["round"] == 2 && current["tasks"][1]["round"] == 2);
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "kanban-mobile.png"
+        } else {
+            "kanban-desktop.png"
+        }))?;
+    }
+    h.click("Activity Log")?;
+    b.label("Search activity").fill("timing")?;
+    b.label("Run activity").contains("Record export timing.")?;
+    b.label("Activity agent").select("first")?;
+    b.label("Run activity").contains("Add a timing milestone")?;
+    b.label("Search activity").fill("nonexistent search")?;
+    b.text("No matching activity.").visible()?;
+    h.no_overflow()
+}
+scenario!(
+    desktop_milestone_proposals,
+    mobile_milestone_proposals,
+    full_chat_and_task_proposal
+);

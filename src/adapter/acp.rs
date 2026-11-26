@@ -330,9 +330,15 @@ pub(super) fn exchange(
     }
     c.text.clear();
     c.previous_text.clear();
+    let mut content = vec![json!({"type":"text","text":field(r,"prompt")})];
+    for file in r["attachments"].as_array().into_iter().flatten() {
+        if let Ok(uri) = url::Url::from_file_path(field(file, "path")) {
+            content.push(json!({"type":"resource_link","uri":uri.as_str(),"name":file["name"]}));
+        }
+    }
     let result = c.call(
         "session/prompt",
-        json!({"sessionId":c.session,"prompt":[{"type":"text","text":field(r,"prompt")}]}),
+        json!({"sessionId":c.session,"prompt":content}),
     );
     if let Ok(reply) = &result
         && let Some(mut receipt) = usage_receipt(

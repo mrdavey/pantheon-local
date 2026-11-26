@@ -239,6 +239,19 @@ fn args(request: &Value) -> Vec<String> {
                     "--allowedTools",
                     "WebSearch,WebFetch",
                 ]);
+            } else if role == "chat"
+                && let Some(files) = request["attachments"].as_array().filter(|v| !v.is_empty())
+            {
+                args.extend(["--tools", "Read", "--allowedTools", "Read"]);
+                for file in files {
+                    if let Some(dir) = file["path"]
+                        .as_str()
+                        .and_then(|p| std::path::Path::new(p).parent())
+                        .and_then(|p| p.to_str())
+                    {
+                        args.extend(["--add-dir", dir]);
+                    }
+                }
             } else if role != "worker" {
                 args.extend(["--tools", ""])
             }
@@ -551,7 +564,7 @@ mod tests {
         let executable = native_fixture(dir.path(), "mock-codex-chat")?;
         for session in ["", "held-chat", "native-chat"] {
             let events = std::sync::Mutex::new(Vec::new());
-            let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":session,"role":"chat","prompt":"hello","dir":dir.path()});
+            let request = json!({"profile":{"kind":"codex","executable":executable,"model":"configured-model"},"session":session,"role":"chat","prompt":"hello","dir":dir.path(),"attachments":[{"name":"screen.png","path":dir.path().join("screen.png")}]});
             let result = run(&request, None, |event| events.lock().unwrap().push(event));
             assert_eq!(
                 result,
@@ -580,7 +593,7 @@ mod tests {
     #[test]
     fn acp_loads_existing_session_and_refuses_permissions() -> Result<()> {
         let temp = tempfile::tempdir()?;
-        let request = json!({"profile":{"kind":"hermes","executable":native_fixture(temp.path(),"mock-acp")?},"session":"abc","dir":temp.path()});
+        let request = json!({"profile":{"kind":"hermes","executable":native_fixture(temp.path(),"mock-acp")?},"session":"abc","dir":temp.path(),"role":"chat","attachments":[{"name":"scope.md","path":temp.path().join("scope.md")}]});
         assert_eq!(
             run(&request, None, |_| {}),
             json!({"text":"done","session":"abc"})
