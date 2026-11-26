@@ -15,7 +15,7 @@ import { ImplementationLink, ImplementationDetails, ExperimentHelp, implementati
 import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { Dialog } from "./dialog.jsx";
-import { runTitle, shortSummary, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
+import { runTitle, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
 import React, { useEffect, useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
@@ -268,28 +268,18 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   const headline = winner && title(winner);
   const inspectedCandidate = all.find(c => c.id === inspected);
   const visibleCandidates = candidates.filter(c => c.state !== "superseded");
-  const reason = shortSummary(selected?.reason);
   return <section className="experiment">
     <h2 className="visually-hidden">Experiment</h2>
     {isCurrent && run.round_goal && <div className="round-goal"><Markdown>{run.round_goal}</Markdown></div>}
-    {selected && <Card asChild><div className="outcome">
-      <div className="outcome-copy">
-        <Badge asChild variant="outline"><strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
-          selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong></Badge>
-        {winner && <h3>{selected.state === "landed" && run.implementation_ids?.includes(winner.id)
-          ? <ImplementationLink run={run} candidate={winner.id}>{headline} · View implementation</ImplementationLink> : headline}</h3>}
-        {reason && <p>{reason}</p>}
-        <Button variant="outline" className="text-button" onClick={() => setDetail("decision")}>View decision details</Button>
-        {detail === "decision" && <ImplementationDetails candidate={winner} decision={selected} {...{run, rule, explain}} onClose={() => setDetail("")} />}
-      </div>
-      {(winner?.commit || selected.landed_at) && <div className="outcome-meta">
-        {selected.landed_at && <span><strong>{branchName(run.repo.Target)}</strong> · {when(selected.landed_at)}</span>}
-        {winner?.commit && <code aria-label={active && isCurrent && run.state === "landed" && selected.state === "landed" ? "Landed commit" : undefined}>
-          {isCurrent && run.state === "landed" && selected.state === "landed" ? run.detail : winner.commit}
-        </code>}
-        {isCurrent && run.started && selected.landed_at && <span>{run.interventions || 0} developer actions · {number((Date.parse(selected.landed_at) - Date.parse(run.started)) / 1000)} seconds to land</span>}
-      </div>}
-    </div></Card>}
+    {selected && <div role="group" aria-label="Experiment decision" className="experiment-decision">
+      <Badge variant="outline" className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
+        selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</Badge>
+      {winner && (selected.state === "landed" && run.implementation_ids?.includes(winner.id)
+        ? <ImplementationLink run={run} candidate={winner.id}>{headline} · View implementation</ImplementationLink>
+        : <strong>{headline}</strong>)}
+      <Button variant="ghost" onClick={() => setDetail("decision")}>View decision details</Button>
+      {detail === "decision" && <ImplementationDetails candidate={winner} decision={selected} {...{run, rule, explain}} onClose={() => setDetail("")} />}
+    </div>}
     {run.observer_error && <div role="status"><p>{run.observer_error}</p><Button variant="outline" disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</Button></div>}
     {run.combination && <div role="status"><p>Waiting for the coordinator to plan the combination.</p>
       <Button variant="outline" disabled={busy} onClick={() => act({ kind: "cancel-combination" })}>Cancel request</Button></div>}

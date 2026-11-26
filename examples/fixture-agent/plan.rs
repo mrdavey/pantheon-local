@@ -168,14 +168,21 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         .iter()
         .any(|d| d["answer"] == "private")
     {
-        return build(
-            vec![milestone(
-                "export",
-                "Write the `open quotes` export.",
-                json!({"class":"implementation"}),
-            )],
-            &["export.txt", "open quotes"],
-        );
+        let shared = ctx["minimum_workers"] == 2;
+        let mut tasks = vec![task(
+            "export",
+            "Write the `open quotes` export.",
+            if shared { "second" } else { "writer" },
+            json!({"class":"implementation"}),
+        )];
+        if shared {
+            tasks.push(milestone(
+                "export-guide",
+                "Document the export format.",
+                json!({"paths":["docs/export.md"]}),
+            ));
+        }
+        return build(tasks, &["export.txt", "open quotes"]);
     }
     Ok(
         json!({"title":"Quote export","tasks":[],"recipe":{"checks":[]},"question":"Who can view quotes?"}),

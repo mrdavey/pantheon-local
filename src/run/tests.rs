@@ -891,13 +891,23 @@ fn chat_files_and_proposal_acceptance_replay_once() -> Result<()> {
 
 #[test]
 fn implementation_index_only_includes_qualifying_builds_and_historical_landings() {
-    let run = json!({"past_selections":[{"state":"landed","candidate":"landed"}],"candidates":[
+    let run = json!({"selection":{"state":"landed","candidate":"new"},"past_selections":[{"state":"landed","candidate":"landed"},{"state":"selected","candidate":"ok"}],"candidates":[
         {"id":"ok","state":"passed","commit":"abc"},{"id":"landed","state":"superseded","commit":"def"},
-        {"id":"baseline","state":"passed","commit":"123","baseline":true},
+        {"id":"new","state":"passed","commit":"ghi"},{"id":"baseline","state":"passed","commit":"123","baseline":true},
         {"id":"over-limit","state":"passed","commit":"456","eligible":false},
         {"id":"incomplete","state":"evaluating","commit":"789"},{"id":"no-commit","state":"passed"}]});
+    let public = experiment::public(run.clone());
+    assert_eq!(public["implementation_ids"], json!(["ok", "landed", "new"]));
     assert_eq!(
-        experiment::public(run)["implementation_ids"],
+        public["landed_implementation_ids"],
+        json!(["new", "landed"])
+    );
+    let mut legacy = run;
+    legacy["selection"] = Value::Null;
+    legacy["state"] = json!("landed");
+    legacy["detail"] = json!("abc");
+    assert_eq!(
+        experiment::public(legacy)["landed_implementation_ids"],
         json!(["ok", "landed"])
     );
 }

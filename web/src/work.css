@@ -3,7 +3,8 @@
 .work-section-heading { margin-bottom: .6rem; }
 .work-section-heading h2, .work-result header :is(h2, h3) { margin: 0; }
 .work-section-heading > span, .work-footer, .usage-note, .work-result > p { color: var(--muted); font-size: .9rem; }
-.work-result { margin-bottom: .5rem; }
+.work-result { margin-bottom: .75rem; padding: clamp(1rem, 2vw, 1.5rem); }
+.implementation-badges { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .work-result .result-tools { border-top: 1px solid var(--line); padding-top: .7rem; }
 .milestones { margin: 0; padding: 0; list-style: none; border-block: 1px solid var(--line); }
 .milestones:empty { display: none; }

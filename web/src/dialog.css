@@ -1,4 +1,4 @@
-.workbench-dialog { box-sizing: border-box; width: min(38rem, calc(100% - 2rem)); max-height: 86dvh; padding: 1.4rem; border: 1px solid var(--line); border-radius: 14px; background: var(--paper, Canvas); color: var(--ink, CanvasText); box-shadow: 0 16px 72px #0003; overflow: auto; }
+.workbench-dialog { box-sizing: border-box; width: min(38rem, calc(100% - 2rem)); max-height: 86dvh; padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid var(--line); border-radius: 14px; background: var(--paper, Canvas); color: var(--ink, CanvasText); box-shadow: 0 16px 72px #0003; overflow: auto; }
 .workbench-dialog::backdrop { background: #17202b70; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; }
 .dialog-heading h2 { margin: 0; }

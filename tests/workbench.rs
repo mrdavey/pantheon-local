@@ -230,26 +230,30 @@ fn desktop_profile_roles(h: &Harness) -> Result<()> {
     worker.visible()?;
     h.b.label("Coordinator").select("first")?;
     worker.visible()?;
-    h.b.label("Harness").select("hermes-desktop-work")?;
+    h.b.label("Minimum agents").absent()?;
+    h.b.text("3. Hermes · desktop-work").visible()?;
     h.click("Add agent")?;
-    h.b.text("2. Hermes · desktop-work").visible()?;
-    h.click("Settings for worker 2")?;
+    h.b.label("Harness").select("hermes-desktop-work")?;
     h.b.label("Model ID").fill("local-model-two")?;
     h.b.label("Thinking effort").select("high")?;
-    h.click("Apply to this run")?;
-    h.b.label("Minimum agents").fill("2")?;
-    h.click("Done")?;
-    h.click("Team")?;
-    h.click("Settings for worker 2")?;
+    h.click("Add to pool")?;
+    h.click("Settings for worker 4")?;
     h.b.label("Model ID").value("local-model-two")?;
-    h.b.label("Thinking effort").value("high")?;
-    h.click("Close dialog")?;
+    h.b.label("Thinking effort").select("low")?;
+    h.click("Apply to this agent")?;
     h.click("Settings for worker 1")?;
     h.b.label("Model ID").value("")?;
+    h.b.label("Thinking effort").value("")?;
     h.click("Close dialog")?;
-    h.b.label("Minimum agents").value("2")?;
+    h.click("Settings for worker 4")?;
+    h.b.label("Thinking effort").value("low")?;
+    h.click("Close dialog")?;
+    ensure!(h.b.eval("const list=document.querySelector('.worker-pool ol');return getComputedStyle(list).overflowY === 'auto' && list.scrollHeight > list.clientHeight",vec![])? == true);
+    h.click("Remove worker 2")?;
+    h.click("Remove worker 2")?;
     h.no_overflow()?;
     h.click("Done")?;
+    h.button("Team").contains("3 agents")?;
     let project = h.repo("worker-pool")?;
     h.b.label("Project folder")
         .fill(project.to_str().unwrap())?;
@@ -269,7 +273,7 @@ fn desktop_profile_roles(h: &Harness) -> Result<()> {
     ensure!(
         profile["kind"] == "hermes"
             && profile["model"] == "local-model-two"
-            && profile["effort"] == "high"
+            && profile["effort"] == "low"
     );
     ensure!(h.svc.get("/setup")?["profiles"]["hermes-desktop-work"]["model"] != "local-model-two");
     Ok(())
@@ -291,7 +295,9 @@ fn run_form(h: &Harness) -> Result<()> {
     h.b.label("Project folder")
         .value(folder.to_str().unwrap())?;
     h.click("Team")?;
+    h.click("Add agent")?;
     h.b.label("Harness").visible()?;
+    h.b.key("\u{e00c}")?;
     h.b.xpath("//select[@aria-label='Coordinator']/option[@value='claude' or @value='codex']")
         .absent()?;
     h.b.text("1. first").visible()?;
@@ -364,6 +370,7 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Team")?;
     b.label("Coordinator").value("first")?;
     b.text("1. first").visible()?;
+    b.text("3. first").visible()?;
     h.click("Done")?;
     h.button("Needs you").focus()?;
     b.key("\u{e004}")?;
@@ -387,10 +394,13 @@ fn export(h: &Harness) -> Result<()> {
         .value("Add quote export")?;
     h.click("Team")?;
     b.label("Coordinator").select("first")?;
-    h.click("Remove worker 1")?;
+    for _ in 0..3 {
+        h.click("Remove worker 1")?;
+    }
     for worker in ["writer", "second"] {
-        b.label("Harness").select(worker)?;
         h.click("Add agent")?;
+        b.label("Harness").select(worker)?;
+        h.click("Add to pool")?;
     }
     h.click("Done")?;
     h.click("Advanced settings")?;
@@ -508,7 +518,7 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Coordinator chat")?;
     h.click("Milestones")?;
     h.button("Implementations").visible()?;
-    b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 2']")
+    b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 3']")
         .visible()?;
     h.click("Implementations")?;
     b.xpath("//section[@aria-label='Successful implementations']//span[.='Superseded']")
@@ -529,9 +539,10 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Milestones")?;
     h.click("Implementations")?;
     let candidate = b.xpath("//article[.//button[normalize-space(.)='Land on main']]");
+    ensure!(b.eval("return [...document.querySelectorAll('.work-result .actions button')].every(el => parseFloat(getComputedStyle(el).paddingInlineStart) >= 16 && el.getBoundingClientRect().height >= 44)",vec![])? == true,"implementation action padding");
     candidate.xpath(".//button[.='View diff']").click()?;
     b.label("Candidate diff").contains("timing.txt")?;
-    b.label("Changed file").select("1")?;
+    b.label("Changed file").select("timing.txt")?;
     b.label("Changes to timing.txt").contains("+")?;
     h.no_overflow()?;
     b.key("\u{e00c}")?;
@@ -547,6 +558,7 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Close dialog")?;
     h.click("Implementations")?;
     candidate.xpath(".//button[.='View details']").click()?;
+    ensure!(b.eval("const dialog = document.querySelector('.snapshot-dialog');const close = dialog.querySelector('[aria-label=\"Close dialog\"]').getBoundingClientRect();return close.width >= 44 && close.height >= 44 && parseFloat(getComputedStyle(dialog.querySelector('.snapshot-path button')).paddingInlineStart) >= 10", vec![])? == true, "file dialog action padding");
     h.click("export.txt")?;
     b.role("dialog", "Implementation files")
         .contains("open quotes")?;
@@ -558,7 +570,12 @@ fn export(h: &Harness) -> Result<()> {
     b.key("\u{e00c}")?;
     h.click("Land on main")?;
     b.xpath("//main//*[text()='Landed']").visible()?;
-    ensure!(b.label("Landed commit").text_content()? == git(&project, &["rev-parse", "HEAD"])?);
+    let latest = b.xpath("//section[@aria-label='Successful implementations']/article[1]/header");
+    latest.xpath(".//span[.='Passed']").visible()?;
+    latest.xpath(".//span[.='Landed']").visible()?;
+    b.xpath("//strong[.='Implementation landed']").absent()?;
+    let run = h.svc.get("/runs")?;
+    ensure!(run[0]["detail"] == git(&project, &["rev-parse", "HEAD"])?);
     ensure!(fs::read_to_string(project.join("export.txt"))?.contains("open quotes"));
     Ok(())
 }
@@ -574,16 +591,17 @@ fn compare(h: &Harness) -> Result<()> {
     let mut recipe = common::experiment_recipe()?;
     recipe["cases"][0]["samples"] = json!(2);
     recipe["rule"]["min_samples"] = json!(2);
-    h.svc.post("/runs",&json!({"path":h.repo("experiment")?,"prompt":"Measure approaches","coordinator":"first","worker_pool":[{"profile":"writer"},{"profile":"writer-two"}],"min_workers":2,"compare":true,"delivery":"auto","recipe":recipe}))?;
+    h.svc.post("/runs",&json!({"path":h.repo("experiment")?,"prompt":"Measure approaches","coordinator":"first","worker_pool":[{"profile":"writer"},{"profile":"writer-two"}],"compare":true,"delivery":"auto","recipe":recipe}))?;
     h.goto()?;
     h.run_button("Measure approaches").click()?;
     h.click("Experiment")?;
     let b = &h.b;
-    let outcome = b.xpath("//*[contains(concat(' ',@class,' '),' outcome ')]");
+    let outcome = b.role("group", "Experiment decision");
     outcome.contains("Landed")?;
     outcome.contains("balanced")?;
     h.click("View decision details")?;
     b.role("heading", "Why this decision?").visible()?;
+    valid_commit(b)?;
     b.role("heading", "Included milestones").visible()?;
     h.button("Explain this").visible()?;
     h.click("Close dialog")?;
@@ -598,9 +616,10 @@ fn compare(h: &Harness) -> Result<()> {
     b.key("\u{e00c}")?;
     h.button("Help with experiment actions").focused()?;
     b.text("relevance (hits) by latency (ms)").visible()?;
-    valid_commit(b)?;
+    b.label("Landed commit").absent()?;
     h.click("Milestones")?;
-    valid_commit(b)?;
+    b.label("Landed commit").absent()?;
+    b.xpath("//strong[.='Implementation landed']").absent()?;
     h.click("Experiment")?;
     h.click("Evaluation tools")?;
     b.text("Eval suite").click()?;
@@ -664,9 +683,7 @@ fn compare(h: &Harness) -> Result<()> {
     h.button("Resume auto-land").visible()?;
     round.select("1")?;
     outcome.contains("Landed")?;
-    outcome
-        .xpath(".//*[self::h2 or self::h3]")
-        .contains("balanced")?;
+    outcome.contains("balanced")?;
     round.select("2")?;
     h.click("Keep current version")?;
     outcome.contains("Keeping the baseline")?;
@@ -706,7 +723,10 @@ fn blind(h: &Harness) -> Result<()> {
     h.click("Tie")?;
     b.text("tie").visible()?;
     b.label("Selected implementation").select("balanced")?;
+    b.role("group", "Experiment decision").contains("Landed")?;
+    h.click("View decision details")?;
     valid_commit(b)?;
+    h.click("Close dialog")?;
     b.text("Live and healthy").visible()?;
     let live: Value = serde_json::from_slice(&fs::read(h.dir.path().join("live.json"))?)?;
     ensure!(live["healthy"] == true);

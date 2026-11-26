@@ -530,7 +530,6 @@ summary:focus-visible {
   gap: 0;
   padding: 0;
 }
-.outcome[data-slot="card"],
 .decision[data-slot="card"],
 .work-result[data-slot="card"],
 .form-card[data-slot="card"],
@@ -571,10 +570,17 @@ summary:focus-visible {
 .view-selector > small {margin-inline-start:.5rem;}
 .map-stage {border-block:1px solid var(--line);}
 .assignment-map > header {justify-content:flex-end;}
-.dialog-actions {display:flex;align-items:center;gap:.2rem;flex:none;}
-.dialog-actions button {min-height:2.25rem;}
-.work-detail-dialog .dialog-heading {flex-wrap:wrap;}
-.dialog-actions {margin-inline-start:auto;}
+/* Text actions need room to wrap; icon-only actions keep a square hit target. */
+:where(.work-result, .workbench-dialog) [data-slot="button"]:where([data-size="default"]) {
+  padding: .6rem 1.2rem;
+  min-height: 44px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.dialog-heading { flex-wrap: wrap; gap: .5rem 1rem; }
+.dialog-actions { display: flex; align-items: center; gap: .5rem; margin-inline-start: auto; }
+.dialog-heading [data-size="sm"] { min-height: 44px; padding: .5rem .85rem; }
+.dialog-actions [data-size="icon"] { width: 44px; height: 44px; min-height: 44px; padding: .6rem; }
 .activity-log .activity-type {display:inline-flex;margin-inline-start:.55rem;padding:.1rem .45rem;font-size:.72rem;vertical-align:middle;background:var(--wash);color:var(--muted);}
 .activity-log td:first-child {white-space:normal;overflow-wrap:anywhere;}
 .open-row:focus-visible {outline:1px solid var(--clay);outline-offset:-2px;}

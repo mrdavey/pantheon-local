@@ -554,21 +554,31 @@ impl Engine {
                     }
                 }
                 let minimum = r["input"]["min_workers"].as_u64().unwrap_or(1);
+                let mut reserved = Vec::new();
                 if minimum > 1 {
                     let mut owners = std::collections::HashSet::new();
-                    for task in &mut tasks {
-                        let owner = s(task, "worker").to_owned();
-                        if owners.len() < minimum as usize && owners.insert(owner.clone()) {
-                            // Preserve the requested staffing floor during benchmark routing.
-                            task["eligible_workers"] = json!([owner]);
+                    for (index, task) in tasks.iter().enumerate() {
+                        let owner = s(task, "worker");
+                        if owners.insert(owner) {
+                            reserved.push((index, owner.to_owned()));
+                            if reserved.len() == minimum as usize {
+                                break;
+                            }
                         }
                     }
                     ensure!(
-                        owners.len() >= minimum as usize,
-                        "plan must assign meaningful milestones to at least {minimum} different worker agents"
+                        reserved.len() >= minimum as usize,
+                        "assign at least one milestone to each of the {minimum} required workers"
                     );
                 }
                 self.assign(r, &mut tasks);
+                // Retain benchmark evidence when routing already chose the planned owner.
+                for (index, owner) in reserved {
+                    if tasks[index]["worker"] != owner {
+                        tasks[index]["worker"] = json!(owner);
+                        tasks[index]["route"] = json!({"mode": r["input"]["routing"], "reason":"Assigned to this agent to use the selected worker pool."});
+                    }
+                }
                 prev.extend(tasks);
                 r["tasks"] = json!(prev);
                 r["state"] = json!("working");

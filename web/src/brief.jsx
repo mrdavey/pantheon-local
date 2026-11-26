@@ -9,12 +9,29 @@ import { Label } from "./components/ui/label";
 import { Checkbox } from "./components/ui/checkbox";
 import React, { useEffect, useState } from "react";
 import { Dialog } from "./dialog.jsx";
-import { availableNames, ModelSettings, profileLabel, runModel } from "./setup.jsx";
+import { availableNames, ModelSettings, ModelSettingsForm, profileLabel, runModel } from "./setup.jsx";
 
 import { addAttachments, AttachmentButton, encodeAttachments, FileList } from "./brief-files.jsx";
 import "./brief.css";
 
 import { changeRoute, useRoute } from "./navigation";
+
+function defaultWorkers(profiles) {
+  if (!profiles.length) return [];
+  return Array.from({length:3}, (_, key) => ({key, profile:profiles[key % profiles.length]}));
+}
+
+function AddAgent({names, profiles, onAdd, onClose}) {
+  const [name, setName] = useState(names[0]);
+  const selected = names.includes(name) ? name : names[0];
+  return <Dialog title="Add agent" onClose={onClose}>
+    <Label>Harness<NativeSelect value={selected} onChange={event => setName(event.target.value)}>
+      {names.map(id => <NativeSelectOption key={id} value={id}>{profileLabel(id, profiles[id])}</NativeSelectOption>)}
+    </NativeSelect></Label>
+    {selected && <ModelSettingsForm key={selected} name={selected} profile={profiles[selected]} agentOnly
+      submitLabel="Add to pool" onClose={onClose} save={({model,effort}) => onAdd({profile:selected,model,effort})} />}
+  </Dialog>;
+}
 
 export function Brief({ setup, report, checking, checkError, cwd, api, agentChoice, onSetup, onCreate, perform, busy }) {
   const [path, setPath] = useState(cwd);
@@ -23,9 +40,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
   const [original, setOriginal] = useState("");
   const [coordinator, setCoordinator] = useState(agentChoice?.name || setup.coordinator || "");
   const [coordinatorModels, setCoordinatorModels] = useState({});
-  const [workers, setWorkers] = useState(agentChoice ? [{profile:agentChoice.name,key:0}] : null);
-  const [minimum, setMinimum] = useState("1");
-  const [addProfile, setAddProfile] = useState("");
+  const [workers, setWorkers] = useState(null);
   const [advisor, setAdvisor] = useState("");
   const route = useRoute();
   const modelName = route.profile;
@@ -76,16 +91,16 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
   useEffect(() => {
     if (agentChoice) {
       setCoordinator(agentChoice.name);
-      setWorkers([{profile:agentChoice.name,key:0}]);
+      setWorkers(defaultWorkers([agentChoice.name]));
     }
   }, [agentChoice]);
   const names = availableNames(report);
   const selectedCoordinator = names.includes(coordinator) ? coordinator : names[0] || "";
   const profile = {...setup.profiles?.[selectedCoordinator],...coordinatorModels[selectedCoordinator]};
   const preferred = (setup.workers || []).filter((name) => names.includes(name));
-  const selectedWorkers = (workers ?? (preferred.length ? preferred : names.slice(0,1)).map((profile,key) => ({profile,key}))).filter(slot => names.includes(slot.profile));
-  const validMinimum = /^[1-9][0-9]*$/.test(minimum) && Number(minimum) <= selectedWorkers.length;
-  const harness = names.includes(addProfile) ? addProfile : names[0];
+  const suggestions = agentChoice && names.includes(agentChoice.name) ? [agentChoice.name] : preferred.length ? preferred : names;
+  const selectedWorkers = (workers ?? defaultWorkers(suggestions)).filter(slot => names.includes(slot.profile));
+  const agentCount = selectedWorkers.length + 1;
   function updateWorker(key, values) {
     setWorkers(selectedWorkers.map(slot => slot.key === key ? {...slot,...values} : slot));
   }
@@ -107,13 +122,13 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
     }
   }
   const formBusy = busy || Boolean(briefNotice);
-  const ready = validMinimum && validLimit && !formBusy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
+  const ready = validLimit && !formBusy && report?.git && path.trim() && prompt.trim() && selectedCoordinator && selectedWorkers.length && (delivery !== "deploy" || destination);
   const create = (event) => {
     event.preventDefault();
     if (!ready) return;
     perform(async () => {
       const run = await api("/runs", {
-        attachments: await encodeAttachments(files), path, prompt, original_prompt: original, coordinator: selectedCoordinator, coordinator_settings: coordinatorModels[selectedCoordinator], worker_pool: selectedWorkers.map(({key,...worker}) => worker), min_workers:Number(minimum),
+        attachments: await encodeAttachments(files), path, prompt, original_prompt: original, coordinator: selectedCoordinator, coordinator_settings: coordinatorModels[selectedCoordinator], worker_pool: selectedWorkers.map(({key,...worker}) => worker),
         routing: selectedWorkers.length > 1 ? routing : "manual", token_target: Number(tokens),
         subagents: allowChildren, subagent_limit: allowChildren && !unlimited ? Number(limit) : null,
         initial_files: initialFiles, target, compare, delivery, destination: delivery === "deploy" ? destination : "", recipe: { checks: [] },
@@ -159,7 +174,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
       </div>
       <div className="run-preferences">
         {names.length ? <Button variant="outline" type="button" className="team-control" onClick={() => setModal("team")} aria-label="Team">
-          <strong>Team</strong><span>{label(selectedCoordinator)} · {selectedWorkers.length} {selectedWorkers.length === 1 ? "worker" : "workers"}</span>
+          <strong>Team</strong><span>{agentCount} {agentCount === 1 ? "agent" : "agents"} · {label(selectedCoordinator)} coordinates</span>
         </Button> : checking ? <Loading>Checking local agents…</Loading> : <p>{checkError || "No agents configured yet."} <Button variant="outline" type="button" onClick={onSetup}>Agent setup</Button></p>}
         <Button variant="outline" type="button" className="team-control" onClick={() => setModal("advanced")} aria-label="Advanced settings">
           <strong>Advanced settings</strong><span>{delivery === "auto" ? "Auto-land" : delivery === "review" ? "Review before landing" : "Auto-land and deploy"}</span>
@@ -168,7 +183,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
       {!!names.length && !selectedWorkers.length && <p>Select at least one worker.</p>}
       {report && !report.git && <p role="alert">Git is required. <Button variant="outline" type="button" onClick={onSetup}>Agent setup</Button></p>}
     </form>
-    {(modal === "team" || modal === "model") && <Dialog title="Team" onClose={() => { if (modal === "team") setModal(""); }}>
+    {(["team","model","add-agent"].includes(modal)) && <Dialog title="Team" onClose={() => { if (modal === "team") setModal(""); }}>
       <div className="roles">
         <div><Label>Coordinator<NativeSelect aria-label="Coordinator" required title={label(selectedCoordinator)} value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}>
           {names.map((name) => <NativeSelectOption key={name} value={name}>{label(name)}</NativeSelectOption>)}</NativeSelect></Label>
@@ -177,10 +192,8 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
           </Button>
         </div>
         <fieldset className="worker-pool"><legend>Worker pool</legend>
-          <div className="add-worker"><Label>Harness<NativeSelect value={harness} onChange={e => setAddProfile(e.target.value)}>{names.map(id =>
-            <NativeSelectOption key={id} value={id}>{label(id)}</NativeSelectOption>)}</NativeSelect></Label>
-            <Button variant="outline" onClick={() => setWorkers([...selectedWorkers,{profile:harness,key:crypto.randomUUID()}])}>Add agent</Button></div>
-          <ol>{selectedWorkers.map((slot,index) => {
+          <Button type="button" className="add-worker" onClick={() => setModal("add-agent")}>Add agent</Button>
+          <ol tabIndex={0} aria-label="Workers in this run">{selectedWorkers.map((slot,index) => {
             const {model,effort} = runModel({...setup.profiles[slot.profile],...slot});
             return <li key={slot.key}><div className="worker-pool-heading"><div><strong>{index+1}. {label(slot.profile)}</strong>
               <small>{model} · {effort}</small></div><div className="actions">
@@ -188,8 +201,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
               <Button variant="ghost" aria-label={`Remove worker ${index+1}`} onClick={() => setWorkers(selectedWorkers.filter(w => w.key !== slot.key))}>Remove</Button></div></div>
             </li>;
           })}</ol>
-          <Label>Minimum agents<Input type="number" min="1" max={selectedWorkers.length || 1} value={minimum} onChange={e => setMinimum(e.target.value)} aria-invalid={!validMinimum}/></Label>
-          {!validMinimum && <p role="alert">Choose a minimum between 1 and the number of workers in the pool.</p>}
+          {!selectedWorkers.length && <p>Add a worker to start this run.</p>}
         </fieldset>
       </div>
       <fieldset className="subagent-settings"><legend>Delegation</legend>
@@ -198,7 +210,9 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
           {!unlimited && <Label>Concurrent subagents<Input type="number" min="1" max="4294967295" value={limit} aria-invalid={!validLimit} onChange={e => setLimit(e.target.value)} /></Label>}
           {!validLimit && <p role="alert">Enter a positive whole number.</p>}</>}
       </fieldset>
-      <div className="dialog-footer"><Button variant="outline" type="button" disabled={!validLimit || !validMinimum} onClick={() => setModal("")}>Done</Button></div>
+      <div className="dialog-footer"><Button variant="outline" type="button" disabled={!validLimit || !selectedWorkers.length} onClick={() => setModal("")}>Done</Button></div>
+      {modal === "add-agent" && <AddAgent names={names} profiles={setup.profiles} onClose={() => setModal("team")}
+        onAdd={slot => setWorkers([...selectedWorkers,{...slot,key:crypto.randomUUID()}])}/>}
       {modal === "model" && <ModelSettings key={editingSlot?.key ?? "coordinator"} name={modelName}
         runLabel={editingSlot ? `worker ${selectedWorkers.indexOf(editingSlot)+1} · ${label(modelName)}` : `coordinator · ${label(modelName)}`}
         profile={editingSlot ? {...setup.profiles[modelName],...editingSlot} : profile}

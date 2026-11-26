@@ -106,7 +106,7 @@ export function RunSettings({
               <dd>{agent(run.input.coordinator)}</dd>
               <dt>Workers</dt>
               <dd>{run.input.workers.map(agent)}</dd>
-              {run.input.min_workers > 1 && <><dt>Minimum agents</dt><dd>{run.input.min_workers}</dd></>}
+              <dt>Team size</dt><dd>{run.input.workers.length + 1} agents including the coordinator</dd>
               <dt>Subagents</dt>
               <dd>
                 {run.input.subagents === false

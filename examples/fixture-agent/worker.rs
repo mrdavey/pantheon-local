@@ -131,6 +131,7 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
                 "api" => ("api.txt", "wrong"),
                 "ui" => ("ui.txt", "usable"),
                 "export" => ("export.txt", "open quotes"),
+                "export-guide" => ("docs/export.md", "Export format"),
                 "correct" => ("result.txt", "correct"),
                 "fast" => ("result.txt", "wrong"),
                 "left" => ("overlap.txt", "left"),

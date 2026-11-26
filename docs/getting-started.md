@@ -44,6 +44,12 @@ Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s fu
 
 In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
 
+## Continue working on a project
+
+- **New feature or project expansion.** Choose **Runs → + New run** and select the same project folder. Start from the branch containing the previous landed implementation. Commit any manual edits you want included. The new goal gets its own brief, milestones, and metrics.
+- **Refine the previous result.** Choose **Experiment → Start another round** to try a new goal in the same run. If several implementations were built and one has landed, **Improve this version** lets you combine it with parts of the alternatives.
+- **Missing work in the current goal.** Choose **Milestones → Add task** to review and add the coordinator’s proposed milestones to this run.
+
 ## If setup gets stuck
 
 - **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, use **Advanced settings → Initial import files → Choose files…**. Select multiple files, choose **Add more files…** to add another batch, or remove individual entries before starting. These files become the first Git commit. Pantheon checks the selection before initializing a new repository.

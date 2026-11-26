@@ -156,7 +156,6 @@ pre { overflow: auto; max-height: 360px; color: var(--ink); background: var(--wa
 .row .actions { margin: .65rem 0 0; }
 .row h2, .row h3 { margin-top: .55rem; }
 .notice { margin: .75rem 0; overflow-wrap: anywhere; }
-.landed-receipt { background: var(--green-wash); display: grid; gap: .3rem; }
 .update-notice { display: flex; justify-content: space-between; align-items: center; gap: .75rem; background: var(--clay-wash); }
 .update-notice span { color: var(--ink); }
 .error { display: flex; justify-content: space-between; align-items: center; gap: .75rem; background: var(--red-wash); color: var(--red); }
@@ -211,24 +210,8 @@ summary { cursor: pointer; min-height: 44px; padding: .7rem 0; font-weight: 550;
 .experiment > :is(h2, p, details, .actions) { margin: 0; }
 .experiment > details { border-bottom: 1px solid var(--line); }
 .experiment > label { width: min(14rem, 100%); }
-.outcome {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
-  gap: .75rem 1.5rem;
-  padding: 1.25rem 1.35rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--clay-wash);
-}
-.outcome:has(.state.landed, .state.selected) { background: var(--green-wash); }
-.outcome .state { background: var(--paper); }
-.outcome-copy { min-width: 0; }
-.outcome h3 { font: 400 2rem/1.15 Georgia, serif; letter-spacing: -.035em; margin: .45rem 0 .1rem; }
-.outcome p { margin-bottom: 0; }
-.outcome-meta { display: grid; align-content: center; align-self: stretch; gap: .25rem; border-inline-start: 1px solid var(--line); padding-inline-start: 1rem; font-size: .82rem; color: var(--muted); }
-.outcome:not(:has(.outcome-meta)) { grid-template-columns: minmax(0, 1fr); }
-.outcome-meta :is(strong, code) { color: var(--ink); }
-.outcome-meta code { font-size: .75rem; }
+.experiment-decision { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem .75rem; margin-bottom: 1rem; }
+.experiment-decision > [data-slot="button"] { max-width: 100%; min-height: 44px; padding: .5rem .75rem; overflow-wrap: anywhere; }
 .comparison-card h3, .charts-card h3 { margin: 0 0 .7rem; }
 .table-scroll { overflow: auto; max-width: 100%; }
 .experiment table { border-collapse: collapse; width: 100%; min-width: 25rem; text-align: start; font-size: .9rem; }
@@ -278,10 +261,6 @@ summary { cursor: pointer; min-height: 44px; padding: .7rem 0; font-weight: 550;
 }
 @media (min-width: 1200px) {
   .experiment-results.with-charts { grid-template-columns: minmax(0, 1.36fr) minmax(0, 1fr); align-items: start; }
-}
-@media (max-width: 990px) {
-  .outcome { grid-template-columns: minmax(0, 1fr); gap: .7rem; }
-  .outcome-meta { border-inline-start: 0; border-top: 1px solid var(--line); padding: .65rem 0 0; }
 }
 @media (max-width: 720px) {
   .app { display: block; }

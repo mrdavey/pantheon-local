@@ -20,7 +20,7 @@
   --color-border: var(--line);
   --color-destructive: var(--red);
 }
-.app h1, .app .outcome h3 { font-family: inherit; font-weight: 650; letter-spacing: -.045em; }
+.app h1 { font-family: inherit; font-weight: 650; letter-spacing: -.045em; }
 .app h1 { font-size: clamp(1.85rem, 3.5vw, 2.65rem); }
 .brand-mark { color: var(--on-clay); background: var(--clay); }
 .sidebar button[aria-current=page] { box-shadow: 0 1px 3px #1218330d; }
@@ -154,7 +154,7 @@ main:has(.run-workspace) { width: 100%; padding-bottom: 5rem; }
 .workbench-dialog.snapshot-dialog { width: min(52rem, calc(100vw - 2rem)); max-width: 52rem; }
 .snapshot-path { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem; }
 .snapshot-path svg { width: .9rem; }
-.snapshot-path button { max-width: 100%; padding-inline: .25rem; white-space: normal; overflow-wrap: anywhere; }
+.snapshot-path button { max-width: 100%; padding: .5rem .75rem; white-space: normal; overflow-wrap: anywhere; }
 .snapshot-list { list-style: none; padding: 0; margin: 0; }
 .snapshot-list li + li { border-top: 1px solid var(--border); }
 .snapshot-list button { justify-content: flex-start; width: 100%; height: auto; min-height: 2.65rem; white-space: normal; overflow-wrap: anywhere; text-align: left; }

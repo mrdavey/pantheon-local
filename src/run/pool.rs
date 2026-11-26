@@ -50,7 +50,7 @@ pub(super) fn configure(input: &mut Value, profiles: &mut Value) -> Result<()> {
                 .clone();
             apply_settings(&mut profile, slot)?;
             let mut id = base.to_owned();
-            if ids.contains(&id) || (id == s(input, "coordinator") && profile != profiles[base]) {
+            if ids.contains(&id) || id == s(input, "coordinator") {
                 let mut suffix = 2;
                 loop {
                     id = format!("{base}-{suffix}");
@@ -63,6 +63,7 @@ pub(super) fn configure(input: &mut Value, profiles: &mut Value) -> Result<()> {
             profiles[&id] = profile;
             ids.push(id);
         }
+        input["min_workers"] = json!(ids.len());
         input["workers"] = json!(ids);
     }
     if let Some(min) = input["min_workers"].as_u64() {
@@ -85,7 +86,7 @@ mod tests {
     #[test]
     fn repeated_workers_keep_distinct_settings_and_coordinator_identity() -> Result<()> {
         let mut profiles = json!({"codex":{"kind":"codex","model":"original"},"codex-2":{"kind":"custom","executable":"test"},"ag":{"kind":"antigravity"}});
-        let mut input = json!({"coordinator":"codex","min_workers":4,"coordinator_settings":{"model":"coordinator-only"},"worker_pool":[
+        let mut input = json!({"coordinator":"codex","min_workers":1,"coordinator_settings":{"model":"coordinator-only"},"worker_pool":[
             {"profile":"codex","model":"alpha","effort":"high"},{"profile":"codex","model":"beta","effort":"low"},
             {"profile":"ag","model":"first"},{"profile":"ag","model":"second"}]});
         configure(&mut input, &mut profiles)?;
@@ -93,6 +94,7 @@ mod tests {
             input["workers"],
             json!(["codex-3", "codex-4", "ag", "ag-2"])
         );
+        assert_eq!(input["min_workers"], 4);
         assert_eq!(profiles["codex"]["model"], "coordinator-only");
         assert_eq!(profiles["codex-3"]["effort"], "high");
         assert_eq!(profiles["codex-4"]["model"], "beta");

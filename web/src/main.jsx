@@ -14,7 +14,7 @@ import { ActivityLog } from "./activity-log";
 import { Milestones } from "./milestones";
 import { Metrics } from "./metrics";
 import { ImplementationFiles } from "./implementation-files";
-import { implementationLabel, ImplementationLink } from "./implementation.jsx";
+import { implementationLabel } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { RunSettings } from "./run-settings.jsx";
@@ -119,7 +119,7 @@ function Evidence({ path, kind, name, refreshable }) {
   </>;
 }
 
-function Candidate({ route, run, candidate, act, busy, name, explain, openMilestone }) {
+function Candidate({ route, run, candidate, act, busy, name, landed, explain, openMilestone }) {
   const evalTurn = (run.turns || []).findLast((turn) => turn.role === "eval" && (turn.task === candidate.id || turn.id === candidate.evidence));
   const panel = route.tab === "implementations" && route.candidate === candidate.id ? route.detail : "";
   const show = detail => changeRoute({candidate:detail ? candidate.id : null, detail, file:null});
@@ -136,7 +136,9 @@ function Candidate({ route, run, candidate, act, busy, name, explain, openMilest
   const evidence = panel === "diff" && candidate.commit ? {kind:"diff", path:"/runs/" + run.id + "/diff/" + candidate.id} :
     panel === "checks" && evalTurn ? {kind:"checks", path:"/runs/" + run.id + "/turns/" + evalTurn.id} : null;
   return <Card asChild><article className="row work-result">
-    <header>{name ? <h3>{name}</h3> : <h2>Implementation</h2>}<Status state={candidate.state} /></header>
+    <header>{name ? <h3>{name}</h3> : <h2>Implementation</h2>}<div className="implementation-badges">
+      <Status state={candidate.state} />{landed && <Status state="landed" />}
+    </div></header>
     {candidate.tasks?.length > 0 && <p>{candidate.tasks.length} {candidate.tasks.length === 1 ? "milestone" : "milestones"} included</p>}
     {candidate.detail && <p>{shortSummary(candidate.detail)}</p>}
     {canLand && <>
@@ -169,11 +171,12 @@ function Candidate({ route, run, candidate, act, busy, name, explain, openMilest
 }
 
 function successful(run) {
-  const available = new Set(run.implementation_ids);
-  return (run.candidates || []).filter(c => available.has(c.id));
+  const byId = new Map((run.candidates || []).map(candidate => [candidate.id, candidate]));
+  const ordered = new Set([...(run.landed_implementation_ids || []), ...(run.implementation_ids || [])]);
+  return Array.from(ordered, id => byId.get(id)).filter(Boolean);
 }
 function defaultTab(run) {
-  if (successful(run).length) return "implementations";
+  if (run.implementation_ids?.length) return "implementations";
   return run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "milestones";
 }
 
@@ -202,7 +205,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
   const questions = (run.inbox || []).filter((q) => q.state === "open" && (q.source !== "plan" || run.state !== "question"));
   const landed = run.state === "landed" && run.detail;
   const showExperiment = () => { setExperimentOpened(true); setTab("experiment"); };
-  const landedBuild = implementations.find(c => c.id === run.selection?.candidate) || implementations.find(c => c.commit === run.detail);
+
   const projectPath = runProjectPath(run);
   return <section className="panel run-workspace">
     <header className="run-heading">
@@ -224,11 +227,6 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
     </nav>
     <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
-    {landed && ["work","implementations"].includes(view) && <div className="notice landed-receipt" role="status">
-      <strong>Implementation landed</strong>
-      {landedBuild && <ImplementationLink run={run} candidate={landedBuild.id}>View implementation</ImplementationLink>}
-      <code aria-label="Landed commit">{run.detail}</code>
-    </div>}
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
@@ -244,7 +242,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     </div>}
     </div>
     {view === "implementations" && <section aria-label="Successful implementations">
-      {implementations.map(candidate => <Candidate key={candidate.id} name={implementationLabel(candidate)}
+      {implementations.map(candidate => <Candidate key={candidate.id} name={implementationLabel(candidate)} landed={run.landed_implementation_ids?.includes(candidate.id)}
         {...{route,candidate,run,act,busy,explain,openMilestone}} />)}
     </section>}
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}

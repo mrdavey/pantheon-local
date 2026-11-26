@@ -950,6 +950,27 @@ pub fn public(mut r: Value) -> Value {
             .map(|candidate| &candidate["id"])
             .collect::<Vec<_>>()
     );
+    // Selections are archived in decision order. Include a build only once if it landed again.
+    let available = a(&r["implementation_ids"]);
+    let mut landed = Vec::new();
+    for selection in std::iter::once(&r["selection"]).chain(a(&r["past_selections"]).iter().rev()) {
+        let id = &selection["candidate"];
+        if selection["state"] == "landed" && available.contains(id) && !landed.contains(&id) {
+            landed.push(id);
+        }
+    }
+    // Older runs may only have the final commit receipt.
+    if r["state"] == "landed"
+        && r["selection"]["state"] != "landed"
+        && let Some(candidate) = a(&r["candidates"])
+            .iter()
+            .rev()
+            .find(|c| c["commit"] == r["detail"] && available.contains(&c["id"]))
+    {
+        landed.retain(|id| **id != candidate["id"]);
+        landed.insert(0, &candidate["id"]);
+    }
+    r["landed_implementation_ids"] = json!(landed);
     if let Some(obj) = r.as_object_mut() {
         obj.remove("deploy_config");
         obj.remove("commands");
