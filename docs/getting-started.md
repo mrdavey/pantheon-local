@@ -24,9 +24,9 @@ For Hermes, Antigravity and custom adapters, **Installed** confirms the executab
 3. Answer any planning question. Expand a named check to see the exact command. Review the proposed checks, edit them in **View or edit JSON** if needed, then select **Approve checks**. For this example, the check should verify the file’s exact contents.
 4. In **Milestones**, open **View checks** and **View diff**. If the recipe includes a preview, use **Start preview**. New workbench runs auto-land a passing candidate on a clean target. To review first, choose **Advanced settings → Delivery → Review before landing** before starting the run.
 
-Open **Run settings → View brief** to read the original request. In **Needs you**, answer a question or retry a blocked milestone. **Dismiss** moves it to **Show history**, where you can restore it. A blocking question still needs an answer. The open **Coordinator chat** shows what the coordinator is doing. Use **Milestones → Map** to inspect a worker’s assignments and their dependencies. [Team coordination](model-routing.md)
+Open **Run settings → View brief** to read the formatted request in a larger dialog. It previews uploaded images and supported text files and provides downloads for other attachments. In **Needs you**, answer a question or retry a blocked milestone. **Dismiss** moves it to **Show history**, where you can restore it. A blocking question still needs an answer. The open **Coordinator chat** shows what the coordinator is doing. Use **Milestones → Map** to inspect a worker’s assignments and their dependencies. [Team coordination](model-routing.md)
 
-Use the gear beside a run to pause, resume, require review, or delete it. Deletion removes its history and private checkouts once work has stopped. Your project and landed commits stay on disk. Closing the tab leaves the service running. Reopen the launcher to reconnect, or press Control-C in Terminal to stop the service.
+Open **Run settings** from the gear on the run page to pause, resume, require review, or delete the run. Deletion removes its history and private checkouts once work has stopped. Your project and landed commits stay on disk. Closing the tab leaves the service running. Reopen the launcher to reconnect, or press Control-C in Terminal to stop the service.
 
 ## Inspect a run
 
@@ -40,7 +40,7 @@ On the map, choose a colored worker filter to dim other workers’ assignments. 
 
 Choose **Add task**, describe the work, then select **Create milestone(s)**. Review the proposed owners, dependencies, and extra checks before choosing **Add to run**. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
 
-Use the chat dock’s full-screen button to open the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer stays below the conversation and shows the coordinator’s model and thinking effort. Choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
+Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s full-screen button opens the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer shows the coordinator’s agent, model, and thinking effort. In the tab, choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
 
 In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
 

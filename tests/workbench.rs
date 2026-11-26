@@ -391,12 +391,13 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Run settings")?;
     b.text("View brief").focus()?;
     b.key("\u{e007}")?;
-    b.xpath("//*[@data-slot='collapsible'][@data-state='open']//p[.='Add quote export']")
-        .visible()?;
-    b.key("\u{e007}")?;
+    b.role("dialog", "Run brief").contains("Add quote export")?;
+    b.role("dialog", "Run brief").contains("brief evidence")?;
+    b.key("\u{e00c}")?;
+    h.button("View brief").focused()?;
     h.click("Close dialog")?;
     b.role("dialog", "Coordinator chat").visible()?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
     b.role("heading", "Review acceptance checks").visible()?;
@@ -460,7 +461,7 @@ fn export(h: &Harness) -> Result<()> {
     b.role("heading", "Proposed milestones").visible()?;
     h.click("Add to run")?;
     b.text("Milestones added").visible()?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Milestones")?;
     h.button("Land on main").visible()?;
     b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 2']")
@@ -487,7 +488,7 @@ fn export(h: &Harness) -> Result<()> {
     b.role("dialog", "Coordinator chat").visible()?;
     b.text("Milestones added").visible()?;
     b.text("Explain the result after reopening.").visible()?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Milestones")?;
     let candidate = b.xpath("//article[.//button[normalize-space(.)='Land on main']]");
     candidate.xpath(".//button[.='View diff']").click()?;
@@ -969,7 +970,7 @@ fn chat_history(h: &Harness) -> Result<()> {
     b.key("\u{e011}")?; // Home
     h.button("Latest messages ↓").visible()?;
     b.label("Message").fill("Keep this draft")?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Agent setup")?;
     h.run_button("Quote export").click()?;
     b.role("dialog", "Coordinator chat").visible()?;
@@ -1044,7 +1045,7 @@ fn explain_context(h: &Harness) -> Result<()> {
     h.run_button("Quote export").click()?;
     b.role("dialog", "Coordinator chat").visible()?;
     b.label("Message").fill("An unfinished follow-up")?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Map")?;
     h.click("Full screen")?;
     b.xpath("//button[contains(@class,'map-select')]").click()?;
@@ -1052,7 +1053,7 @@ fn explain_context(h: &Harness) -> Result<()> {
     b.role("log", "Coordinator conversation")
         .contains("This milestone writes the open quotes export.")?;
     b.label("Message").value("An unfinished follow-up")?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Table")?;
     h.click("View details")?;
     h.click("Explain this")?;
@@ -1237,6 +1238,8 @@ fn runs_navigation(h: &Harness) -> Result<()> {
     h.run_button("Quote export").click()?;
     h.click("Runs")?;
     h.b.label("All runs").visible()?;
+    h.b.xpath("//nav[contains(@class,'run-nav')]//button[contains(@class,'run-settings-button')]")
+        .absent()?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
         h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
             "runs-index-mobile.png"
@@ -1263,8 +1266,22 @@ fn runs_navigation(h: &Harness) -> Result<()> {
             .attr("aria-sort")?
             == "ascending"
     );
+    let on_divider = r#"
+        const rail = document.querySelector('.sidebar').getBoundingClientRect();
+        const toggle = document.querySelector('.rail-toggle').getBoundingClientRect();
+        const header = document.querySelector('.workbench-header').getBoundingClientRect();
+        if (Math.abs(header.bottom - rail.top) > 1) return false;
+        return innerWidth <= 720
+            ? Math.abs(rail.bottom - (toggle.top + toggle.height / 2)) <= 1
+            : Math.abs(rail.right - (toggle.left + toggle.width / 2)) <= 1;
+    "#;
+    ensure!(h.b.eval(on_divider, vec![])? == true);
     h.click("Collapse sidebar")?;
     h.button("Expand sidebar").visible()?;
+    ensure!(h.b.eval(on_divider, vec![])? == true);
+    h.run_button("Quote export")
+        .xpath(".//span[@class='recent-initials' and .='QE']")
+        .visible()?;
     let search = h.b.label("Search runs by name or project");
     let status = h.b.label("Run status");
     search.fill("quote EXPORT")?;
@@ -1342,7 +1359,14 @@ scenario!(
 
 fn delete_from_settings(h: &Harness) -> Result<()> {
     let repo = h.repo("delete")?;
-    let run = h.svc.post("/runs", &json!({"path":repo,"prompt":"Add quote export","coordinator":"first","workers":["writer"]}))?;
+    let run = h.svc.post("/runs", &json!({
+        "path":repo,"prompt":"Add quote export","coordinator":"first","workers":["writer"],
+        "attachments":[
+            {"name":"screenshot.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNg+M8AAAICAQB7CYF4AAAAAElFTkSuQmCC"},
+            {"name":"scope.md","data":"IyMgQXR0YWNobWVudCBub3Rlcw=="},
+            {"name":"bytes.bin","data":"AP8="}
+        ]
+    }))?;
     let path = common::run_path(&run)?;
     let waiting = h.svc.wait_state(&path, "question")?;
     h.goto()?;
@@ -1351,8 +1375,24 @@ fn delete_from_settings(h: &Harness) -> Result<()> {
     h.b.role("heading", "Run settings").visible()?;
     h.click("View brief")?;
     h.b.reload()?;
-    h.b.role("dialog", "Run settings")
+    h.b.role("dialog", "Run brief")
         .contains("Add quote export")?;
+    h.b.role("heading", "Attachment notes").visible()?;
+    let image = h.b.xpath("//img[@alt='screenshot.png']");
+    image.visible()?;
+    until("brief image preview to decode", || {
+        Ok((h.b.eval(
+            "return document.querySelector('.brief-attachment img')?.naturalWidth",
+            vec![],
+        )? == 1)
+            .then_some(()))
+    })?;
+    h.b.role("link", "Download bytes.bin").visible()?;
+    ensure!(h.b.role("link", "Download bytes.bin").attr("download")? == "bytes.bin");
+    ensure!(h.svc.get(&format!("{path}/brief-attachments/2"))?["data"] == "AP8=");
+    h.b.text("Preview unavailable.").visible()?;
+    ensure!(h.b.eval("return document.querySelector('.run-brief-dialog').clientWidth > document.querySelector('.run-settings-dialog').clientWidth", vec![])? == true);
+    h.no_overflow()?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
         h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
             "run-settings-mobile.png"
@@ -1360,6 +1400,8 @@ fn delete_from_settings(h: &Harness) -> Result<()> {
             "run-settings-desktop.png"
         }))?;
     }
+    h.b.key("\u{e00c}")?;
+    h.b.role("dialog", "Run settings").visible()?;
     h.click("Close dialog")?;
     h.click("Run settings")?;
     h.click("Pause run")?;
@@ -1367,7 +1409,7 @@ fn delete_from_settings(h: &Harness) -> Result<()> {
     h.click("Cancel")?;
     h.b.key("\u{e00c}")?;
     h.button("Run settings").focused()?;
-    h.click("Settings for Quote export")?;
+    h.click("Run settings")?;
     h.click("Delete run")?;
     h.click("Delete permanently")?;
     h.b.role("heading", "Start a run").visible()?;
@@ -1399,7 +1441,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
     let b = &h.b;
     b.text("Waiting for check approval").visible()?;
     let bounds = b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     ensure!(bounds == b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?);
     b.text("Install locked dependencies").click()?;
     b.xpath("//*[@data-slot='collapsible'][@data-state='open']//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
@@ -1616,8 +1658,20 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     h.svc.wait_state(&path, "landed")?;
     h.goto()?;
     h.run_button("Quote export").click()?;
+    b.xpath("//div[@class='coordinator-chat']//span[@class='composer-profile']")
+        .contains("first · Harness default · Default effort")?;
+    ensure!(
+        b.xpath("//div[@class='coordinator-chat']//header[@class='chat-header']")
+            .text_content()?
+            .trim()
+            == "Coordinator chat"
+    );
+    h.button("Minimize chat").absent()?;
+    ensure!(h.button("Coordinator chat").attr("aria-expanded")? == "true");
     b.label("Message").fill("Read the attachment")?;
     h.click("Full screen coordinator chat")?;
+    b.xpath("//div[@class='conversation-page']//span[@class='composer-profile']")
+        .contains("first · Harness default · Default effort")?;
     b.role("region", "Coordinator chat").visible()?;
     b.label("Message").value("Read the attachment")?;
     h.click("Attachment options")?;
@@ -1640,7 +1694,7 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
         }))?;
     }
     h.click("Return to dock")?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     h.click("Milestones")?;
     h.click("Add task")?;
     b.label("What do you want to add?")
@@ -1660,7 +1714,7 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     b.xpath("//button[@aria-expanded='false' and normalize-space(.)='Details']")
         .visible()?;
     h.click("Close dialog")?;
-    h.click("Minimize chat")?;
+    h.click("Coordinator chat")?;
     let current = h.svc.wait_state(&path, "review")?;
     ensure!(current["round"] == 2 && current["tasks"][1]["round"] == 2);
     h.click("Table")?;

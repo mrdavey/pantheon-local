@@ -58,7 +58,8 @@
 .run-body { min-width: 0; min-height: calc(100dvh - 15rem); }
 main:has(.run-workspace) { width: 100%; padding-bottom: 5rem; }
 .run-body, .run-body > section { width: 100%; }
-.coordinator-chat { position: fixed; right: max(.75rem, env(safe-area-inset-right)); bottom: max(.75rem, env(safe-area-inset-bottom)); z-index: 20; }
+.coordinator-chat { position: fixed; right: 0; bottom: max(.5rem, env(safe-area-inset-bottom)); z-index: 20; display:flex; flex-direction:column; align-items:flex-end; gap:.4rem; }
+.coordinator-chat .chat-launcher { margin-inline-end:max(.8rem, env(safe-area-inset-right)); }
 .chat-panel { width: min(24rem, calc(100vw - 1.5rem)); height: min(25rem, 43dvh); }
 .chat-header { background: var(--paper); }
 .coordinator-status { padding: .4rem 1rem; background: var(--clay-wash); color: var(--clay); font-size: .82rem; font-weight: 550; }
@@ -98,14 +99,12 @@ main:has(.run-workspace) { width: 100%; padding-bottom: 5rem; }
 .map-screen .assignment-map { flex: 1; min-height: 0; }
 .map-screen .assignment-map h2 { display: none; }
 @media (max-width: 720px) {
-  .coordinator-chat:has(.chat-panel) { inset: auto 0 0; }
   .coordinator-chat .chat-panel { width: 100vw; height: min(18rem, 36dvh); border-radius: var(--radius) var(--radius) 0 0; }
 }
 
 .map-world .map-node {position:absolute;}
 .conversation-page .chat-panel { width:100%; height:clamp(24rem,70dvh,58rem); }
-.chat-window-actions,.view-selector,.filter-controls,.activity-pages,.milestone-meta {display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;}
-.chat-window-actions { flex-wrap:nowrap; }
+.view-selector,.filter-controls,.activity-pages,.milestone-meta {display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;}
 .conversation-page .chat-history {padding:clamp(.8rem,2vw,2rem);}
 .conversation-page :is(.chat-message,.chat-composer) {overflow-wrap:anywhere;}
 .conversation-page .chat-message {max-width:min(84%,75ch);}

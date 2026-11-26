@@ -384,7 +384,7 @@ async fn handle(State(state): State<Arc<Local>>, req: Request) -> Response {
     h.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
     h.insert(
         header::CONTENT_SECURITY_POLICY,
-        "default-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'"
+        "default-src 'self'; img-src 'self' blob:; style-src 'self'; object-src 'none'; frame-ancestors 'none'"
             .parse()
             .unwrap(),
     );
@@ -587,6 +587,11 @@ impl Local {
                 let root = e.root(&run);
                 let project = run["project"].as_str().unwrap_or("");
                 match (m, rest) {
+                    ("GET", ["brief-attachments", index]) => crate::attachments::read(
+                        &root,
+                        &run["input"]["attachments"],
+                        index.parse()?,
+                    ),
                     ("POST", ["open-folder"]) => {
                         #[derive(serde::Deserialize)]
                         #[serde(deny_unknown_fields)]

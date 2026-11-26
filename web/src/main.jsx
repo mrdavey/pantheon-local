@@ -22,7 +22,7 @@ import "./style.css";
 import "./work.css";
 import { DiffExplorer, TurnOutput } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
-import { runTitle, runProjectPath, shortSummary, blockedTasks } from "./run-summary.js";
+import { runTitle, runProjectPath, runInitials, shortSummary, blockedTasks } from "./run-summary.js";
 import { AgentSetup } from "./setup.jsx";
 import { Brief } from "./brief.jsx";
 import { Experiment, Inbox, ReleaseList } from "./experiments.jsx";
@@ -438,7 +438,7 @@ function App() {
   };
   const busy = !!pending;
   const settingsRun = runs.find(run => run.id === settingsId);
-  const settingsButton = (run, name) => <Button variant="outline" type="button" className="run-settings-button" aria-label={name} title={name} onClick={() => { setError(""); changeRoute({settings:run.id, brief:null}); }}><Icon name="settings" /></Button>;
+  const settingsButton = (run) => <Button variant="outline" type="button" className="run-settings-button" aria-label="Run settings" title="Run settings" onClick={() => { setError(""); changeRoute({settings:run.id, brief:null}); }}><Icon name="settings" /></Button>;
   const navProps = (id) => ({ "aria-current": selection === id ? "page" : undefined, onClick: () => navigate(id) });
   return <div className="app" data-collapsed={collapsed}>
     <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); main.current.focus(); }}>Skip to content</a>
@@ -448,16 +448,26 @@ function App() {
         <Button className="rail-toggle" variant="ghost" size="icon" aria-expanded={!collapsed} aria-controls="workspace-navigation" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => {
           localStorage.setItem("pantheon-sidebar", collapsed ? "expanded" : "icons"); setCollapsed(!collapsed);
         }}>{collapsed ? <PanelLeftOpen/> : <PanelLeftClose/>}</Button>
-        <nav id="workspace-navigation" className="workspace-nav" aria-label="Workspace">
-          <Button variant="ghost" aria-label="Runs" title="Runs" aria-current={["runs","new","run"].includes(route.page) ? "page" : undefined} onClick={()=>navigate(runs.length ? "runs" : "")}><Play/><span>Runs</span></Button>
-          <Button variant="outline" aria-label="Agent setup" title="Agent setup" {...navProps("setup")}><Icon name="agents" /><span>Agent setup</span></Button>
-          <Button variant="outline" title="Needs you" {...navProps("inbox")}><Icon name="inbox" /><span>Needs you</span>{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</Button>
-        </nav>
-        {runs.length > 0 && <div className="run-history">
-          <div className="nav-heading" aria-hidden="true">Recent runs</div>
-          <nav className="run-nav" aria-label="Runs">{runs.slice(0,8).map((run) =>
-            <div className="run-nav-row" key={run.id}><Button variant="outline" title={runTitle(run)} {...navProps(run.id)}><Play className="recent-icon"/><span className="run-name">{runTitle(run)}</span><Status state={run.state} run={run} /></Button>{settingsButton(run, "Settings for " + runTitle(run))}</div>)}</nav>
-        </div>}
+        <div className="sidebar-content">
+          <nav id="workspace-navigation" className="workspace-nav" aria-label="Workspace">
+            <Button variant="ghost" aria-label="Runs" title="Runs" aria-current={["runs","new","run"].includes(route.page) ? "page" : undefined} onClick={()=>navigate(runs.length ? "runs" : "")}><Play/><span>Runs</span></Button>
+            <Button variant="outline" aria-label="Agent setup" title="Agent setup" {...navProps("setup")}><Icon name="agents" /><span>Agent setup</span></Button>
+            <Button variant="outline" title="Needs you" {...navProps("inbox")}><Icon name="inbox" /><span>Needs you</span>{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</Button>
+          </nav>
+          {runs.length > 0 && <div className="run-history">
+            <div className="nav-heading" aria-hidden="true">Recent runs</div>
+            <nav className="run-nav" aria-label="Runs">{runs.slice(0,8).map((run) => {
+              const title = runTitle(run);
+              return <div className="run-nav-row" key={run.id}>
+                <Button variant="outline" title={title} {...navProps(run.id)}>
+                  <span className="recent-initials" aria-hidden="true">{runInitials(title)}</span>
+                  <span className="run-name">{title}</span>
+                  <Status state={run.state} run={run} />
+                </Button>
+              </div>;
+            })}</nav>
+          </div>}
+        </div>
       </>}
     </aside>
     <main ref={main} tabIndex={-1} id="main-content">
@@ -478,7 +488,7 @@ function App() {
       </div>}
       {selection === "runs" && setup && <RunsIndex {...{runs,navigate,route}}/>}
       {setup && route.page === "run" && !current && <section><h1>Run unavailable</h1><Button onClick={()=>navigate(runs.length ? "runs" : "")}>Back to runs</Button></section>}
-      {current ? <RunView route={route} key={current.id} run={current} settings={settingsButton(current, "Run settings")} openRun={navigate} openInbox={() => {
+      {current ? <RunView route={route} key={current.id} run={current} settings={settingsButton(current)} openRun={navigate} openInbox={() => {
         navigate("inbox");
         if (current.inbox?.some(q => q.state === "open" && q.inbox_dismissed)) changeRoute({history:"open"}, {replace:true});
       }} {...{ send, perform, busy }} /> :
@@ -487,7 +497,7 @@ function App() {
         !setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
     </main>
     {current && <RunFooter run={current}/>}
-    {settingsRun && <RunSettings key={settingsRun.id} run={settingsRun} {...{ send, busy, error }} briefOpen={route.brief === "open"} setBriefOpen={open => changeRoute({brief:open ? "open" : null})}
+    {settingsRun && <RunSettings key={settingsRun.id} run={settingsRun} {...{ send, busy, error, api }} briefOpen={route.brief === "open"} setBriefOpen={open => changeRoute({brief:open ? "open" : null})}
       openWorking={() => perform(() => api("/runs/" + settingsRun.id + "/open-folder", {working:true}), "Opening working folder…")}
       onClose={() => { changeRoute({settings:null, brief:null}); setError(""); }}
       remove={() => perform(async () => {

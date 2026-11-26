@@ -4,10 +4,9 @@
 .dialog-heading h2 { margin: 0; }
 .dialog-close { flex: none; min-width: 40px; min-height: 40px; font-size: 1.4rem; }
 
-.run-nav-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; }
-.run-nav-row > button:first-child { min-width: 0; }
+.run-nav-row { min-width: 0; }
 .run-nav-row .run-name { overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
-.run-nav button.run-settings-button, .run-settings-button { display: inline-grid; place-items: center; width: 2.75rem; min-height: 2.75rem; padding: .5rem; }
+.run-settings-button { display: inline-grid; place-items: center; width: 2.75rem; min-height: 2.75rem; padding: .5rem; }
 .settings-details { display: grid; grid-template-columns: auto minmax(0,1fr); gap: .5rem 1rem; }
 .settings-details dt { color: var(--muted); }
 .settings-details dd { margin: 0; overflow-wrap: anywhere; }
@@ -15,3 +14,12 @@
 .settings-delete { padding-top: 1rem; margin-top: 1rem; border-top: 1px solid var(--line); }
 .workbench-dialog button.danger { color: var(--red, #a52b26); }
 @media (max-width: 760px) { .run-nav-row { flex: 0 0 min(82vw, 16rem); } }
+
+.workbench-dialog.run-brief-dialog { width:min(58rem, calc(100% - 1.5rem)); max-width:none; max-height:90dvh; }
+.view-brief { margin-top:.8rem; }
+.brief-attachments { margin-top:1.35rem; border-top:1px solid var(--line); padding-top:1rem; }
+.brief-attachments ul[aria-label] { display:grid; gap:.75rem; margin:0; padding:0; list-style:none; }
+.brief-attachment { border:1px solid var(--line); border-radius:var(--radius); padding:.75rem; }
+.brief-attachment-heading { display:flex; align-items:center; justify-content:space-between; gap:.75rem; overflow-wrap:anywhere; }
+.brief-attachment img { display:block; max-width:100%; max-height:55dvh; margin:.65rem auto 0; object-fit:contain; }
+.brief-attachment pre { max-height:20rem; overflow:auto; white-space:pre-wrap; }

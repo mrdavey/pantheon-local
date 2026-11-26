@@ -15,6 +15,15 @@ pub struct Upload {
     data: String,
 }
 
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\'])
+        && !name.chars().any(char::is_control)
+}
+
 pub fn unpack(input: &mut Value) -> Result<Vec<(String, Vec<u8>)>> {
     let Some(value) = input.as_object_mut().and_then(|o| o.remove("attachments")) else {
         return Ok(Vec::new());
@@ -24,15 +33,7 @@ pub fn unpack(input: &mut Value) -> Result<Vec<(String, Vec<u8>)>> {
     let mut total = 0;
     let mut files = Vec::new();
     for Upload { name, data } in uploads {
-        ensure!(
-            !name.is_empty()
-                && name.len() <= 255
-                && name != "."
-                && name != ".."
-                && !name.contains(['/', '\\'])
-                && !name.chars().any(char::is_control),
-            "Invalid attachment name."
-        );
+        ensure!(valid_name(&name), "Invalid attachment name.");
         let bytes = STANDARD.decode(data).context("Invalid attachment data.")?;
         total += bytes.len();
         ensure!(
@@ -42,6 +43,30 @@ pub fn unpack(input: &mut Value) -> Result<Vec<(String, Vec<u8>)>> {
         files.push((name, bytes));
     }
     Ok(files)
+}
+
+pub fn read(root: &Path, files: &Value, index: usize) -> Result<Value> {
+    let file = files.get(index).context("Attachment not found.")?;
+    let name = file["name"]
+        .as_str()
+        .filter(|name| valid_name(name))
+        .context("Invalid attachment name.")?;
+    let relative = Path::new("attachments").join(index.to_string()).join(name);
+    ensure!(
+        relative.to_str() == file["path"].as_str(),
+        "Invalid attachment path."
+    );
+    let path = root.canonicalize()?.join(relative);
+    ensure!(
+        path.canonicalize().ok().as_ref() == Some(&path) && fs::symlink_metadata(&path)?.is_file(),
+        "Attachment is unavailable."
+    );
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(TOTAL as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= TOTAL, "Attachment exceeds 16 MiB.");
+    Ok(json!({"data": STANDARD.encode(bytes)}))
 }
 
 pub fn save(root: &Path, files: Vec<(String, Vec<u8>)>) -> Result<Value> {
@@ -101,6 +126,13 @@ mod tests {
         assert_eq!(ctx[0]["excerpt"], "hi");
         assert!(ctx[1].get("excerpt").is_none());
         assert_eq!(fs::read(ctx[1]["path"].as_str().unwrap())?, vec![0, 255]);
+        assert_eq!(read(root.path(), &metadata, 0)?["data"], "aGk=");
+        assert_eq!(read(root.path(), &metadata, 1)?["data"], "AP8=");
+        assert!(read(root.path(), &metadata, 2).is_err());
+        let path = root.path().join("attachments/1/same");
+        fs::remove_file(&path)?;
+        std::os::unix::fs::symlink(root.path().join("attachments/0/same"), path)?;
+        assert!(read(root.path(), &metadata, 1).is_err());
         assert!(unpack(&mut json!({"attachments":[{"name":"../x","data":""}]})).is_err());
         assert!(unpack(&mut json!({"attachments":[{"name":"bad","data":"?"}]})).is_err());
         Ok(())

@@ -3,9 +3,8 @@ import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
 import { runTitle, overTokenTarget } from "./run-summary.js";
 
-import { FolderOpen } from "lucide-react";
-import { Disclosure } from "./disclosure";
-import { Markdown } from "./markdown";
+import { FileText, FolderOpen } from "lucide-react";
+import { RunBrief } from "./run-brief";
 import { branchName } from "./review";
 import { profileLabel, runModel } from "./setup";
 
@@ -14,6 +13,7 @@ export function RunSettings({
   openWorking,
   briefOpen,
   setBriefOpen,
+  api,
   send,
   remove,
   busy,
@@ -95,16 +95,10 @@ export function RunSettings({
               <dt>Target branch</dt>
               <dd>{run.repo?.Target ? branchName(run.repo.Target) : "Current branch"}</dd>
             </dl>
-            <Disclosure title="View brief" open={briefOpen} onOpenChange={setBriefOpen}>
-              <Markdown>{run.input.prompt}</Markdown>
-              {!!run.input.attachments?.length && (
-                <ul aria-label="Brief attachments">
-                  {run.input.attachments.map((file) => (
-                    <li key={file.path}>{file.name}</li>
-                  ))}
-                </ul>
-              )}
-            </Disclosure>
+            <Button variant="outline" className="view-brief" aria-haspopup="dialog" onClick={() => setBriefOpen(true)}>
+              <FileText />View brief
+            </Button>
+            {briefOpen && <RunBrief run={run} api={api} onClose={() => setBriefOpen(false)} />}
           </section>
           <section>
             <h3>Team</h3>

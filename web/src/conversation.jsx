@@ -1,10 +1,9 @@
-import { runModel } from "./setup";
-import { ArrowUp, ChevronRight } from "lucide-react";
+import { profileLabel, runModel } from "./setup";
+import { ArrowUp, ChevronRight, Maximize2, MessageSquare, PanelBottom } from "lucide-react";
 import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
 import { MilestoneLinks } from "./milestone-links";
 import { Textarea } from "./components/ui/textarea";
-import { Maximize2, Minimize2 } from "lucide-react";
 import { AttachmentButton, FileList, addAttachments, encodeAttachments } from "./brief-files";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Command } from "./evidence.jsx";
@@ -16,13 +15,6 @@ import { coordinatorStatus } from "./status.jsx";
 // Keep unsent drafts and reading positions scoped to the run and this open page.
 const drafts = new Map();
 const readingPositions = new Map();
-
-function ChatIcon({ minimize = false }) {
-  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={minimize ? "m6 9 6 6 6-6" : "M20 11a8 8 0 0 1-8 8H8l-5 3 1.5-6A8.5 8.5 0 1 1 20 11Z"} />
-  </svg>;
-}
 
 export function Proposal({ message, run, act, busy, onDecision, openMilestone }) {
   const [failed, setFailed] = useState(false);
@@ -92,7 +84,11 @@ function useLiveReply(api, runId, turnId, open) {
 }
 
 export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
-  const {model, effort} = runModel(run.profiles?.[run.input.coordinator]);
+  const coordinator = run.input.coordinator;
+  const profile = run.profiles?.[coordinator];
+  const { model, effort } = runModel(profile);
+  const agent = profileLabel(coordinator, profile);
+  const coordinatorDetails = <span className="composer-profile"><strong>{agent}</strong> · {model} · {effort}</span>;
   const panelId = useId();
   const titleId = useId();
   const [dockOpen, setOpen] = useState(true);
@@ -107,7 +103,6 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   const explained = useRef(null);
   const [atLatest, setAtLatest] = useState(() => !readingPositions.has(run.id));
   const launcher = useRef(null);
-  const minimize = useRef(null);
   const restoreFocus = useRef(false);
   const composer = useRef(null);
   const history = useRef(null);
@@ -170,7 +165,8 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
 
   useLayoutEffect(() => {
     if (open && activated.current) {
-      const target = window.matchMedia("(pointer: coarse)").matches ? minimize : composer;
+      activated.current = false;
+      const target = window.matchMedia("(pointer: coarse)").matches ? history : composer;
       target.current.focus({ preventScroll: true });
     } else if (restoreFocus.current) {
       launcher.current.focus({ preventScroll: true });
@@ -179,7 +175,12 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   }, [open, expanded]);
 
   function close() {
-    if (expanded) { setOpen(true); onDock(); return; }
+    if (expanded) {
+      activated.current = true;
+      setOpen(true);
+      onDock();
+      return;
+    }
     restoreFocus.current = true;
     setOpen(false);
   }
@@ -211,19 +212,15 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   }
 
   return <div className={expanded ? "conversation-page" : "coordinator-chat"}>
-    <Button variant="outline" ref={launcher} type="button" className="chat-launcher" aria-label="Coordinator chat"
-      aria-description={unread ? "New reply" : undefined} aria-expanded={open} aria-controls={panelId}
-      aria-haspopup="dialog" hidden={open} onClick={() => { activated.current = true; setOpen(true); }}>
-      <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
-    </Button>
-    <div id={panelId}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
+    <div id={panelId} hidden={!open}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
-      <header className="chat-header"><div><h2 id={titleId} className={expanded ? "visually-hidden" : undefined}>Coordinator chat</h2>
-        <span>{run.input.coordinator}</span></div>
-        <div className="chat-window-actions">{!expanded && <Button variant="ghost" size="icon" aria-label="Full screen coordinator chat" title="Full screen" onClick={() => {activated.current=true; onExpand();}}><Maximize2/></Button>}
-        <Button variant="ghost" ref={minimize} type="button" title={expanded ? "Return to dock" : "Minimize chat"} aria-label={expanded ? "Return to dock" : "Minimize chat"} onClick={close}>{expanded ? <Minimize2/> : <ChatIcon minimize />}</Button></div>
+      <header className="chat-header">
+        <h2 id={titleId} className={expanded ? "visually-hidden" : undefined}>Coordinator chat</h2>
+        {expanded
+          ? <Button variant="ghost" size="icon" type="button" title="Return to dock" aria-label="Return to dock" onClick={close}><PanelBottom /></Button>
+          : <Button variant="ghost" size="icon" type="button" title="Full screen" aria-label="Full screen coordinator chat" onClick={() => { activated.current = true; onExpand(); }}><Maximize2 /></Button>}
       </header>
       <Button variant="ghost" className="coordinator-status" aria-label={"View coordinator activity: " + coordinatorStatus(run)} onClick={() => {setOpen(false); onCoordinatorActivity();}}>{coordinatorStatus(run)} <ChevronRight aria-hidden="true"/></Button>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
@@ -272,13 +269,22 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
             {expanded && <><AttachmentButton menu busy={sending || paused} label="Chat attachments" add={picked=>{
           try { setFiles(addAttachments(files,picked)); setFileError(""); } catch (error) {setFileError(error.message);}
         }}/>
-              <span className="composer-profile" aria-label={`Coordinator model ${model}, thinking effort ${effort}`}><strong>{model}</strong> · {effort}</span>
+              {coordinatorDetails}
             </>}
             <Button variant="default" type="submit" className="primary send-message" aria-label="Send" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>{expanded ? <ArrowUp/> : "Send"}</Button>
           </div>
         </div>
+        {!expanded && <div className="dock-profile">{coordinatorDetails}</div>}
       </form>
     </section>}</div>
+    {!expanded && <Button variant="outline" ref={launcher} type="button" className="chat-launcher"
+      aria-description={unread ? "New reply" : undefined} aria-expanded={open} aria-controls={panelId}
+      aria-haspopup="dialog" onClick={() => {
+        if (open) close();
+        else { activated.current = true; setOpen(true); }
+      }}>
+      <MessageSquare aria-hidden="true" />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
+    </Button>}
   </div>;
 }
 

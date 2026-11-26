@@ -44,7 +44,7 @@ On chat turns, a custom adapter can stream the JSON response in `agent_message_c
 
 Omit usage when a harness has no reliable receipt. Return a failed turn in the result’s `error` field. The supervisor cancels a turn by stopping its process group.
 
-The service saves brief attachments under the private run directory, alongside its other inputs. Agents receive the paths and text excerpts with their run context. Initial imports are separate and become part of the project’s first commit.
+The service saves brief attachments under the private run directory, alongside its other inputs. Agents receive the paths and text excerpts with their run context. The brief dialog reads attachments by index through the authenticated run API. The browser renders raster images and supported UTF-8 text and provides downloads for other formats. Initial imports are separate and become part of the project’s first commit.
 
 ## Worker routing and conversation
 

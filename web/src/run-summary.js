@@ -26,6 +26,11 @@ export function runProjectPath(run) {
   return Subdir && Subdir !== "." ? Root.replace(/\/$/, "") + "/" + Subdir : Root;
 }
 
+export function runInitials(title) {
+  const words = title.match(/[\p{L}\p{N}]+/gu) || [title];
+  return words.slice(0, 2).map(word => Array.from(word)[0]).join("").toUpperCase();
+}
+
 export function blockedTasks(run) {
   if (run.state === "working" || run.state === "blocked") {
     return (run.tasks || []).slice(run.task_start || 0).filter((task) => task.state === "blocked");
