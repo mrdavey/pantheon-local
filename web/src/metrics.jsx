@@ -1,3 +1,4 @@
+import {useRoute, changeRoute} from "./navigation";
 import { Disclosure } from "./disclosure";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
@@ -280,15 +281,18 @@ export function Metrics({ run, api }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [paused, setPaused] = useState(false);
-  const [retry, setRetry] = useState(0),
-    [agent, setAgent] = useState(""),
-    [model, setModel] = useState(""),
-    [role, setRole] = useState("");
-  const [range, setRange] = useState("all"),
-    [field, setField] = useState("tokens"),
-    [mode, setMode] = useState("total");
-  const [zoomOpen, setZoomOpen] = useState(false);
-  const [selection, setSelection] = useState(null);
+  const [retry, setRetry] = useState(0);
+  const route = useRoute();
+  const agent = route.agent || "", model = route.model || "", role = route.role || "";
+  const range = ["15","60","1440"].includes(route.range) ? route.range : "all";
+  const field = route.metric === "usd" ? "usd" : "tokens";
+  const mode = ["pie","interval"].includes(route.chart) ? route.chart : "total";
+  const [zoomOpen, setZoomOpen] = useState(Boolean(route.from && route.to));
+  const selection = useMemo(() => {
+    const a = Number(route.from), b = Number(route.to);
+    return Number.isSafeInteger(a) && a > 0 && Number.isSafeInteger(b) && b > a ? [a,b] : null;
+  }, [route.from, route.to]);
+  const setSelection = bounds => changeRoute({from:bounds?.[0], to:bounds?.[1]});
   const [fetching, setFetching] = useState(false),
     [lookupMessage, setLookupMessage] = useState("");
   const pricingBusy = run.turns?.some((t) => t.role === "pricing" && t.state === "running");
@@ -369,12 +373,13 @@ export function Metrics({ run, api }) {
       : endedAt || Math.max(last, Number.isFinite(first) ? first : 0);
     first = Math.min(first, end);
     const start = range === "all" ? first : Math.max(first, end - Number(range) * 60000);
+    const intersects = selection && selection[0] < end && selection[1] > first;
     return {
       first,
       last: end,
       elapsed: end - first,
-      start: selection ? Math.max(first, selection[0]) : start,
-      end: selection ? Math.min(end, selection[1]) : end,
+      start: intersects ? Math.max(first, selection[0]) : start,
+      end: intersects ? Math.min(end, selection[1]) : end,
     };
   }, [data, range, terminal, turns, run, selection]);
   const summary = useMemo(
@@ -426,8 +431,7 @@ export function Metrics({ run, api }) {
               label="Time range"
               value={selection ? "selection" : range}
               set={(value) => {
-                setSelection(null);
-                setRange(value);
+                changeRoute({from:null, to:null, range:value});
               }}
               options={[
                 ...(selection ? [["selection", "Selected interval"]] : []),
@@ -440,16 +444,16 @@ export function Metrics({ run, api }) {
             <Select
               label="Agent"
               value={agent}
-              set={setAgent}
+              set={agent => changeRoute({agent})}
               options={options(allAgents, "agent", "All agents")}
             />
             <Select
               label="Model"
               value={model}
-              set={setModel}
+              set={model => changeRoute({model})}
               options={options(allAgents, "model", "All models")}
             />
-            <Select label="Role" value={role} set={setRole} options={options(turns, "role", "All roles")} />
+            <Select label="Role" value={role} set={role => changeRoute({role})} options={options(turns, "role", "All roles")} />
           </div>
           <dl className="usage-totals">
             {[
@@ -516,7 +520,7 @@ export function Metrics({ run, api }) {
               <Select
                 label="Metric"
                 value={field}
-                set={setField}
+                set={metric => changeRoute({metric})}
                 options={[
                   ["tokens", "Tokens"],
                   ["usd", "Cost (USD)"],
@@ -525,7 +529,7 @@ export function Metrics({ run, api }) {
               <Select
                 label="Chart view"
                 value={mode}
-                set={setMode}
+                set={chart => changeRoute({chart})}
                 options={[
                   ["total", "Line · cumulative"],
                   ["interval", "Bars · per interval"],

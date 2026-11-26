@@ -160,7 +160,7 @@ fn color_and_keyboard(h: &Harness) -> Result<()> {
     );
     ensure!(h.b.eval("return document.documentElement.dataset.appearance", vec![])? == "dark");
     if !h.mobile {
-        ensure!(h.b.eval("const centers = ['.local-indicator','.appearance select','.new-run-action'].map(s => {const r=document.querySelector(s).getBoundingClientRect();return r.y+r.height/2}); return Math.max(...centers)-Math.min(...centers) <= 1",vec![])? == true, "header controls have different centerlines");
+        ensure!(h.b.eval("const centers = ['.local-indicator','.appearance select'].map(s => {const r=document.querySelector(s).getBoundingClientRect();return r.y+r.height/2}); return Math.max(...centers)-Math.min(...centers) <= 1",vec![])? == true, "header controls have different centerlines");
     }
     h.b.label("Appearance").select("system")?;
     for scheme in ["dark", "light"] {
@@ -245,7 +245,7 @@ fn run_form(h: &Harness) -> Result<()> {
         h.proxy.url,
         h.svc.info["token"].as_str().unwrap()
     ))?;
-    h.click("New run")?;
+    h.click("Runs")?;
     h.b.label("Project folder")
         .value(folder.to_str().unwrap())?;
     h.click("Team")?;
@@ -339,7 +339,7 @@ fn export(h: &Harness) -> Result<()> {
     b.label("What do you want to build?")
         .fill("Add quote export")?;
     h.click("Agent setup")?;
-    h.click("New run")?;
+    h.click("Runs")?;
     b.label("Project folder").value(p)?;
     b.label("What do you want to build?")
         .value("Add quote export")?;
@@ -388,11 +388,13 @@ fn export(h: &Harness) -> Result<()> {
         .join("job.json");
     ensure!(fs::read_to_string(job)?.contains("brief evidence"));
     ensure!(!project.join("scope.md").exists());
-    b.text("Full brief").focus()?;
+    h.click("Run settings")?;
+    b.text("View brief").focus()?;
     b.key("\u{e007}")?;
     b.xpath("//*[@data-slot='collapsible'][@data-state='open']//p[.='Add quote export']")
         .visible()?;
     b.key("\u{e007}")?;
+    h.click("Close dialog")?;
     b.role("dialog", "Coordinator chat").visible()?;
     h.click("Minimize chat")?;
     b.label("Who can view quotes?").fill("private")?;
@@ -1217,6 +1219,86 @@ fn open_reuses_the_listening_service() -> Result<()> {
     check
 }
 
+fn runs_navigation(h: &Harness) -> Result<()> {
+    let seed = |repo, prompt| {
+        h.svc.post(
+            "/runs",
+            &json!({"path":repo,"prompt":prompt,"coordinator":"first","workers":["writer"]}),
+        )
+    };
+    let quote = seed(h.repo("quotes")?, "Add quote export")?;
+    h.svc.wait_state(&common::run_path(&quote)?, "question")?;
+    let team = seed(h.repo("team")?, "Build the team export")?;
+    h.svc.wait_state(&common::run_path(&team)?, "question")?;
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    h.click("Runs")?;
+    h.b.label("All runs").visible()?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "runs-index-mobile.png"
+        } else {
+            "runs-index-desktop.png"
+        }))?;
+    }
+    h.button("New run").visible()?;
+    h.click("New run")?;
+    h.b.role("heading", "Start a run").visible()?;
+    h.b.eval("history.back()", vec![])?;
+    h.b.label("All runs").visible()?;
+    let titles = || {
+        h.b.eval("return Array.from(document.querySelectorAll('.runs-index tbody a'), el=>el.textContent)",vec![])
+    };
+    ensure!(titles()? == json!(["Build the team export", "Quote export"]));
+    h.click("Run")?;
+    ensure!(titles()? == json!(["Build the team export", "Quote export"]));
+    h.click("Run")?;
+    ensure!(titles()? == json!(["Quote export", "Build the team export"]));
+    h.click("Run")?;
+    ensure!(
+        h.b.xpath("//th[button[contains(.,'Run')]]")
+            .attr("aria-sort")?
+            == "ascending"
+    );
+    h.click("Collapse sidebar")?;
+    h.button("Expand sidebar").visible()?;
+    h.b.role("link", "Quote export").click()?;
+    ensure!(h.b.url()?.contains(quote["id"].as_str().unwrap()));
+    h.b.eval("history.back()", vec![])?;
+    h.b.label("All runs").visible()?;
+    h.b.eval("history.forward()", vec![])?;
+    h.b.role("heading", "Quote export").visible()?;
+    h.click("Expand sidebar")?;
+    let tabs = h.b.eval(
+        "return Array.from(document.querySelectorAll('.run-tabs button'), el=>el.textContent)",
+        vec![],
+    )?;
+    ensure!(
+        tabs == json!([
+            "Milestones",
+            "Coordinator chat",
+            "Activity Log",
+            "Metrics",
+            "Experiment"
+        ])
+    );
+    let direct = format!(
+        "{}/?page=run&run={}&tab=chat",
+        h.proxy.url,
+        team["id"].as_str().unwrap()
+    );
+    h.b.goto(&direct)?;
+    h.b.role("heading", "Build the team export").visible()?;
+    h.b.role("region", "Coordinator chat").visible()?;
+    ensure!(h.b.url()? == direct);
+    h.no_overflow()
+}
+scenario!(
+    desktop_runs_navigation,
+    mobile_runs_navigation,
+    runs_navigation
+);
+
 fn delete_from_settings(h: &Harness) -> Result<()> {
     let repo = h.repo("delete")?;
     let run = h.svc.post("/runs", &json!({"path":repo,"prompt":"Add quote export","coordinator":"first","workers":["writer"]}))?;
@@ -1226,6 +1308,19 @@ fn delete_from_settings(h: &Harness) -> Result<()> {
     h.run_button("Quote export").click()?;
     h.click("Run settings")?;
     h.b.role("heading", "Run settings").visible()?;
+    h.click("View brief")?;
+    h.b.reload()?;
+    h.b.role("dialog", "Run settings")
+        .contains("Add quote export")?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "run-settings-mobile.png"
+        } else {
+            "run-settings-desktop.png"
+        }))?;
+    }
+    h.click("Close dialog")?;
+    h.click("Run settings")?;
     h.click("Pause run")?;
     h.click("Delete run")?;
     h.click("Cancel")?;
@@ -1452,6 +1547,10 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.click("Metrics")?;
     b.role("combobox", "Time range").select("60")?;
     tokens.contains("10")?;
+    // A copied zoom interval may belong to another run. Keep the chart inside this run.
+    b.goto(&(b.url()? + "&from=9000000000000000&to=9000000000000001"))?;
+    tokens.contains("10")?;
+    b.label("Token usage over time, cumulative").visible()?;
     h.no_overflow()
 }
 scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);
@@ -1480,6 +1579,10 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     h.click("Full screen coordinator chat")?;
     b.role("region", "Coordinator chat").visible()?;
     b.label("Message").value("Read the attachment")?;
+    h.click("Attachment options")?;
+    h.button("Attach files").visible()?;
+    b.key("\u{e00c}")?;
+    ensure!(b.eval("const r=document.querySelector('.conversation-page .chat-composer').getBoundingClientRect(); return r.bottom <= innerHeight && r.bottom > innerHeight - 100 && !!document.querySelector('.composer-profile').textContent.trim()",vec![])? == true, "chat composer must be visible at the foot of the viewport");
     b.eval(r#"const dt = new DataTransfer(); dt.items.add(new File(["Measure receipt latency"], "work-notes.txt"));
       const picker = document.querySelector('input[aria-label="Chat attachments"]'); picker.files = dt.files;
       picker.dispatchEvent(new Event("change",{bubbles:true}));"#,vec![])?;
@@ -1506,13 +1609,17 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
         .contains("Record export timing.")?;
     h.click("Add to run")?;
     h.click("Kanban")?;
-    b.xpath("//*[@data-slot='card']//button[@data-task='timing']")
+    b.xpath("//button[@data-slot='card' and @data-task='timing']")
         .click()?;
+    ensure!(b.url()?.contains("milestone=timing") && b.url()?.contains("layout=board"));
+    b.reload()?;
+    b.role("dialog", "Record export timing.").visible()?;
     h.click("Open milestone export")?;
     b.xpath("//*[@role='dialog']//code[.='export']").visible()?;
     b.xpath("//button[@aria-expanded='false' and normalize-space(.)='Details']")
         .visible()?;
     h.click("Close dialog")?;
+    h.click("Minimize chat")?;
     let current = h.svc.wait_state(&path, "review")?;
     ensure!(current["round"] == 2 && current["tasks"][1]["round"] == 2);
     h.click("Table")?;
@@ -1534,6 +1641,15 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     b.label("Run activity").contains("Record export timing.")?;
     b.label("Activity agent").select("first")?;
     b.label("Run activity").contains("Add a timing milestone")?;
+    let filtered = b.url()?;
+    b.reload()?;
+    h.button("Remove search filter timing").visible()?;
+    h.click("Remove agent filter first")?;
+    b.label("Activity agent").value("")?;
+    b.label("Search activity").value("timing")?;
+    b.eval("history.back()", vec![])?;
+    h.button("Remove agent filter first").visible()?;
+    ensure!(b.url()? == filtered);
     b.label("Search activity").fill("nonexistent search")?;
     b.text("No matching activity.").visible()?;
     h.no_overflow()

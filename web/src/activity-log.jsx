@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, ListFilter } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListFilter, X } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { Input } from "./components/ui/input";
@@ -9,6 +9,8 @@ import { Dialog } from "./dialog";
 import { Loading, Status } from "./status";
 import { LogTime, TurnLog } from "./turn-log";
 import { shortSummary } from "./run-summary";
+
+import { changeRoute } from "./navigation";
 
 export const activityRoles = {
   plan: "Planning",
@@ -35,21 +37,16 @@ function Choice({ label, value, options, onChange }) {
 function name(row) {
   return shortSummary(row.detail, 110) || activityRoles[row.role] || row.role;
 }
-export function ActivityLog({ run, api, explain, initialScope = "" }) {
-  const [query, setQuery] = useState({
-    q: "",
-    role: initialScope,
-    state: "",
-    agent: "",
-    sort: "newest",
-    page: 1,
-    size: 20,
-  });
+export function ActivityLog({ run, api, explain, route }) {
+  const query = {
+    q:route.q || "", role:route.role || "", agent:route.agent || "", state:route.state || "",
+    sort:route.sort === "oldest" ? "oldest" : "newest",
+    page:Math.max(1, parseInt(route.logPage, 10) || 1), size:[10,20,50].includes(Number(route.size)) ? Number(route.size) : 20,
+  };
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
-  const [selected, select] = useState(null),
-    [now, setNow] = useState(Date.now);
+  const [now, setNow] = useState(Date.now);
   const params = new URLSearchParams(query).toString();
   const result = data?.params === params ? data : null;
   useEffect(() => {
@@ -69,13 +66,17 @@ export function ActivityLog({ run, api, explain, initialScope = "" }) {
     return () => controller.abort();
   }, [run.id, run.revision, api, params, retry]);
   function filter(key, value) {
-    setQuery({ ...query, [key]: value, page: 1 });
+    changeRoute({[key]:value, logPage:null, turn:null}, {replace:key === "q" && !!query.q && !!value});
   }
   const turns = run.turns || [],
     agents = [
       ...new Set([run.input.coordinator, ...run.input.workers, ...turns.map((t) => t.agent)].filter(Boolean)),
     ];
   const stateOptions = [...new Set(turns.map((t) => t.state))].map((s) => [s, s]);
+  const selected = route.turn && (result?.items.find(row => row.id === route.turn) || turns.find(row => row.id === route.turn));
+  const select = row => changeRoute({turn:row?.id});
+  const chips = [["q","Search",query.q], ["role","Type",query.role === "coordinator" ? "Coordinator activity" : activityRoles[query.role] || query.role],
+    ["agent","Agent",query.agent], ["state","Status",query.state]].filter(([, , value]) => value);
   return (
     <section className="activity-log">
       <header className="work-section-heading">
@@ -122,6 +123,10 @@ export function ActivityLog({ run, api, explain, initialScope = "" }) {
           onChange={(v) => filter("sort", v)}
         />
       </div>
+      {chips.length > 0 && <div className="filter-chips" role="group" aria-label="Selected filters">
+        {chips.map(([key,label,value]) => <Button key={key} size="sm" variant="secondary" aria-label={`Remove ${label.toLowerCase()} filter ${value}`} onClick={() => filter(key,"")}>
+          <span>{label}</span>{value}<X aria-hidden="true"/></Button>)}
+      </div>}
       {error && (
         <p role="alert">
           {error}{" "}
@@ -183,7 +188,7 @@ export function ActivityLog({ run, api, explain, initialScope = "" }) {
             size="sm"
             variant="outline"
             disabled={result.page === 1}
-            onClick={() => setQuery({ ...query, page: result.page - 1 })}
+            onClick={() => changeRoute({logPage:result.page - 1})}
           >
             <ChevronLeft />
             Previous
@@ -195,7 +200,7 @@ export function ActivityLog({ run, api, explain, initialScope = "" }) {
             size="sm"
             variant="outline"
             disabled={result.page >= result.pages}
-            onClick={() => setQuery({ ...query, page: result.page + 1 })}
+            onClick={() => changeRoute({logPage:result.page + 1})}
           >
             Next
             <ChevronRight />

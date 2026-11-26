@@ -1,4 +1,5 @@
-import { ChevronRight } from "lucide-react";
+import { runModel } from "./setup";
+import { ArrowUp, ChevronRight } from "lucide-react";
 import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
 import { MilestoneLinks } from "./milestone-links";
@@ -91,6 +92,7 @@ function useLiveReply(api, runId, turnId, open) {
 }
 
 export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
+  const {model, effort} = runModel(run.profiles?.[run.input.coordinator]);
   const panelId = useId();
   const titleId = useId();
   const [dockOpen, setOpen] = useState(true);
@@ -251,9 +253,6 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
           {sendError && <Button variant="outline" type="button" disabled={!available} onClick={() => askAbout(attachment)}>Retry</Button>}
           {!sending && <Button variant="outline" type="button" aria-label="Cancel explanation" onClick={() => { setAttachment(null); setSendError(false); }}>×</Button>}
         </div>}
-        {expanded && <AttachmentButton busy={sending || paused} label="Chat attachments" add={picked=>{
-          try { setFiles(addAttachments(files,picked)); setFileError(""); } catch (error) {setFileError(error.message);}
-        }}/>}
         <FileList names={files.map(f=>f.name)} disabled={sending} remove={index=>setFiles(files.filter((_,i)=>i!==index))}/>
         {fileError && <p role="alert">{fileError}</p>}
         {sending && <p role="status">Sending…</p>}
@@ -269,7 +268,14 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
                 event.currentTarget.form.requestSubmit();
               }
             }} />
-          <Button variant="outline" type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</Button>
+          <div className="composer-actions">
+            {expanded && <><AttachmentButton menu busy={sending || paused} label="Chat attachments" add={picked=>{
+          try { setFiles(addAttachments(files,picked)); setFileError(""); } catch (error) {setFileError(error.message);}
+        }}/>
+              <span className="composer-profile" aria-label={`Coordinator model ${model}, thinking effort ${effort}`}><strong>{model}</strong> · {effort}</span>
+            </>}
+            <Button variant="default" type="submit" className="primary send-message" aria-label="Send" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>{expanded ? <ArrowUp/> : "Send"}</Button>
+          </div>
         </div>
       </form>
     </section>}</div>

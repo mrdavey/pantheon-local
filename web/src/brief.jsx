@@ -14,6 +14,8 @@ import { availableNames, ModelSettings, profileLabel } from "./setup.jsx";
 import { addAttachments, AttachmentButton, encodeAttachments, FileList } from "./brief-files.jsx";
 import "./brief.css";
 
+import { changeRoute, useRoute } from "./navigation";
+
 export function Brief({ setup, report, checking, checkError, cwd, saveModel, api, agentChoice, onSetup, onCreate, perform, busy }) {
   const [path, setPath] = useState(cwd);
   const [prompt, setPrompt] = useState("");
@@ -22,7 +24,8 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
   const [coordinator, setCoordinator] = useState(agentChoice?.name || setup.coordinator || "");
   const [workers, setWorkers] = useState(agentChoice ? [agentChoice.name] : null);
   const [advisor, setAdvisor] = useState("");
-  const [modelName, setModelName] = useState("");
+  const route = useRoute();
+  const modelName = route.profile;
   const [allowChildren, setAllowChildren] = useState(true);
   const [unlimited, setUnlimited] = useState(true);
   const [limit, setLimit] = useState("2");
@@ -37,7 +40,9 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
   const [destinations, setDestinations] = useState(null);
   const [destinationError, setDestinationError] = useState("");
   const [loadingDestinations, setLoadingDestinations] = useState(false);
-  const [modal, setModal] = useState("");
+  const panel = route.page === "new" ? route.panel : "";
+  const modal = panel === "model" && !Object.hasOwn(setup.profiles, modelName || "") ? "team" : panel;
+  const setModal = (panel,profile) => changeRoute({panel,profile});
   const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState("");
   const [importError, setImportError] = useState("");
@@ -157,7 +162,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
       <div className="roles">
         <div><Label>Coordinator<NativeSelect aria-label="Coordinator" required title={label(selectedCoordinator)} value={selectedCoordinator} onChange={(event) => setCoordinator(event.target.value)}>
           {names.map((name) => <NativeSelectOption key={name} value={name}>{label(name)}</NativeSelectOption>)}</NativeSelect></Label>
-          <Button variant="outline" type="button" className="model-link text-button" onClick={() => { setModelName(selectedCoordinator); setModal("model"); }}>
+          <Button variant="outline" type="button" className="model-link text-button" onClick={() => { setModal("model",selectedCoordinator); }}>
             {[profile?.model || profile?.detected?.label || "Agent default", profile?.effort || profile?.detected?.effort].filter(Boolean).join(" · ")} · Model settings
           </Button>
         </div>
@@ -167,7 +172,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
             <Label className="checkbox"><Checkbox aria-label={label(name)} checked={selectedWorkers.includes(name)}
               onCheckedChange={checked => setWorkers(checked ? [...selectedWorkers, name] : selectedWorkers.filter(id => id !== name))} />{label(name)}</Label>
             <small>{[worker.model || worker.detected?.label || "Agent default", worker.effort || worker.detected?.effort].filter(Boolean).join(" · ")}</small>
-            <Button variant="outline" type="button" aria-label={`Settings for worker ${name}`} onClick={() => { setModelName(name); setModal("model"); }}>Settings</Button>
+            <Button variant="outline" type="button" aria-label={`Settings for worker ${name}`} onClick={() => { setModal("model",name); }}>Settings</Button>
           </div>;
         })}</fieldset>
       </div>
@@ -210,7 +215,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
       </div>
       <div className="dialog-footer"><Button variant="default" className="primary" disabled={picking} onClick={() => setModal("")}>Done</Button></div>
     </Dialog>}
-    {modal === "original" && <Dialog title="Original brief" onClose={() => setModal("")}>
+    {modal === "original" && original && <Dialog title="Original brief" onClose={() => setModal("")}>
       <p className="original-brief">{original}</p><Button variant="outline" onClick={() => { setPrompt(original); setOriginal(""); setModal(""); }}>Restore original</Button>
     </Dialog>}
   </section>;

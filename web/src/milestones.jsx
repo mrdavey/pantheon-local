@@ -1,3 +1,4 @@
+import { changeRoute } from "./navigation";
 import { Disclosure } from "./disclosure";
 import React, { useEffect, useState } from "react";
 import { Columns3, List, Network, Plus } from "lucide-react";
@@ -231,10 +232,13 @@ const lanes = [
   ["Needs attention", ["blocked", "question", "interrupted"]],
   ["Done", ["committed", "abandoned"]],
 ];
-export function Milestones({ run, api, act, busy, explain, question, selected, setSelected }) {
-  const [view, setView] = useState("table"),
-    [adding, setAdding] = useState(false),
-    [earlier, setEarlier] = useState(false);
+export function Milestones({ route, run, api, act, busy, explain, question, selected, setSelected }) {
+  const view = views.some(([id]) => id === route.layout) ? route.layout : "table";
+  const setView = layout => changeRoute({tab:"milestones", layout, milestone:null});
+  const adding = route.tab === "milestones" && route.add === "task";
+  const setAdding = open => changeRoute({tab:"milestones", add:open ? "task" : null});
+  const earlier = route.earlier === "yes";
+  const setEarlier = open => changeRoute({tab:"milestones", earlier:open ? "yes" : null});
   const all = run.tasks || [],
     offset = earlier ? 0 : run.task_start || 0;
   const tasks = all.slice(offset),
@@ -323,21 +327,12 @@ export function Milestones({ run, api, act, busy, explain, question, selected, s
                   <small>{items.length}</small>
                 </h3>
                 {items.map((t) => (
-                  <Card
-                    className="board-card"
-                    key={t.id}
-                    onClick={(e) => {
-                      if (!e.target.closest("button")) {
-                        e.currentTarget.querySelector("button").focus();
-                        setSelected(t.id);
-                      }
-                    }}
-                  >
-                    {card(t)}
-                    <footer>
-                      {t.worker}
-                      <Status state={t.state} />
-                    </footer>
+                  <Card asChild key={t.id}>
+                    <button className="board-card" type="button" data-task={t.id} aria-haspopup="dialog" onClick={() => setSelected(t.id)}>
+                      <small>Milestone {all.indexOf(t) + 1}</small>
+                      <strong>{shortSummary(t.goal, 90) || t.id}</strong>
+                      <span className="board-owner">{t.worker}<Status state={t.state}/></span>
+                    </button>
                   </Card>
                 ))}
               </section>

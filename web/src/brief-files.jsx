@@ -1,6 +1,8 @@
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import React, { useRef } from "react";
+import { Plus, Paperclip } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import React, { useRef, useState } from "react";
 
 const limit = 16 * 1024 * 1024;
 export function addAttachments(files, additions) {
@@ -23,18 +25,18 @@ export async function encodeAttachments(files) {
   })));
 }
 
-export function AttachmentButton({ add, busy, label = "Brief attachments" }) {
+export function AttachmentButton({ add, busy, menu = false, label = "Brief attachments" }) {
   const picker = useRef(null);
+  const [open, setOpen] = useState(false);
   return <>
     <Input ref={picker} type="file" multiple hidden aria-label={label} onChange={event => {
       add(Array.from(event.target.files));
       event.target.value = "";
     }} />
-    <Button variant="outline" type="button" className="attach-button" disabled={busy} onClick={() => picker.current.click()}>
-      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-        <path d="m8 13 7.7-7.7a3.2 3.2 0 0 1 4.5 4.5L10 20a5 5 0 0 1-7-7L13.7 2.3M6.5 15.5l9-9"/>
-      </svg> Attach files
-    </Button>
+    {menu ? <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild><Button variant="ghost" size="icon" type="button" disabled={busy} aria-label="Attachment options" title="Attachment options"><Plus/></Button></PopoverTrigger>
+      <PopoverContent side="top" align="start" aria-label="Attachments"><Button variant="ghost" type="button" onClick={() => {picker.current.click(); setOpen(false);}}><Paperclip/>Attach files</Button></PopoverContent>
+    </Popover> : <Button variant="outline" type="button" className="attach-button" disabled={busy} onClick={() => picker.current.click()}><Paperclip/>Attach files</Button>}
   </>;
 }
 

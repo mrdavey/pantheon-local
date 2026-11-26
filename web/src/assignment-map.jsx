@@ -1,3 +1,4 @@
+import {useRoute, changeRoute} from "./navigation";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Check,
@@ -114,8 +115,11 @@ function NodeState({ state }) {
 export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) {
   const [zoom, setZoom] = useState(1),
     [selected, select] = useState(null);
-  const [agent, setAgent] = useState(""),
-    [expanded, setExpanded] = useState(false);
+  const route = useRoute();
+  const agent = route.agent || "";
+  const setAgent = agent => changeRoute({agent});
+  const expanded = route.tab === "milestones" && route.fullscreen === "map";
+  const setExpanded = open => changeRoute({fullscreen:open ? "map" : null});
   const viewport = useRef(null),
     drag = useRef(null),
     expandButton = useRef(null);
@@ -124,13 +128,12 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) 
     [tasks, run.input.workers],
   );
   const graph = useMemo(() => layout(tasks, workers), [tasks, workers]);
-  const highlighted = useMemo(() => chain(graph.edges, selected), [graph, selected]);
+  const highlighted = useMemo(() => chain(graph.edges, route.milestone || selected), [graph, route.milestone, selected]);
   const faded = (t) => (highlighted ? !highlighted.has(t.id) : !!agent && t.worker !== agent);
   const shade = (worker) => (156 + workers.indexOf(worker) * 137.5) % 360;
   function focusTask(id) {
-    setAgent("");
     select(id);
-    onDetails(id);
+    onDetails(id, {agent:null});
   }
   function fit() {
     const el = viewport.current;
@@ -273,7 +276,7 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) 
                       variant="ghost"
                       className="map-select"
                       aria-haspopup="dialog"
-                      aria-pressed={selected === task.id}
+                      aria-pressed={(route.milestone || selected) === task.id}
                       aria-label={`Milestone ${offset + order + 1}: ${task.goal}`}
                       onClick={() => focusTask(task.id)}
                     >

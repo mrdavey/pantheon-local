@@ -71,13 +71,6 @@
   border: 0;
   min-height: 2.3rem;
 }
-.header-actions .new-run-action {
-  background: transparent;
-  color: var(--clay);
-  border-color: var(--clay);
-  min-height: 2.35rem;
-  white-space: nowrap;
-}
 .sidebar {
   grid-area: 2/1;
   top: 3.6rem;
@@ -616,5 +609,84 @@ input[data-slot=input]:not([type=checkbox],[type=radio],[type=range]):focus-visi
   .header-actions > .appearance {position:relative;height:2.35rem;}
   .appearance > svg {position:absolute;left:.55rem;z-index:1;pointer-events:none;}
   .header-actions .appearance select {padding-inline-start:2rem;border:1px solid var(--line);border-radius:6px;box-shadow:none;}
-  .header-actions .local-indicator,.header-actions .new-run-action {height:2.35rem;margin-block:0;}
+  .header-actions .local-indicator {height:2.35rem;margin-block:0;}
+}
+
+/* Run library and navigation rail */
+.runs-index > header {display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}
+.runs-index h1 {margin:0 0 .25rem}
+.runs-index header span,.runs-index td small {color:var(--muted);font-size:.84rem}
+.runs-index td small {display:block;margin-top:.25rem}
+.runs-index td,.runs-index th {padding:.7rem .55rem}
+.runs-index td:first-child {white-space:normal;min-width:12rem}
+.runs-index td a {font-weight:600;color:var(--ink);text-decoration:none}
+.runs-index tr:hover td a,.runs-index td a:focus-visible {color:var(--clay);text-decoration:underline}
+.runs-index th button {padding:.3rem 0;color:inherit;white-space:nowrap}
+.runs-index th[aria-sort=descending],.runs-index th[aria-sort=ascending] {color:var(--clay)}
+.sidebar .rail-toggle {display:flex;width:2.5rem;margin:0 0 .5rem auto;justify-content:center}
+.recent-icon {display:none}
+.app[data-collapsed=true] .sidebar {padding-inline:.5rem}
+.app[data-collapsed=true] .workspace-nav button,.app[data-collapsed=true] .run-nav-row > button:first-child {display:grid;place-items:center;padding:.5rem;min-height:2.6rem}
+.app[data-collapsed=true] .workspace-nav svg,.app[data-collapsed=true] .recent-icon {display:block}
+.app[data-collapsed=true] .workspace-nav button > span,.app[data-collapsed=true] .run-nav .run-name,.app[data-collapsed=true] .run-nav .state {
+  position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)
+}
+.app[data-collapsed=true] .run-nav-row {grid-template-columns:1fr}
+.app[data-collapsed=true] .run-nav-row .run-settings-button,.app[data-collapsed=true] .nav-heading {display:none}
+@media(min-width:721px) {
+  .app[data-collapsed=true] {grid-template-columns:3.8rem minmax(0,1fr)}
+  .app[data-collapsed=true] .rail-toggle {margin-inline:auto}
+}
+@media(max-width:720px) {
+  .sidebar .rail-toggle {float:right;margin:0 0 0 .25rem}
+  .sidebar::after {content:"";display:block;clear:both}
+  .app[data-collapsed=true] .run-history {clear:both}
+  .app[data-collapsed=true] .run-nav-row {flex:0 0 2.65rem}
+}
+
+/* Run details */
+.run-settings-dialog > section {padding-block:.8rem;border-top:1px solid var(--line)}
+.run-settings-dialog h3 {margin:0 0 .65rem}
+.run-settings-dialog .settings-details {margin:0;grid-template-columns:minmax(6rem,30%) minmax(0,1fr);font-size:.9rem}
+.settings-details dd small {display:block}
+.settings-details dd div + div {margin-top:.45rem}
+.settings-details .folder-path {height:auto;max-width:100%;min-height:1.5rem;padding:0;text-align:left;white-space:normal;overflow-wrap:anywhere}
+.run-settings-dialog .actions {margin-top:.7rem}
+.run-settings-dialog .settings-delete {margin-top:0}
+.filter-chips {display:flex;flex-wrap:wrap;gap:.4rem;margin:.75rem 0}
+.filter-chips button {min-height:1.9rem;max-width:100%;overflow-wrap:anywhere;background:var(--wash);border:1px solid var(--input-line);border-radius:2rem}
+.filter-chips button span {color:var(--muted)}
+button.board-card {width:100%;text-align:left;align-items:stretch;gap:.45rem;padding:.8rem}
+.board-card strong {white-space:normal;overflow-wrap:anywhere}
+.board-owner {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem;color:var(--muted);font-size:.82rem}
+
+/* Give the conversation the remaining viewport, with its own scrollable history. */
+.app main:has(.conversation-page) {display:flex;flex-direction:column;min-height:0;padding-bottom:.75rem}
+.run-workspace:has(.conversation-page),.run-body:has(.conversation-page),.conversation-page,.conversation-page > div,.conversation-page .chat-panel {
+  display:flex;flex-direction:column;flex:1;min-height:0
+}
+.conversation-page .chat-panel {height:auto}
+.conversation-page .chat-history {min-height:3rem}
+.conversation-page .chat-composer {align-self:center;width:min(100%,56rem);border:1px solid var(--input-line);border-radius:1rem;padding:.6rem .8rem;background:var(--paper)}
+.conversation-page .chat-composer:focus-within {border-color:var(--muted)}
+.conversation-page .chat-composer > div:last-child {display:block}
+.conversation-page .chat-composer textarea {width:100%;min-height:2.6rem;background:transparent;border:0;box-shadow:none;outline:0}
+.conversation-page .composer-actions {display:flex;align-items:center;gap:.65rem}
+.composer-profile {margin-inline-start:auto;text-align:right;color:var(--muted);font-size:.82rem}
+.composer-profile strong {color:var(--ink);font-weight:550}
+.conversation-page .send-message {display:grid;place-items:center;border-radius:50%;width:2.4rem;height:2.4rem;min-height:0;padding:0}
+@media(max-width:720px) {
+  .app:has(.conversation-page) {display:flex;flex-direction:column;height:100dvh;min-height:0;overflow:auto}
+  .app:has(.conversation-page) main {flex:1;min-height:20rem}
+  .app:has(.conversation-page) .sidebar {align-self:stretch}
+  .app:has(.conversation-page) .run-strip {padding-bottom:max(.45rem,env(safe-area-inset-bottom))}
+}
+
+.run-crumb a {color:inherit;text-decoration:none}
+.run-crumb a:hover {text-decoration:underline}
+.run-metrics > header {justify-content:flex-start}
+@media(max-width:720px) {
+  .run-body:has(.conversation-page) .run-tabs {flex-wrap:nowrap;overflow-x:auto;margin:.25rem 0 .45rem}
+  .run-body:has(.conversation-page) .run-tabs button {white-space:nowrap}
+  .run-workspace:has(.conversation-page) {gap:.25rem}
 }

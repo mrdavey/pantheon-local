@@ -1,3 +1,4 @@
+import { changeRoute, useRoute } from "./navigation";
 import { Card } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
 import { Loading } from "./status.jsx";
@@ -49,6 +50,11 @@ export function profileLabel(name, profile) {
 export function availableNames(report) {
   return Object.keys(report?.setup.profiles || {}).filter((name) => usableStates.includes(report.profiles[name]?.state))
     .sort((a, b) => usableStates.indexOf(report.profiles[a].state) - usableStates.indexOf(report.profiles[b].state) || a.localeCompare(b));
+}
+
+export function runModel(profile) {
+  return { model:profile?.model || profile?.detected?.model || profile?.detected?.label || "Harness default",
+    effort:profile?.effort || profile?.detected?.effort || "Default effort" };
 }
 
 export function modelHint(profile) {
@@ -160,7 +166,9 @@ function SetupCommand({ command }) {
 }
 
 export function AgentSetup({ report, checking, error, refresh, saveModel, onContinue }) {
-  const [modal, setModal] = useState(null);
+  const route = useRoute();
+  const modal = route.profile ? {name:route.profile} : route.panel;
+  const setModal = next => changeRoute({panel:next?.name ? "profile" : next, profile:next?.name});
   const available = availableNames(report);
   const profiles = report?.setup.profiles || {};
   const others = Object.keys(profiles).filter((name) => !available.includes(name));

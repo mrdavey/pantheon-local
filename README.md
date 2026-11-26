@@ -28,13 +28,15 @@ In an interactive terminal, `swarm` and `swarm open` open the browser and show a
 
 ### Start a run
 
-1. Configure your agent in its CLI or Hermes Desktop. Open **New run**, describe the goal, and attach any reference files. Choose a coordinator and workers under **Team**. Open a worker’s settings to change its model or thinking effort, and choose whether to allow or limit subagents.
+1. Configure your agent in its CLI or Hermes Desktop. Open **Runs → + New run** (or **Runs** for your first run), describe the goal, and attach any reference files. Choose a coordinator and workers under **Team**. Open a worker’s settings to change its model or thinking effort, and choose whether to allow or limit subagents.
 2. Confirm the project folder (it defaults to the folder where you ran `swarm open`), then select **Start run**.
 3. Answer any planning questions, then approve the checks. Follow live assignments and dependencies in **Milestones → Map** and monitor tokens and estimated cost in **Metrics**. Passing work auto-lands on your clean target branch unless you choose **Review before landing** in **Advanced settings**. [First run and troubleshooting](docs/getting-started.md)
 
+**Runs** lists all runs with sortable status, milestone completion, settled token counts, and start times. Select a row to open its workspace. The sidebar keeps eight recent runs and collapses to icons. Open the project from the run title, or use **Run settings → Workspace** for the working folder, target branch, and full brief. Run tabs, milestones, and filtered activity and metrics views have their own URLs. Bookmarks reopen in an authenticated workbench session on the same local server.
+
 ## What runs where
 
-Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Milestones** offers table, map, and Kanban views. Select a row to open its details, follow a dependency to its milestone, or sort by completion time. Use **Add task** or **Coordinator chat** to propose more work. **Activity Log** lets you search turns and inspect their output. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
+Use the working folder link in **Run settings → Workspace** to open the milestone checkouts inside your selected project. **Milestones** offers table, map, and Kanban views. Select a row to open its details, follow a dependency to its milestone, or sort by completion time. Use **Add task** or **Coordinator chat** to propose more work. **Activity Log** lets you search turns and inspect their output. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 

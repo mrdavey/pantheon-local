@@ -1,3 +1,4 @@
+import { useRoute, changeRoute } from "./navigation";
 import { Card } from "./components/ui/card";
 import { Badge } from "./components/ui/badge";
 import { Disclosure } from "./disclosure";
@@ -15,7 +16,7 @@ import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { Dialog } from "./dialog.jsx";
 import { runTitle, shortSummary, blockedTasks, canRetryMilestone, retryTokens } from "./run-summary.js";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { RecipeEditor, branchName } from "./review.jsx";
 
 export const title = implementationLabel;
@@ -23,8 +24,9 @@ const number = (value) => new Intl.NumberFormat(undefined, { maximumSignificantD
 const when = (value) => new Date(value).toLocaleString();
 const rounds = (run) => [...new Set([run.round || 1, ...(run.candidates || []).map((c) => c.round || 1)])].sort((a, b) => a - b);
 
-export function Inbox({ runs, act, open, busy, initialHistory = false }) {
-  const [history, setHistory] = useState(initialHistory);
+export function Inbox({ runs, act, open, busy }) {
+  const history = useRoute().history === "open";
+  const setHistory = open => changeRoute({history:open ? "open" : null});
   const items = runs.flatMap(run => [
     ...(run.inbox || []).map(issue => ({ run, issue, type: "question" })),
     ...blockedTasks(run).map(issue => ({ run, issue, type: "milestone" })),
@@ -194,7 +196,9 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   const [feedback, setFeedback] = useState("");
   const [rollout, setRollout] = useState(false);
   const [target, setTarget] = useState("");
-  const [detail, setDetail] = useState("");
+  const route = useRoute();
+  const detail = active ? route.detail : "";
+  const setDetail = detail => changeRoute({detail});
   const [savedCases, setSavedCases] = useState(null);
   const [loadingCases, setLoadingCases] = useState(false);
   const [casesError, setCasesError] = useState("");
@@ -202,10 +206,11 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   const [history, setHistory] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const [inspected, setInspected] = useState("");
+  const inspected = active && route.candidate;
+  const setInspected = candidate => changeRoute({candidate});
   const [expandedGroup, setExpandedGroup] = useState("");
-  const [round, setRound] = useState(0);
-  const [policy, setPolicy] = useState(null);
+  const round = Number(route.round) || 0;
+  const policy = route.policy == null ? null : Number(route.policy);
   const visibleRound = round || run.round || 1;
   const all = run.candidates || [];
   const period = all.filter((c) => (c.round || 1) === visibleRound);
@@ -252,6 +257,10 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       setLoadingHistory(false);
     }
   };
+  useEffect(() => {
+    if (detail === "history" && !history) loadHistory();
+    if (detail === "cases" && !savedCases) loadCases();
+  }, [detail]);
   const evalRunning = (run.turns || []).some((t) => t.state === "running" && (t.role === "eval" || (t.role === "worker" && run.state === "evaluating")));
   const canUpdateSuite = !run.landing && !run.combination && !evalRunning && (
     ["working", "evaluating", "review", "blocked", "repairing", "budget"].includes(run.state) ||
@@ -286,9 +295,9 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     {run.observer_error && <div role="status"><p>{run.observer_error}</p><Button variant="outline" disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</Button></div>}
     {run.combination && <div role="status"><p>Waiting for the coordinator to plan the combination.</p>
       <Button variant="outline" disabled={busy} onClick={() => act({ kind: "cancel-combination" })}>Cancel request</Button></div>}
-    {rounds(run).length > 1 && <Label>Round<NativeSelect value={visibleRound} onChange={(event) => { setRound(Number(event.target.value)); setPolicy(null); setMode(""); }}>{rounds(run).map((r) => <NativeSelectOption key={r}>{r}</NativeSelectOption>)}</NativeSelect></Label>}
+    {rounds(run).length > 1 && <Label>Round<NativeSelect value={visibleRound} onChange={(event) => { changeRoute({round:event.target.value,policy:null,candidate:null}); setMode(""); }}>{rounds(run).map((r) => <NativeSelectOption key={r}>{r}</NativeSelectOption>)}</NativeSelect></Label>}
     {candidates.length > 0 ? <>
-      {policies.length > 1 ? <Label>Suite revision<NativeSelect value={latestPolicy} onChange={(event) => { setPolicy(Number(event.target.value)); setMode(""); }}>
+      {policies.length > 1 ? <Label>Suite revision<NativeSelect value={latestPolicy} onChange={(event) => { changeRoute({policy:event.target.value,candidate:null}); setMode(""); }}>
         {policies.map((entry) => <NativeSelectOption key={entry}>{entry}</NativeSelectOption>)}</NativeSelect></Label> :
         run.policies?.length > 1 && <p>Suite revision {latestPolicy}</p>}
       <div className={rule?.metrics?.length ? "experiment-results with-charts" : "experiment-results"}>
@@ -388,8 +397,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     </article>)}
     <Disclosure className="experiment-library" title="Evaluation tools"><div className="actions">
       <Button variant="outline" onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</Button>
-      <Button variant="outline" onClick={() => { setDetail("cases"); if (!savedCases) loadCases(); }}>Project eval cases</Button>
-      <Button variant="outline" onClick={() => { setDetail("history"); if (!history) loadHistory(); }}>Project run history</Button>
+      <Button variant="outline" onClick={() => { setDetail("cases"); }}>Project eval cases</Button>
+      <Button variant="outline" onClick={() => { setDetail("history"); }}>Project run history</Button>
     </div></Disclosure>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
       <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"

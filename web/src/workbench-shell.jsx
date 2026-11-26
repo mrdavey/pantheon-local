@@ -1,10 +1,9 @@
 import React, { useLayoutEffect, useState } from "react";
-import { Activity, Box, Cpu, Landmark, Monitor, Play } from "lucide-react";
-import { Button } from "./components/ui/button";
+import { Activity, Box, Cpu, Landmark, Monitor } from "lucide-react";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { statusLabel } from "./status";
 
-export function WorkbenchHeader({ project, connected, ready, create }) {
+export function WorkbenchHeader({ project, connected, ready }) {
   const [appearance, setAppearance] = useState(() => localStorage.getItem("pantheon-appearance") || "dark");
   useLayoutEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -50,12 +49,6 @@ export function WorkbenchHeader({ project, connected, ready, create }) {
             ))}
           </NativeSelect>
         </div>
-        {ready && (
-          <Button variant="outline" size="sm" className="new-run-action" onClick={create}>
-            <Play />
-            New run
-          </Button>
-        )}
       </div>
     </header>
   );
