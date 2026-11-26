@@ -22,7 +22,7 @@ import "./style.css";
 import "./work.css";
 import { DiffExplorer, TurnOutput } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
-import { runTitle, shortSummary, blockedTasks } from "./run-summary.js";
+import { runTitle, runProjectPath, shortSummary, blockedTasks } from "./run-summary.js";
 import { AgentSetup } from "./setup.jsx";
 import { Brief } from "./brief.jsx";
 import { Experiment, Inbox, ReleaseList } from "./experiments.jsx";
@@ -199,8 +199,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
   const superseded = candidates.filter(c => c.state === "superseded");
   const renderCandidate = (candidate) => <Candidate key={candidate.id} name={activeCandidates.length === 1 && candidate === activeCandidates[0] ? "" : implementationLabel(candidate)}
     {...{ route, candidate, run, act, perform, busy, explain }} />;
-  const subdir = run.repo.Subdir;
-  const projectPath = subdir && subdir !== "." ? run.repo.Root.replace(/\/$/, "") + "/" + subdir : run.repo.Root;
+  const projectPath = runProjectPath(run);
   return <section className="panel run-workspace">
     <header className="run-heading">
       <div className="run-crumb"><a href="?page=runs" onClick={event => { if (!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) {event.preventDefault(); openRun("runs");} }}>Runs</a> <span>/</span> {run.id.slice(0,8)}</div>

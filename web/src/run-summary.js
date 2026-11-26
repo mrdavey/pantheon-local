@@ -20,6 +20,12 @@ export function runTitle(run) {
   return (prefix.replace(/\s+\S*$/, "") || prefix) + "…";
 }
 
+export function runProjectPath(run) {
+  const { Root, Subdir } = run.repo || {};
+  if (!Root) return run.input?.path || "";
+  return Subdir && Subdir !== "." ? Root.replace(/\/$/, "") + "/" + Subdir : Root;
+}
+
 export function blockedTasks(run) {
   if (run.state === "working" || run.state === "blocked") {
     return (run.tasks || []).slice(run.task_start || 0).filter((task) => task.state === "blocked");

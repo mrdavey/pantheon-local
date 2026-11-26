@@ -1226,10 +1226,13 @@ fn runs_navigation(h: &Harness) -> Result<()> {
             &json!({"path":repo,"prompt":prompt,"coordinator":"first","workers":["writer"]}),
         )
     };
-    let quote = seed(h.repo("quotes")?, "Add quote export")?;
+    let quote = seed(h.repo("paper-trail")?, "Add quote export")?;
     h.svc.wait_state(&common::run_path(&quote)?, "question")?;
     let team = seed(h.repo("team")?, "Build the team export")?;
-    h.svc.wait_state(&common::run_path(&team)?, "question")?;
+    let team_path = common::run_path(&team)?;
+    h.svc.wait_state(&team_path, "question")?;
+    h.svc.post(&team_path, &json!({"kind":"stop"}))?;
+    h.svc.wait_state(&team_path, "stopped")?;
     h.goto()?;
     h.run_button("Quote export").click()?;
     h.click("Runs")?;
@@ -1262,10 +1265,41 @@ fn runs_navigation(h: &Harness) -> Result<()> {
     );
     h.click("Collapse sidebar")?;
     h.button("Expand sidebar").visible()?;
+    let search = h.b.label("Search runs by name or project");
+    let status = h.b.label("Run status");
+    search.fill("quote EXPORT")?;
+    ensure!(titles()? == json!(["Quote export"]));
+    search.fill("paper-TRAIL")?;
+    ensure!(titles()? == json!(["Quote export"]));
+    status.select("stopped")?;
+    h.b.text("No matching runs.").visible()?;
+    h.button("Remove status filter Stopped").focus()?;
+    h.b.key("\u{e007}")?;
+    search.value("paper-TRAIL")?;
+    ensure!(titles()? == json!(["Quote export"]));
+    status.select("question")?;
+    let filtered = h.b.url()?;
+    let params = url::Url::parse(&filtered)?;
+    ensure!(
+        params
+            .query_pairs()
+            .any(|(key, value)| key == "q" && value == "paper-TRAIL")
+    );
+    ensure!(
+        params
+            .query_pairs()
+            .any(|(key, value)| key == "status" && value == "question")
+    );
+    h.no_overflow()?;
     h.b.role("link", "Quote export").click()?;
     ensure!(h.b.url()?.contains(quote["id"].as_str().unwrap()));
     h.b.eval("history.back()", vec![])?;
     h.b.label("All runs").visible()?;
+    ensure!(h.b.url()? == filtered);
+    h.b.reload()?;
+    h.button("Remove search filter paper-TRAIL").visible()?;
+    h.button("Remove status filter Needs an answer").visible()?;
+    ensure!(titles()? == json!(["Quote export"]));
     h.b.eval("history.forward()", vec![])?;
     h.b.role("heading", "Quote export").visible()?;
     h.click("Expand sidebar")?;
@@ -1282,6 +1316,13 @@ fn runs_navigation(h: &Harness) -> Result<()> {
             "Experiment"
         ])
     );
+    h.b.eval("history.back()", vec![])?;
+    h.click("Remove search filter paper-TRAIL")?;
+    search.value("")?;
+    status.value("question")?;
+    ensure!(titles()? == json!(["Quote export"]));
+    h.click("Remove status filter Needs an answer")?;
+    ensure!(titles()? == json!(["Build the team export", "Quote export"]));
     let direct = format!(
         "{}/?page=run&run={}&tab=chat",
         h.proxy.url,

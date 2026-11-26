@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, ListFilter, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListFilter } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { Input } from "./components/ui/input";
@@ -9,6 +9,7 @@ import { Dialog } from "./dialog";
 import { Loading, Status } from "./status";
 import { LogTime, TurnLog } from "./turn-log";
 import { shortSummary } from "./run-summary";
+import { FilterChips } from "./filter-chips";
 
 import { changeRoute } from "./navigation";
 
@@ -76,7 +77,7 @@ export function ActivityLog({ run, api, explain, route }) {
   const selected = route.turn && (result?.items.find(row => row.id === route.turn) || turns.find(row => row.id === route.turn));
   const select = row => changeRoute({turn:row?.id});
   const chips = [["q","Search",query.q], ["role","Type",query.role === "coordinator" ? "Coordinator activity" : activityRoles[query.role] || query.role],
-    ["agent","Agent",query.agent], ["state","Status",query.state]].filter(([, , value]) => value);
+    ["agent","Agent",query.agent], ["state","Status",query.state]];
   return (
     <section className="activity-log">
       <header className="work-section-heading">
@@ -87,7 +88,7 @@ export function ActivityLog({ run, api, explain, route }) {
           </span>
         )}
       </header>
-      <div className="activity-filters">
+      <div className="filter-controls">
         <Input
           type="search"
           aria-label="Search activity"
@@ -123,10 +124,7 @@ export function ActivityLog({ run, api, explain, route }) {
           onChange={(v) => filter("sort", v)}
         />
       </div>
-      {chips.length > 0 && <div className="filter-chips" role="group" aria-label="Selected filters">
-        {chips.map(([key,label,value]) => <Button key={key} size="sm" variant="secondary" aria-label={`Remove ${label.toLowerCase()} filter ${value}`} onClick={() => filter(key,"")}>
-          <span>{label}</span>{value}<X aria-hidden="true"/></Button>)}
-      </div>}
+      <FilterChips filters={chips} onRemove={key => filter(key, "")} />
       {error && (
         <p role="alert">
           {error}{" "}

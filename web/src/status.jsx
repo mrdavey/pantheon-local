@@ -11,6 +11,7 @@ const labels = {
   running: "Working", committed: "Committed", interrupted: "Interrupted", passed: "Passed",
   failed: "Failed", conflict: "Merge conflict", inconclusive: "Inconclusive", cancelled: "Canceled",
   superseded: "Superseded", abandoned: "Abandoned", stale: "Stale", queued: "Queued", received: "Finished",
+  "milestone-blocked": "Milestone blocked",
 };
 
 const PendingOperations = createContext(null);
@@ -37,13 +38,17 @@ export function Loading({ children, top = false }) {
   return top ? null : <div className="loading-status"><Spinner aria-hidden="true" /><span>{children}</span></div>;
 }
 
-export const statusLabel = state => labels[state] || state;
+export const statusLabel = state => Object.hasOwn(labels, state) ? labels[state] : state;
+
+export function runStatus(run) {
+  return run.state === "working" && blockedTasks(run).length ? "milestone-blocked" : run.state;
+}
 
 export function Status({ state, run }) {
-  const blocked = run && state === "working" && blockedTasks(run).length > 0;
+  const status = run ? runStatus(run) : state;
   const active = run ? run.turns?.some(t => t.state === "running") : state === "running";
-  return <Badge variant="outline" className={"state " + (blocked ? "blocked" : state)}>
-    {active && <Spinner aria-hidden="true" />}{blocked ? "Milestone blocked" : statusLabel(state)}
+  return <Badge variant="outline" className={"state " + (status === "milestone-blocked" ? "blocked" : status)}>
+    {active && <Spinner aria-hidden="true" />}{statusLabel(status)}
   </Badge>;
 }
 
