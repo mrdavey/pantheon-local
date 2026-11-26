@@ -28,6 +28,14 @@ Open **Full brief** beneath the run title to read the original request. In **Nee
 
 Use the gear beside a run to pause, resume, require review, or delete it. Deletion removes its history and private checkouts once work has stopped. Your project and landed commits stay on disk. Closing the tab leaves the service running. Reopen the launcher to reconnect, or press Control-C in Terminal to stop the service.
 
+## Inspect a run
+
+In a run, **Open working folder** opens the milestone checkouts. New runs put them under **Pantheon work <run ID>** in the folder you selected. Each milestone has its own copy so several agents can edit in parallel. Passing work appears on the target branch when it lands. Older runs open their original working folder in the service state directory. Deleting a new run keeps its project-side milestone folders.
+
+In **Agent map**, use **Show jobs for** to switch between one worker and the whole team. Open an assignment to see its dependencies. **Full screen** expands the map and Escape returns to the run.
+
+In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
+
 ## If setup gets stuck
 
 - **Project folder has files but no commits.** Choose an empty folder for a new project. To use existing files, use **Advanced settings → Initial import files → Choose files…**. Select multiple files, choose **Add more files…** to add another batch, or remove individual entries before starting. These files become the first Git commit. Pantheon checks the selection before initializing a new repository.

@@ -1208,6 +1208,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
     b.xpath("//details[@open]//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
         .visible()?;
     b.text("Install locked dependencies").click()?;
+    h.click("Minimize chat")?;
     h.click("Agent map")?;
     h.click("View coordinator activity")?;
     b.role("heading", "Coordinator activity").visible()?;
@@ -1220,7 +1221,13 @@ fn assignment_map(h: &Harness) -> Result<()> {
             vec![]
         )? == 2
     );
-    for _ in 0..4 {
+    b.role("combobox", "Show jobs for").select("writer-two")?;
+    ensure!(b.eval("return [...document.querySelectorAll('.map-agent')].length === 1 && document.querySelector('.map-agent').textContent.includes('writer-two')", vec![])? == true);
+    b.role("combobox", "Show jobs for").select("")?;
+    h.click("Full screen")?;
+    b.role("heading", "Full-screen agent map").visible()?;
+    b.key("\u{e00c}")?;
+    for _ in 0..6 {
         h.click("Zoom in")?;
     }
     view.focus()?;
@@ -1271,6 +1278,17 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.click("Retry metrics")?;
     let tokens = b.xpath("//dt[.='Tokens used']/following-sibling::dd");
     tokens.contains("5")?;
+    b.role("combobox", "Chart view").select("pie")?;
+    b.label("Usage share by agent and model").visible()?;
+    b.xpath("//table[@aria-label='Usage by agent and model']//td[normalize-space()='writer']")
+        .visible()?;
+    b.xpath("//dt[.='Elapsed time']/following-sibling::dd")
+        .visible()?;
+    b.text("Zoom time range").click()?;
+    b.label("From time").focus()?;
+    b.key("\u{e014}")?;
+    h.click("Reset zoom")?;
+    b.role("combobox", "Chart view").select("total")?;
     h.svc
         .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
     tokens.contains("7")?;
@@ -1313,6 +1331,14 @@ fn run_metrics(h: &Harness) -> Result<()> {
             "metrics-desktop.png"
         }))?;
     }
+    h.click("Work")?;
+    b.eval(
+        "const now = Date.now; Date.now = () => now() + 86400000;",
+        vec![],
+    )?;
+    h.click("Metrics")?;
+    b.role("combobox", "Time range").select("60")?;
+    tokens.contains("10")?;
     h.no_overflow()
 }
 scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);

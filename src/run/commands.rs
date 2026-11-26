@@ -469,6 +469,7 @@ impl Engine {
                 }
                 "stop" => {
                     if r["state"] != "stopped" {
+                        r["stopped_at"] = json!(now());
                         r["stopped_from"] = r["state"].clone()
                     }
                     r["state"] = json!("stopped");

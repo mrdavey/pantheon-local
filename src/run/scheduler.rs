@@ -176,14 +176,16 @@ impl Engine {
             let role = s(&turn, "role");
             let task = s(&turn, "task");
             let dir = self.jobdir(r, s(&turn, "id"));
-            if r["state"] == "stopped" {
+            if r["state"] == "stopped"
+                && (role != "pricing" || turn["generation"] != r["generation"])
+            {
                 supervisor::stop_job(&dir)?
             }
             let current = turn["generation"] == r["generation"];
             let Some(res) = supervisor::reception(&dir) else {
                 if role == "worker" {
                     workers = true
-                } else if current {
+                } else if current && role != "pricing" {
                     if role == "chat" {
                         chat = true
                     } else {
@@ -197,6 +199,14 @@ impl Engine {
                 release::finish(r, task, &res)?;
                 return self.save(r, "release-finished");
             }
+            if matches!(
+                r["profiles"][s(&turn, "agent")]["kind"].as_str(),
+                Some("antigravity" | "hermes")
+            ) && res["session"].is_string()
+            {
+                r["turns"][i]["acp_session"] = res["session"].clone();
+                r["turns"][i]["acp_usage"] = res["acp_usage"].clone();
+            }
             if res["codex_usage"].is_object() {
                 r["turns"][i]["codex_usage"] = res["codex_usage"].clone();
                 r["turns"][i]["usage_session"] = res["session"].clone();
@@ -207,6 +217,15 @@ impl Engine {
                 } else {
                     r["unknown_turns"] = json!(num(&r["unknown_turns"]) + 1)
                 }
+            }
+            if role == "pricing" {
+                crate::pricing::finish(r, &res);
+                self.save(r, "pricing-received")?;
+                if !matches!(s(r, "state"), "stopped" | "landed") {
+                    // A different model may have reported usage during this lookup.
+                    let _ = self.fetch_prices(r, 0, true);
+                }
+                return Ok(());
             }
             if role == "worker"
                 && s(&res, "error").is_empty()
@@ -282,7 +301,13 @@ impl Engine {
                     &json!({"error":"Conversation paused when the run stopped."}),
                 )
             }
-            self.save(r, "received")?
+            self.save(r, "received")?;
+            if role != "eval" && !matches!(s(r, "state"), "stopped" | "budget") {
+                // Usage is supplemental. A malformed receipt must not block a milestone.
+                if let Err(e) = self.fetch_prices(r, i, true) {
+                    eprintln!("pricing lookup: {e}");
+                }
+            }
         }
         if !chat
             && !control

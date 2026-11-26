@@ -134,3 +134,19 @@
     grid-template-rows: 1fr auto;
   }
 }
+.usage-totals { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.usage-shares { display: flex; flex-wrap: wrap; align-items: center; gap: 2rem; padding: 1rem; }
+.share-disc { width: min(13rem, 100%); aspect-ratio: 1; border-radius: 50%; }
+.usage-shares figcaption { display: grid; gap: .65rem; }
+.usage-shares figcaption div, .price-actions { display: flex; gap: .65rem; align-items: center; flex-wrap: wrap; }
+.usage-shares i { height: .75rem; width: .75rem; border-radius: 50%; }
+.usage-shares strong { margin-inline-start: auto; }
+.price-actions span, .zoom-range { color: var(--muted); font-size: .85rem; }
+.zoom-range { margin-top: .85rem; }
+.zoom-range > div { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; padding: .75rem 0; }
+.zoom-range label { display: grid; flex: 1 1 9rem; }
+.zoom-range button { order: -1; }
+.zoom-range input { padding: 0; accent-color: var(--clay); }
+.usage-chart > svg { max-height: 20rem; touch-action: pan-y; cursor: crosshair; user-select: none; }
+.chart-selection { opacity: .18; }
+@media (max-width: 650px) { .usage-totals { grid-template-columns: repeat(2,minmax(0,1fr)); } }

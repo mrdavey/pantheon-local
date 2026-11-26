@@ -8,6 +8,7 @@ mod eval;
 mod folder_picker;
 mod launch;
 mod metrics;
+mod pricing;
 mod project;
 mod routing;
 mod run;

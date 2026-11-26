@@ -123,7 +123,19 @@ impl Engine {
             } else {
                 s(&t, "repair_base")
             };
-            let mut path = self.root(r).join("work").join(&id);
+            let parent = if let Some(folder) = r["working_folder"].as_str() {
+                let selected =
+                    project::subdir(Path::new(s(&r["repo"], "Root")), s(&r["repo"], "Subdir"))?;
+                let folder = Path::new(folder);
+                ensure!(
+                    folder.canonicalize()? == folder && folder.parent() == Some(selected.as_path()),
+                    "working folder has moved"
+                );
+                folder.to_owned()
+            } else {
+                self.root(r).join("work")
+            };
+            let mut path = parent.join(&id);
             if path.exists() {
                 path.set_file_name(format!("{id}-{}", uid()));
             }

@@ -584,9 +584,21 @@ impl Local {
                         #[serde(deny_unknown_fields)]
                         struct FolderRequest {
                             candidate: Option<String>,
+                            #[serde(default)]
+                            working: bool,
                         }
                         let request: FolderRequest = serde_json::from_slice(body)?;
-                        let folder = output_folder(&run, &root, request.candidate.as_deref())?;
+                        let folder = if request.working {
+                            ensure!(request.candidate.is_none(), "select one folder");
+                            let work = run["working_folder"]
+                                .as_str()
+                                .map(PathBuf::from)
+                                .unwrap_or_else(|| root.join("work"));
+                            work.canonicalize()
+                                .context("worker folders appear when the first milestone starts")?
+                        } else {
+                            output_folder(&run, &root, request.candidate.as_deref())?
+                        };
                         let opener = if cfg!(target_os = "macos") {
                             "/usr/bin/open"
                         } else {
@@ -613,6 +625,11 @@ impl Local {
                         }
                         Ok(json!({"opened":true}))
                     }
+                    ("POST", ["metrics", "prices"]) => self.mutate(|engine| {
+                        let mut latest = engine.store.get(id)?;
+                        engine.fetch_prices(&mut latest, 0, false)?;
+                        Ok(json!({"status":latest["pricing_status"]}))
+                    }),
                     ("GET", ["metrics"]) => {
                         crate::metrics::report(&run, &root, cursor("from").max(0) as usize)
                     }

@@ -46,7 +46,7 @@ export function Status({ state, run }) {
 }
 
 export function coordinatorStatus(run) {
-  const activities = { plan: "Creating the plan", observe: "Reviewing worker progress", repair: "Planning a repair", chat: "Responding to your message" };
+  const activities = { pricing: "Finding model prices", plan: "Creating the plan", observe: "Reviewing worker progress", repair: "Planning a repair", chat: "Responding to your message" };
   const current = run.turns?.findLast(t => t.state === "running" && activities[t.role]);
   if (current && run.state !== "stopped") return activities[current.role];
   if (run.observer_error) return "Coordinator review needs attention";

@@ -179,7 +179,16 @@ fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if role == "coordinator" && prompt.contains("Measure tariff lookup") {
+        println!(
+            "{}",
+            json!({"event":{"type":"usage","model":"Fixture Tariff","input_tokens":4,"cached_input_tokens":1,"output_tokens":1,"tokens":5}})
+        );
+    }
     let response = match role {
+        "pricing" => {
+            json!({"rates":{"Fixture Tariff":{"input":2,"cached":1,"output":5,"source":"https://pricing.example/fixture"}}})
+        }
         "observer" => observer::respond(prompt, &ctx)?,
         "chat" if prompt.ends_with("Stream this answer") => {
             let gate = env::var("SWARM_TEST_CHAT_GATE")?;

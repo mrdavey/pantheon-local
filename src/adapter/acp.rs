@@ -335,9 +335,14 @@ pub(super) fn exchange(
         json!({"sessionId":c.session,"prompt":[{"type":"text","text":field(r,"prompt")}]}),
     );
     if let Ok(reply) = &result
-        && let Some(tokens) = reply["usage"]["totalTokens"].as_u64()
+        && let Some(mut receipt) = usage_receipt(
+            &reply["usage"],
+            r.get("acp_baseline"),
+            !field(r, "session").is_empty(),
+        )
     {
-        emit(json!({"type":"usage","tokens":tokens,"model":c.current_model}));
+        receipt["model"] = json!(c.current_model);
+        emit(receipt);
     }
     if c.text.is_empty() && !c.previous_text.is_empty() {
         c.text = std::mem::take(&mut c.previous_text);
@@ -355,7 +360,11 @@ pub(super) fn exchange(
                     }
                 }
             }
-            Ok(json!({"session":c.session,"text":c.text}))
+            let mut receipt = json!({"session":c.session,"text":c.text});
+            if result["usage"].is_object() {
+                receipt["acp_usage"] = result["usage"].clone();
+            }
+            Ok(receipt)
         }
         Ok(result) => Ok(
             json!({"session":c.session,"error":format!("ACP turn stopped: {}",field(&result,"stopReason"))}),
@@ -364,9 +373,48 @@ pub(super) fn exchange(
     }
 }
 
+// ACP reports session totals. A resumed session without a baseline has
+// no reliable per-turn amount. Optional billing categories must reconcile.
+fn usage_receipt(usage: &Value, prior: Option<&Value>, resumed: bool) -> Option<Value> {
+    let delta = |key: &str| {
+        let old = if resumed { prior?[key].as_u64()? } else { 0 };
+        usage[key].as_u64()?.checked_sub(old)
+    };
+    let total = delta("totalTokens")?;
+    let mut event = json!({"type":"usage","tokens":total});
+    if let (Some(input), Some(output)) = (delta("inputTokens"), delta("outputTokens")) {
+        let cached = delta("cachedReadTokens").unwrap_or(0);
+        let write = delta("cachedWriteTokens").unwrap_or(0);
+        let all_input = total.checked_sub(output)?;
+        if (input == all_input || input.checked_add(cached)?.checked_add(write)? == all_input)
+            && cached.checked_add(write)? <= all_input
+        {
+            event["input_tokens"] = json!(all_input);
+            event["output_tokens"] = json!(output);
+            event["cached_input_tokens"] = json!(cached);
+            event["cache_write_input_tokens"] = json!(write);
+        }
+    }
+    Some(event)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resumed_usage_counts_only_the_current_turn() {
+        let first =
+            json!({"totalTokens":90,"inputTokens":60,"outputTokens":30,"cachedReadTokens":20});
+        let next =
+            json!({"totalTokens":120,"inputTokens":80,"outputTokens":40,"cachedReadTokens":28});
+        let receipt = usage_receipt(&next, Some(&first), true).unwrap();
+        assert_eq!(
+            receipt,
+            json!({"type":"usage","tokens":30,"input_tokens":20,"output_tokens":10,"cached_input_tokens":8,"cache_write_input_tokens":0})
+        );
+        assert!(usage_receipt(&next, None, true).is_none());
+    }
 
     #[test]
     fn advisor_preserves_provider_identity_and_native_fallbacks() {

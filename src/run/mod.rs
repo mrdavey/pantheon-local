@@ -446,9 +446,60 @@ impl Engine {
         if !attachments.is_empty() {
             r["input"]["attachments"] = crate::attachments::save(&self.root(&r), attachments)?;
         }
+        let selected = project::subdir(Path::new(&repo.root), &repo.subdir)?;
+        let workspace = tempfile::Builder::new()
+            .prefix(&format!("Pantheon work {}", s(&r, "id")))
+            .rand_bytes(0)
+            .tempdir_in(selected)?;
+        // Each milestone is an independent checkout. Keep even the marker out
+        // of the target index and leave these user-visible files on run deletion.
+        fs::write(workspace.path().join(".gitignore"), "*\n")?;
+        r["working_folder"] = json!(workspace.path());
         self.save(&mut r, "started")?;
+        let _ = workspace.keep();
         let _ = pending.keep();
         Ok(r)
+    }
+    pub fn fetch_prices(&self, r: &mut Value, from: usize, automatic: bool) -> Result<()> {
+        if a(&r["turns"])
+            .iter()
+            .any(|t| t["role"] == "pricing" && t["state"] == "running")
+            || (automatic && budget(r))
+        {
+            return Ok(());
+        }
+        ensure!(!budget(r), "the run has reached its token target");
+        let report = crate::metrics::report(r, &self.root(r), from)?;
+        let mut models = crate::pricing::missing(&report);
+        models.retain(|model, usage| {
+            r["model_rates"].get(model).is_none()
+                && (!automatic
+                    || (r["pricing_attempted"].get(model).is_none()
+                        && (usage["breakdown"].is_object() || model.ends_with(":free"))))
+        });
+        if models.is_empty() {
+            if !automatic {
+                r["pricing_status"] =
+                    json!("No additional model prices can be fetched from the recorded usage.");
+                self.save(r, "pricing-checked")?;
+            }
+            return Ok(());
+        }
+        let prompt = format!(
+            "{}\n{}",
+            crate::pricing::INSTRUCTIONS,
+            serde_json::to_string(&models)?
+        );
+        let dir = self.root(r).join("pricing");
+        fs::create_dir_all(&dir)?;
+        let request = json!({"role":"pricing","profile":r["profiles"][s(&r["input"],"coordinator")],"dir":dir,"prompt":prompt});
+        self.dispatch_with(r, "pricing", "", json!({"request":request}), |run| {
+            for model in models.keys() {
+                run["pricing_attempted"][model] = json!(true);
+            }
+            run["pricing_models"] = json!(models);
+            run["pricing_status"] = json!("Finding model prices…");
+        })
     }
     pub fn dispatch(&self, r: &mut Value, role: &str, task: &str, job: Value) -> Result<()> {
         self.dispatch_with(r, role, task, job, |_| {})
@@ -474,7 +525,7 @@ impl Engine {
             })
             .unwrap_or_default();
         let prompt = s(&job["request"], "prompt");
-        if !prompt.is_empty() {
+        if !prompt.is_empty() && role != "pricing" {
             let mut context = context(r, worker);
             if !a(&r["input"]["attachments"]).is_empty() {
                 context["brief_attachments"] =
@@ -506,13 +557,25 @@ impl Engine {
                 session
             ));
         }
+        if matches!(
+            request["profile"]["kind"].as_str(),
+            Some("hermes" | "antigravity")
+        ) && let Some(session) = request["session"].as_str().filter(|s| !s.is_empty())
+        {
+            request["acp_baseline"] = a(&r["turns"])
+                .iter()
+                .rev()
+                .find(|t| t["acp_session"] == session)
+                .map(|t| t["acp_usage"].clone())
+                .unwrap_or(Value::Null);
+        }
         let id = uid();
         let dir = self.jobdir(r, &id);
         fs::create_dir_all(&dir)?;
         supervisor::write_json(&dir.join("job.json"), &job)?;
         let agent = match role {
             "worker" => worker.map(|t| &t["worker"]),
-            "plan" | "repair" | "observe" | "chat" => Some(&r["input"]["coordinator"]),
+            "plan" | "repair" | "observe" | "chat" | "pricing" => Some(&r["input"]["coordinator"]),
             _ => None,
         };
         let turn = json!({"id":id,"started":chrono::Utc::now().timestamp_millis(),"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});

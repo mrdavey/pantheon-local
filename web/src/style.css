@@ -110,7 +110,7 @@ button:disabled, button[aria-disabled="true"] { opacity: .64; cursor: default; }
 .brand-mark .icon { width: 22px; height: 22px; }
 .workspace-nav, .run-nav { display: grid; gap: .25rem; }
 .sidebar button { width: 100%; min-width: 0; text-align: start; background: transparent; border-color: transparent; }
-.workspace-nav button { display: flex; gap: .55rem; align-items: center; }
+.workspace-nav button { display: flex; gap: .55rem; align-items: center; justify-content: flex-start; }
 .workspace-nav .icon { width: 18px; height: 18px; color: var(--muted); }
 .sidebar button[aria-current="page"] { background: var(--paper); border-color: var(--line); }
 .workspace-nav button[aria-current="page"] .icon { color: var(--clay); }
@@ -119,7 +119,6 @@ button:disabled, button[aria-disabled="true"] { opacity: .64; cursor: default; }
 .nav-heading { margin: 0 .9rem .45rem; color: var(--muted); font-size: .76rem; font-weight: 650; }
 .run-nav button { display: grid; justify-items: start; gap: .28rem; }
 .run-name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-nav button .state { padding-inline: 0; background: transparent; }
 
 main { width: min(100%, 1290px); margin-inline: auto; padding: clamp(24px, 4vw, 55px); min-width: 0; }
 h1, h2, h3, p { overflow-wrap: anywhere; }
@@ -161,7 +160,7 @@ pre { overflow: auto; max-height: 360px; color: var(--ink); background: var(--wa
   display: inline-flex;
   align-items: baseline;
   gap: .38rem;
-  padding: .19rem .55rem;
+  padding: .24rem .69rem;
   color: var(--muted);
   background: var(--wash);
   border-radius: 100px;
@@ -320,7 +319,7 @@ summary { cursor: pointer; min-height: 44px; padding: .7rem 0; font-weight: 550;
   .sidebar { position: static; min-height: 0; max-height: none; overflow: visible; padding: .8rem 1rem .65rem; border-inline-end: 0; border-bottom: 1px solid var(--line); }
   .brand { margin: 0 0 .55rem; }
   .workspace-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .workspace-nav button { justify-content: center; gap: .25rem; padding-inline: .21rem; text-align: center; font-size: .83rem; }
+  .workspace-nav button { justify-content: flex-start; gap: .25rem; padding-inline: .21rem; text-align: center; font-size: .83rem; }
   .workspace-nav .icon { width: 15px; height: 15px; }
   .nav-count { margin-inline-start: 0; }
   .run-history { margin-top: .6rem; padding-top: .45rem; }

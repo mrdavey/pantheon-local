@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Pause, Play } from "lucide-react";
+import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import { Card } from "./components/ui/card";
 import { Label } from "./components/ui/label";
@@ -17,6 +18,7 @@ const dollars = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 6,
 });
 const roleNames = {
+  pricing: "Price lookup",
   plan: "Planning",
   observe: "Coordinator review",
   repair: "Repair",
@@ -57,7 +59,7 @@ function options(turns, field, all) {
 }
 function modelsOf(turn) {
   const latest = turn.samples.at(-1);
-  return latest ? Object.keys(latest.models) : [turn.model];
+  return latest ? [...new Set(turn.samples.flatMap((sample) => Object.keys(sample.models)))] : [turn.model];
 }
 
 // Each sample replaces that turn's previous counters. Range filters apply to
@@ -126,7 +128,13 @@ function summarize(turns, filters, start, end) {
   };
 }
 
-function UsageChart({ events, field, mode, start, end }) {
+function UsageChart({ events, field, mode, start, end, selectRange }) {
+  const [drag, setDrag] = useState(null);
+  function fraction(event) {
+    const svg = event.currentTarget;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    return Math.min(1, Math.max(0, (point.x - 49) / 438));
+  }
   const bins = Array(24).fill(0);
   const span = Math.max(1, end - start);
   for (const event of events) {
@@ -149,6 +157,22 @@ function UsageChart({ events, field, mode, start, end }) {
     <figure className="usage-chart">
       <svg
         viewBox="0 0 500 153"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          const f = fraction(e);
+          setDrag([f, f]);
+        }}
+        onPointerMove={(e) => {
+          if (drag) setDrag([drag[0], fraction(e)]);
+        }}
+        onPointerCancel={() => setDrag(null)}
+        onPointerUp={(e) => {
+          if (!drag) return;
+          const bounds = [drag[0], fraction(e)].sort((a, b) => a - b);
+          if (bounds[1] - bounds[0] > 0.02) selectRange(bounds.map((n) => Math.round(start + n * span)));
+          setDrag(null);
+        }}
         role="img"
         aria-label={`${field === "usd" ? "Estimated cost" : "Token usage"} over time, ${mode === "total" ? "cumulative" : "per interval"}`}
       >
@@ -182,6 +206,15 @@ function UsageChart({ events, field, mode, start, end }) {
             </rect>
           ))
         )}
+        {drag && (
+          <rect
+            className="chart-selection"
+            x={49 + 438 * Math.min(...drag)}
+            y="0"
+            width={438 * Math.abs(drag[1] - drag[0])}
+            height="144"
+          />
+        )}
       </svg>
       <figcaption>
         <time>{clock.format(start)}</time>
@@ -210,6 +243,50 @@ function UsageChart({ events, field, mode, start, end }) {
   );
 }
 
+const shares = ["#5656bd", "#147c83", "#a85c27", "#a0447a", "#507b34", "#4575aa"];
+function ShareChart({ groups, field }) {
+  const rows = groups.filter((g) => g[field] > 0);
+  const total = rows.reduce((sum, g) => sum + g[field], 0);
+  let arc = 0;
+  const slices = rows.map((g, i) => {
+    const from = arc;
+    arc += (100 * g[field]) / total;
+    return shares[i % shares.length] + " " + from + "% " + arc + "%";
+  });
+  if (!total) return <p className="usage-empty">No positive usage in this selection.</p>;
+  return (
+    <figure className="usage-shares">
+      <div
+        className="share-disc"
+        role="img"
+        aria-label="Usage share by agent and model"
+        style={{ background: "conic-gradient(" + slices.join(",") + ")" }}
+      />
+      <figcaption>
+        {rows.map((g, i) => (
+          <div key={JSON.stringify([g.agent, g.model])}>
+            <i style={{ background: shares[i % shares.length] }} />
+            <span>
+              {g.agent} · {g.model}
+            </span>
+            <strong>{((100 * g[field]) / total).toFixed(1)}%</strong>
+          </div>
+        ))}
+      </figcaption>
+    </figure>
+  );
+}
+function duration(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(seconds / 3600),
+    minutes = Math.floor(seconds / 60) % 60;
+  return hours
+    ? hours + "h " + minutes + "m"
+    : minutes
+      ? minutes + "m " + (seconds % 60) + "s"
+      : seconds + "s";
+}
+
 export function Metrics({ run, api }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
@@ -221,6 +298,10 @@ export function Metrics({ run, api }) {
   const [range, setRange] = useState("all"),
     [field, setField] = useState("tokens"),
     [mode, setMode] = useState("total");
+  const [selection, setSelection] = useState(null);
+  const [fetching, setFetching] = useState(false),
+    [lookupMessage, setLookupMessage] = useState("");
+  const pricingBusy = run.turns?.some((t) => t.role === "pricing" && t.state === "running");
   const terminal =
     ["landed", "stopped"].includes(run.state) && !run.turns?.some((t) => t.state === "running");
   const turnCount = run.turns?.length || 0;
@@ -230,6 +311,11 @@ export function Metrics({ run, api }) {
     if (paused) return;
     const controller = new AbortController();
     const store = cache.current;
+    if (store.pricing !== run.pricing_revision) {
+      store.pricing = run.pricing_revision;
+      store.cursor = 0;
+      store.merged.clear();
+    }
     let timer;
     async function update() {
       try {
@@ -249,12 +335,25 @@ export function Metrics({ run, api }) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [api, run.id, paused, terminal, retry, turnCount, working]);
+  }, [api, run.id, paused, terminal, retry, turnCount, working, run.state, run.pricing_revision]);
   const turns = data?.turns || [];
+  const team = [...new Set([run.input.coordinator, ...run.input.workers])].filter(Boolean);
+  const roster = team
+    .filter((id) => !turns.some((t) => t.agent === id))
+    .map((id) => {
+      const p = run.profiles?.[id];
+      return {
+        agent: id,
+        model: p?.model || p?.detected?.model || p?.detected?.label || "Harness default",
+        samples: [],
+      };
+    });
+  const allAgents = [...turns, ...roster];
   const window = useMemo(() => {
-    let first = Infinity,
+    let first = Date.parse(run.started) || Infinity,
       last = 0;
     for (const t of turns) {
+      if (t.role === "pricing") continue;
       if (t.started) {
         first = Math.min(first, t.started);
         last = Math.max(last, t.started);
@@ -264,22 +363,43 @@ export function Metrics({ run, api }) {
         last = Math.max(last, t.samples.at(-1).at);
       }
     }
-    const end = terminal && last ? last : data?.now || Date.now();
-    const start = range === "all" ? 0 : end - Number(range) * 60000;
-    return { start, end, axisStart: start || Math.min(first, end - 1000) };
-  }, [data, range, terminal, turns]);
+    const live =
+      !terminal &&
+      (run.turns?.some((t) => t.state === "running" && t.role !== "pricing") ||
+        (["planning", "working", "evaluating", "repairing"].includes(run.state) &&
+          !run.tasks?.some((t) => t.state === "blocked")));
+    const endedAt =
+      run.state === "landed"
+        ? Date.parse(run.selection?.landed_at)
+        : run.state === "stopped"
+          ? Date.parse(run.stopped_at)
+          : null;
+    const end = live
+      ? data?.now || Date.now()
+      : endedAt || Math.max(last, Number.isFinite(first) ? first : 0);
+    first = Math.min(first, end);
+    const start = range === "all" ? first : Math.max(first, end - Number(range) * 60000);
+    return {
+      first,
+      last: end,
+      elapsed: end - first,
+      start: selection ? Math.max(first, selection[0]) : start,
+      end: selection ? Math.min(end, selection[1]) : end,
+    };
+  }, [data, range, terminal, turns, run, selection]);
   const summary = useMemo(
     () => summarize(turns, { agent, model, role }, window.start, window.end),
     [turns, agent, model, role, window],
   );
   const legacyTotal =
     range === "all" &&
+    !selection &&
     !agent &&
     !model &&
     !role &&
     summary.total.tokens == null &&
     run.tokens > 0 &&
-    turns.every((turn) => !turn.started && !turn.samples.length)
+    turns.every((turn) => !turn.samples.length)
       ? run.tokens
       : null;
   return (
@@ -317,9 +437,13 @@ export function Metrics({ run, api }) {
           <div className="usage-filters">
             <Select
               label="Time range"
-              value={range}
-              set={setRange}
+              value={selection ? "selection" : range}
+              set={(value) => {
+                setSelection(null);
+                setRange(value);
+              }}
               options={[
+                ...(selection ? [["selection", "Selected interval"]] : []),
                 ["all", "Entire run"],
                 ["15", "Last 15 minutes"],
                 ["60", "Last hour"],
@@ -330,13 +454,13 @@ export function Metrics({ run, api }) {
               label="Agent"
               value={agent}
               set={setAgent}
-              options={options(turns, "agent", "All agents")}
+              options={options(allAgents, "agent", "All agents")}
             />
             <Select
               label="Model"
               value={model}
               set={setModel}
-              options={options(turns, "model", "All models")}
+              options={options(allAgents, "model", "All models")}
             />
             <Select label="Role" value={role} set={setRole} options={options(turns, "role", "All roles")} />
           </div>
@@ -345,6 +469,7 @@ export function Metrics({ run, api }) {
               ["Tokens used", format(summary.total.tokens ?? legacyTotal, "tokens")],
               ["Estimated cost (USD)", format(summary.total.usd, "usd")],
               ["Agent turns", summary.turns],
+              ["Elapsed time", duration(window.elapsed)],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt>{label}</dt>
@@ -369,6 +494,35 @@ export function Metrics({ run, api }) {
                 .join(" · ")}
             </p>
           )}
+          {summary.missingCost > 0 && (
+            <div className="price-actions">
+              <Button
+                variant="outline"
+                disabled={fetching || pricingBusy}
+                onClick={async () => {
+                  setFetching(true);
+                  setLookupMessage("");
+                  try {
+                    const reply = await api(`/runs/${run.id}/metrics/prices`, {});
+                    setLookupMessage(reply.status);
+                  } catch (err) {
+                    setLookupMessage(err.message);
+                  } finally {
+                    setFetching(false);
+                  }
+                }}
+              >
+                {pricingBusy ? "Finding prices…" : "Fetch token prices"}
+              </Button>
+              <span role="status">
+                {pricingBusy
+                  ? "Coordinator is checking published rates."
+                  : lookupMessage && lookupMessage !== "Finding model prices…"
+                    ? lookupMessage
+                    : run.pricing_status}
+              </span>
+            </div>
+          )}
           <section>
             <h3>Usage over time</h3>
             <div className="usage-chart-controls">
@@ -386,19 +540,61 @@ export function Metrics({ run, api }) {
                 value={mode}
                 set={setMode}
                 options={[
-                  ["total", "Cumulative"],
-                  ["interval", "Per interval"],
+                  ["total", "Line · cumulative"],
+                  ["interval", "Bars · per interval"],
+                  ["pie", "Pie · share by agent and model"],
                 ]}
               />
             </div>
+            {window.last > window.first && (
+              <details className="zoom-range" open={selection ? true : undefined}>
+                <summary>Zoom time range</summary>
+                <div>
+                  {["From", "To"].map((name, i) => (
+                    <Label key={name}>
+                      {name} · {new Date(i ? window.end : window.start).toLocaleTimeString()}
+                      <Input
+                        aria-label={name + " time"}
+                        type="range"
+                        min={window.first}
+                        max={window.last}
+                        step={Math.max(1, Math.round((window.last - window.first) / 1000))}
+                        value={i ? window.end : window.start}
+                        onChange={(e) => {
+                          const time = Number(e.target.value);
+                          setSelection(
+                            i
+                              ? [window.start, Math.max(window.start + 1, time)]
+                              : [Math.min(time, window.end - 1), window.end],
+                          );
+                        }}
+                      />
+                    </Label>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!selection}
+                    onClick={() => setSelection(null)}
+                  >
+                    Reset zoom
+                  </Button>
+                </div>
+              </details>
+            )}
             {summary.events.some((e) => e[field] != null) ? (
-              <UsageChart
-                events={summary.events}
-                field={field}
-                mode={mode}
-                start={window.axisStart}
-                end={window.end}
-              />
+              mode === "pie" ? (
+                <ShareChart groups={summary.groups} field={field} />
+              ) : (
+                <UsageChart
+                  selectRange={setSelection}
+                  events={summary.events}
+                  field={field}
+                  mode={mode}
+                  start={window.start}
+                  end={window.end}
+                />
+              )
             ) : (
               <p className="usage-empty">
                 {summary.turns ? "No readings for this metric yet." : "No usage in this selection."}
@@ -410,39 +606,51 @@ export function Metrics({ run, api }) {
             <p>
               Claude and compatible adapters supply a USD estimate. For supported Codex models, Pantheon
               applies standard API rates to input, cached input, and output tokens. Your subscription, service
-              tier, and invoice can differ. Missing costs are excluded.
+              tier, and invoice can differ. The coordinator can look up missing rates. Estimates require a
+              token breakdown unless every category has the same price. Missing readings appear as a dash.
             </p>
+            {Object.entries(run.model_rates || {}).map(([name, rate]) => (
+              <p key={name}>
+                {name} · {dollars.format(rate.input)} input / {dollars.format(rate.output)} output per million
+                tokens ·{" "}
+                <a href={rate.source} target="_blank" rel="noreferrer">
+                  Pricing source
+                </a>{" "}
+                · {new Date(rate.fetched).toLocaleDateString()}
+              </p>
+            ))}
           </details>
-          {!!summary.groups.length && (
-            <section>
-              <h3>Usage by agent and model</h3>
-              <Table aria-label="Usage by agent and model">
-                <TableHeader>
-                  <TableRow>
-                    {["Agent / model", "Turns", "Tokens", "Est. USD"].map((k) => (
-                      <TableHead key={k}>{k}</TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summary.groups.map((g) => (
-                    <TableRow key={JSON.stringify([g.agent, g.model])}>
-                      <TableCell>
-                        {g.agent}
-                        <small>{g.model}</small>
-                      </TableCell>
-                      <TableCell>{g.turns.size}</TableCell>
-                      <TableCell>{format(g.tokens, "tokens")}</TableCell>
-                      <TableCell>
-                        {format(g.usd, "usd")}
-                        {g.missingCost && g.usd != null && " (partial)"}
-                      </TableCell>
-                    </TableRow>
+          <section>
+            <h3>Usage by agent and model</h3>
+            <Table aria-label="Usage by agent and model">
+              <TableHeader>
+                <TableRow>
+                  {["Agent", "Model", "Turns", "Tokens", "Est. USD"].map((k) => (
+                    <TableHead key={k}>{k}</TableHead>
                   ))}
-                </TableBody>
-              </Table>
-            </section>
-          )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[
+                  ...summary.groups,
+                  ...roster
+                    .filter((r) => (!agent || r.agent === agent) && (!model || r.model === model) && !role)
+                    .map((r) => ({ ...r, turns: new Set() })),
+                ].map((g) => (
+                  <TableRow key={JSON.stringify([g.agent, g.model])}>
+                    <TableCell>{g.agent}</TableCell>
+                    <TableCell>{g.model}</TableCell>
+                    <TableCell>{g.turns.size}</TableCell>
+                    <TableCell>{format(g.tokens, "tokens")}</TableCell>
+                    <TableCell>
+                      {format(g.usd, "usd")}
+                      {g.missingCost && g.usd != null && " (partial)"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </section>
         </>
       )}
     </Card>

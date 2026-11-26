@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Focus, Minus, Plus, Workflow, Bot } from "lucide-react";
+import { Focus, Minus, Plus, Workflow, Bot, Maximize2, ChevronRight } from "lucide-react";
 import { Button } from "./components/ui/button";
+import { Label } from "./components/ui/label";
+import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { Card } from "./components/ui/card";
 import { Dialog } from "./dialog";
 import { Status, coordinatorStatus } from "./status";
@@ -11,7 +13,7 @@ const rowHeight = 98;
 const nodeWidth = 205;
 
 // Dependencies advance from left to right. Workers keep their own horizontal lanes.
-function layout(tasks, workers) {
+function layout(tasks, workers, agent) {
   const nodes = new Map(tasks.map((task, order) => [task.id, { task, order, column: 0, next: [], remaining: 0 }]));
   const edges = [];
   function connect(from, to) {
@@ -32,23 +34,26 @@ function layout(tasks, workers) {
       if (--next.remaining === 0) ready.push(next);
     }
   }
+  const visible = [...nodes.values()].filter(node => !agent || node.task.worker === agent);
+  const columns = [...new Set(visible.map(node => node.column))].sort((a,b) => a-b);
+  const positions = new Map(columns.map((depth,index) => [depth,index]));
   let y = 16, width = stride;
   const lanes = [];
-  for (const worker of workers) {
+  for (const worker of agent ? [agent] : workers) {
     lanes.push({ worker, y });
     y += 46;
     const counts = new Map();
-    for (const node of nodes.values()) {
+    for (const node of visible) {
       if (node.task.worker !== worker) continue;
       const row = counts.get(node.column) || 0;
-      node.x = 16 + stride * node.column;
+      node.x = 16 + stride * positions.get(node.column);
       node.y = y + row * rowHeight;
       width = Math.max(width, node.x + nodeWidth + 16);
       counts.set(node.column, row + 1);
     }
     y += Math.max(0, ...counts.values()) * rowHeight + 14;
   }
-  return { width, height: y, lanes, edges, nodes: [...nodes.values()] };
+  return { width, height: y, lanes, edges: edges.filter(([a,b]) => !agent || (a.task.worker === agent && b.task.worker === agent)), nodes: visible };
 }
 
 export function AssignmentMap({ run }) {
@@ -57,7 +62,16 @@ export function AssignmentMap({ run }) {
   const viewport = useRef(null);
   const drag = useRef(null);
   const tasks = run.tasks || [];
-  const graph = useMemo(() => layout(tasks, [...new Set([...run.input.workers, ...tasks.map(t => t.worker)])]), [tasks, run.input.workers]);
+  const [agent, setAgent] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const expandButton = useRef(null);
+  const workers = useMemo(() => [...new Set([...run.input.workers, ...tasks.map(t => t.worker)])], [tasks, run.input.workers]);
+  const graph = useMemo(() => layout(tasks, workers, agent), [agent, tasks, workers]);
+  function filter(worker) {
+    setAgent(worker);
+    setZoom(1);
+    viewport.current?.scrollTo(0, 0);
+  }
   const selectedTask = selection?.task && tasks.find(t => t.id === selection.task);
   const profile = run.profiles?.[selection?.worker];
   function fit() {
@@ -71,18 +85,23 @@ export function AssignmentMap({ run }) {
     drag.current = [event.clientX + el.scrollLeft, event.clientY + el.scrollTop];
     el.setPointerCapture(event.pointerId);
   }
-  return <Card className="assignment-map">
+  const map = <Card className="assignment-map">
     <header><div><Workflow aria-hidden="true" /><h2>Agent map</h2></div>
       <div className="map-tools">
         <Button variant="outline" size="icon" aria-label="Zoom out" disabled={zoom <= .15} onClick={() => setZoom(z => Math.max(.15, z / 1.25))}><Minus /></Button>
         <output aria-label="Map zoom">{Math.round(zoom * 100)}%</output>
-        <Button variant="outline" size="icon" aria-label="Zoom in" disabled={zoom >= 2} onClick={() => setZoom(z => Math.min(2, z * 1.25))}><Plus /></Button>
+        <Button variant="outline" size="icon" aria-label="Zoom in" disabled={zoom >= 4} onClick={() => setZoom(z => Math.min(4, z * 1.25))}><Plus /></Button>
+        {!expanded && <Button ref={expandButton} variant="outline" onClick={() => setExpanded(true)}><Maximize2 />Full screen</Button>}
         <Button variant="outline" title="Fit all assignments" onClick={fit}><Focus />Fit</Button>
       </div>
     </header>
     <Button variant="ghost" className="map-coordinator" aria-label="View coordinator activity" onClick={() => select({worker:run.input.coordinator, coordinator:true})}>
       <Workflow /><strong>{run.input.coordinator}</strong><span>{coordinatorStatus(run)}</span>
     </Button>
+    <div className="map-filter"><Label>Show jobs for<NativeSelect value={agent} onChange={e => filter(e.target.value)}>
+      <NativeSelectOption value="">All agents</NativeSelectOption>{workers.map(worker => <NativeSelectOption key={worker} value={worker}>{worker}</NativeSelectOption>)}
+    </NativeSelect></Label><small>{graph.nodes.length} {graph.nodes.length === 1 ? "milestone" : "milestones"} · Scroll or drag to pan</small></div>
+    {agent && !graph.nodes.length && <p>No milestones assigned to {agent}.</p>}
     {!tasks.length && <p>Assignments appear when the coordinator creates the plan.</p>}
     <div ref={viewport} className="map-viewport" role="region" aria-label="Assignment map, scroll to pan" tabIndex={0}
       onPointerDown={startDrag} onLostPointerCapture={() => { drag.current = null; }}
@@ -99,7 +118,7 @@ export function AssignmentMap({ run }) {
             })}
           </svg>
           {graph.lanes.map(({worker, y}) => <Button key={worker} variant="secondary" className="map-agent" style={{ top: y }}
-            aria-label={`View assignments for ${worker}`} onClick={() => select({worker})}><Bot />{worker}</Button>)}
+            aria-label={`View assignments for ${worker}`} onClick={() => select({worker})}><Bot />{worker}<small>Assignments</small><ChevronRight /></Button>)}
           {graph.nodes.map(({task, x, y, order}) => <Button variant="outline" key={task.id} className="map-node" style={{ left: x, top: y, width: nodeWidth }}
             aria-label={`Milestone ${order + 1}: ${task.goal}`} onClick={() => select({worker: task.worker, task: task.id})}>
             <span><small>{order + 1}</small><Status state={task.state} /></span><strong>{task.goal}</strong>
@@ -130,4 +149,8 @@ export function AssignmentMap({ run }) {
       </>}
     </Dialog>}
   </Card>;
+  return expanded ? <Dialog title="Full-screen agent map" className="map-screen" onClose={() => {
+    setExpanded(false);
+    requestAnimationFrame(() => expandButton.current?.focus());
+  }}>{map}</Dialog> : map;
 }

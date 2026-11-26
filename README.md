@@ -34,7 +34,7 @@ In an interactive terminal, `swarm` and `swarm open` open the browser and show a
 
 ## What runs where
 
-The service stores Git checkouts, logs and results on your computer. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
+Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Agent map** shows assignments and dependencies. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 

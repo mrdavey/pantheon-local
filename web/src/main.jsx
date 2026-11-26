@@ -265,6 +265,8 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
       <div className="run-meta">
         <Button variant="outline" className="text-button project-label" title={projectPath} aria-label="Open project folder" disabled={busy}
           onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {}), "Opening folder…")}><Icon name="folder" />{projectPath.split("/").filter(Boolean).at(-1) || projectPath}</Button>
+        {(run.working_folder || tasks.some(t => t.workspace)) && <Button variant="outline" className="project-label" title={run.working_folder || "Milestone checkouts"}
+          disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {working:true}), "Opening working folder…")}><Icon name="folder" />Open working folder</Button>}
         {run.repo.Target && <code>{branchName(run.repo.Target)}</code>}
         <Status state={run.state} run={run} />{settings}
       </div>
@@ -276,6 +278,13 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     </header>
     <Conversation {...{ run, act, busy, api, chatRequest }} />
     <div className="run-body">
+    <nav className="run-tabs" aria-label="Run views">
+      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</Button>
+      <Button variant="outline" aria-pressed={view === "map"} onClick={() => setTab("map")}>Agent map</Button>
+      <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}>Metrics</Button>
+      <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
+    </nav>
+    <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
       <strong>Implementation landed{run.repo.Target && ` on ${branchName(run.repo.Target)}`}</strong>
@@ -292,12 +301,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
       <span>{questions.length === 1 ? shortSummary(questions[0].text) : `${questions.length} open questions for this run.`}</span>{" "}
       <Button variant="outline" className="text-button" onClick={openInbox}>Open Needs you</Button>
     </div>}
-    <nav className="run-tabs" aria-label="Run views">
-      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Work</Button>
-      <Button variant="outline" aria-pressed={view === "map"} onClick={() => setTab("map")}>Agent map</Button>
-      <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}>Metrics</Button>
-      <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
-    </nav>
+    </div>
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
     {view === "map" && <AssignmentMap run={run} />}
     <ReleaseList {...{ run, act, busy }} />

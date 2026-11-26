@@ -162,6 +162,9 @@ fn args(request: &Value) -> Vec<String> {
         && request["subagents"] != false
         && request["subagent_limit"].as_u64().is_none();
     if kind == "codex" {
+        if role == "pricing" {
+            args.extend(["-c", r#"web_search="live""#]);
+        }
         if !native_children {
             args.extend([
                 "-c",
@@ -190,7 +193,7 @@ fn args(request: &Value) -> Vec<String> {
                 args.push("resume")
             }
             args.push("--json");
-            if matches!(role, "advisor" | "chat" | "observer") {
+            if matches!(role, "advisor" | "chat" | "observer" | "pricing") {
                 args.push("--skip-git-repo-check")
             }
             if session.is_empty() {
@@ -229,7 +232,14 @@ fn args(request: &Value) -> Vec<String> {
             if role == "worker" && !native_children {
                 args.extend(["--disallowedTools", "Agent", "Task"]);
             }
-            if role != "worker" {
+            if role == "pricing" {
+                args.extend([
+                    "--tools",
+                    "WebSearch,WebFetch",
+                    "--allowedTools",
+                    "WebSearch,WebFetch",
+                ]);
+            } else if role != "worker" {
                 args.extend(["--tools", ""])
             }
             if role == "advisor" {

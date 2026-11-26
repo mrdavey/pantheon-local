@@ -13,6 +13,40 @@ fn start(svc: &Service, path: &Path, prompt: &str, options: Value) -> Result<Str
     run_path(&svc.post("/runs", &input)?)
 }
 #[test]
+fn prices_itemized_usage_with_the_coordinator_and_preserves_receipts() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let project = repo(&tmp.path().join("project"))?;
+    let svc = Service::new(tmp.path())?;
+    let url = start(&svc, &project, "Measure tariff lookup", json!({}))?;
+    let run = until(TIMEOUT, || {
+        let run = svc.get(&url)?;
+        Ok((run["pricing_revision"] == 1).then_some(run))
+    })?;
+    assert_eq!(
+        Path::new(run["working_folder"].as_str().unwrap()).parent(),
+        Some(project.canonicalize()?.as_path())
+    );
+    assert_eq!(git(&project, &["status", "--porcelain"])?, "");
+    let usage = svc.get(&format!("{url}/metrics"))?;
+    let plan = rows(&usage["turns"])
+        .iter()
+        .find(|t| t["role"] == "plan")
+        .context("plan")?;
+    let price = &rows(&plan["samples"]).last().unwrap()["models"]["Fixture Tariff"];
+    assert_eq!(price["tokens"], 5);
+    assert!((price["usd"].as_f64().context("estimated cost")? - 0.000012).abs() < 1e-12);
+    svc.post(&format!("{url}/metrics/prices"), &json!({}))?;
+    assert_eq!(
+        rows(&svc.get(&url)?["turns"])
+            .iter()
+            .filter(|t| t["role"] == "pricing")
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
 fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let project = repo(&tmp.path().join("team"))?;
@@ -82,6 +116,11 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
         &json!({"kind":"answer-inbox","task":question["id"],"text":"No quotes"}),
     )?;
     let ready = svc.wait_state(&url, "review")?;
+    let folder = Path::new(ready["working_folder"].as_str().context("working folder")?);
+    for task in rows(&ready["tasks"]) {
+        let checkout = Path::new(task["workspace"].as_str().context("milestone workspace")?);
+        ensure!(checkout.is_dir() && checkout.parent() == Some(folder));
+    }
     let candidate = passing(&ready)?;
     svc.post(&url, &json!({"kind":"land","candidate":candidate["id"]}))?;
     assert_eq!(git(&project, &["rev-parse", "HEAD"])?, candidate["commit"]);

@@ -13,6 +13,42 @@ use std::{
 pub struct Reading {
     pub tokens: Option<u64>,
     pub usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breakdown: Option<Breakdown>,
+}
+
+/// Disjoint billing categories. Input excludes cached reads and cache writes.
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Breakdown {
+    pub input: u64,
+    pub cached: u64,
+    pub output: u64,
+    pub cache_write: u64,
+}
+
+impl Breakdown {
+    fn native(usage: &Value) -> Option<Self> {
+        let cached = usage["cached_input_tokens"].as_u64().unwrap_or(0);
+        let cache_write = usage["cache_write_input_tokens"].as_u64().unwrap_or(0);
+        Some(Self {
+            input: usage["input_tokens"]
+                .as_u64()?
+                .checked_sub(cached)?
+                .checked_sub(cache_write)?,
+            cached,
+            cache_write,
+            output: usage["output_tokens"].as_u64()?,
+        })
+    }
+
+    fn claude(m: &Value) -> Option<Self> {
+        Some(Self {
+            input: m["inputTokens"].as_u64()?,
+            output: m["outputTokens"].as_u64()?,
+            cached: m["cacheReadInputTokens"].as_u64().unwrap_or(0),
+            cache_write: m["cacheCreationInputTokens"].as_u64().unwrap_or(0),
+        })
+    }
 }
 
 fn usd(value: &Value) -> Option<f64> {
@@ -99,7 +135,11 @@ impl Recorder {
             name.filter(|s| !s.is_empty())
                 .unwrap_or(&self.model)
                 .to_owned(),
-            Reading { tokens, usd },
+            Reading {
+                tokens,
+                usd,
+                breakdown: None,
+            },
         )])
     }
     fn save(&mut self, dir: &Path, models: BTreeMap<String, Reading>) -> Result<()> {
@@ -154,7 +194,9 @@ impl Recorder {
                             o,
                         )
                     });
-                self.single(None, tokens, cost)
+                let mut rows = self.single(None, tokens, cost);
+                rows.get_mut(&self.model)?.breakdown = Breakdown::native(u);
+                rows
             }
             ("claude", "system") if raw["subtype"] == "init" => {
                 if let Some(name) = raw["model"].as_str() {
@@ -202,6 +244,7 @@ impl Recorder {
                                     ],
                                 ),
                                 usd: usd(&m["costUSD"]),
+                                breakdown: Breakdown::claude(m),
                             },
                         );
                     }
@@ -229,13 +272,19 @@ impl Recorder {
                     self.model = name.into();
                 }
                 let prior = self.history.last().and_then(|s| s.models.get(&self.model));
-                self.single(
+                let mut rows = self.single(
                     None,
                     event["tokens"]
                         .as_u64()
                         .or_else(|| prior.and_then(|r| r.tokens)),
                     usd(&event["cost_usd"]).or_else(|| prior.and_then(|r| r.usd)),
-                )
+                );
+                rows.get_mut(&self.model)?.breakdown = Breakdown::native(event).or_else(|| {
+                    prior
+                        .filter(|r| r.tokens == rows[&self.model].tokens)
+                        .and_then(|r| r.breakdown.clone())
+                });
+                rows
             }
             _ => return None,
         };
@@ -261,7 +310,14 @@ impl Recorder {
                 .as_u64()
                 .or_else(|| prior.and_then(|(_, r)| r.tokens));
             let cost = usd(&result["cost_usd"]).or_else(|| prior.and_then(|(_, r)| r.usd));
-            self.save(dir, self.single(name, tokens, cost))?;
+            let mut rows = self.single(name, tokens, cost);
+            if let Some((model, reading)) = prior
+                && reading.tokens == tokens
+                && let Some(row) = rows.get_mut(model)
+            {
+                row.breakdown.clone_from(&reading.breakdown);
+            }
+            self.save(dir, rows)?;
         }
         if let Some(sample) = self.history.last()
             && let Some(total) = sample
@@ -351,7 +407,6 @@ fn legacy_sample(
     file: fs::File,
     turns: &[Value],
     root: &Path,
-    baselines: &mut BTreeMap<String, Value>,
 ) -> Result<Vec<Sample>> {
     let at: chrono::DateTime<Utc> = file.metadata()?.modified()?.into();
     let result: Value = serde_json::from_reader(file)?;
@@ -366,14 +421,10 @@ fn legacy_sample(
     {
         let session = result["session"].as_str().unwrap_or_default();
         let raw = event["raw"]["usage"].clone();
-        let prior = baselines
-            .get(session)
-            .cloned()
-            .or_else(|| prior_usage(turns, root, session));
+        let prior = (!session.is_empty())
+            .then(|| prior_usage(turns, root, session))
+            .flatten();
         event["turn_usage"] = turn_usage(&raw, prior.as_ref());
-        if !session.is_empty() {
-            baselines.insert(session.into(), raw);
-        }
         if let Some(native) = recorder.readings(&event) {
             rows = native;
         }
@@ -410,7 +461,6 @@ pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
         .unwrap_or_default();
     let mut rows = Vec::new();
     let mut next = turns.len();
-    let mut legacy_baselines = BTreeMap::new();
     for (index, t) in turns.iter().enumerate().skip(from) {
         if matches!(t["role"].as_str(), Some("eval" | "release")) {
             continue;
@@ -419,23 +469,67 @@ pub fn report(run: &Value, root: &Path, from: usize) -> Result<Value> {
             next = next.min(index);
         }
         let dir = root.join("turns").join(t["id"].as_str().unwrap_or(""));
-        let profile = &run["profiles"][t["agent"].as_str().unwrap_or("")];
+        let agent = t["agent"]
+            .as_str()
+            .or_else(|| {
+                if t["role"] == "worker" {
+                    run["tasks"]
+                        .as_array()?
+                        .iter()
+                        .find(|task| task["id"] == t["task"])?["worker"]
+                        .as_str()
+                } else {
+                    run["input"]["coordinator"].as_str()
+                }
+            })
+            .unwrap_or("Unknown agent");
+        let profile = &run["profiles"][agent];
         let name = model(profile);
-        let history: Vec<Sample> = if let Some(f) = optional(&dir.join("usage.json"))? {
+        let mut history: Vec<Sample> = if let Some(f) = optional(&dir.join("usage.json"))? {
             serde_json::from_reader(f)?
-        } else if let Some(f) = optional(&dir.join("result.json"))? {
-            legacy_sample(
-                &dir,
-                profile,
-                f,
-                &turns[..from.min(turns.len())],
-                root,
-                &mut legacy_baselines,
-            )?
         } else {
             vec![]
         };
-        rows.push(json!({"id":t["id"],"agent":t["agent"],"role":t["role"],"model":name,"state":t["state"],"started":t["started"],"samples":history,"harness":profile["kind"]}));
+        // Older usage files retained totals but dropped the billing breakdown.
+        // Recover a matching final reading from the original native receipt.
+        let needs_native = history.last().is_some_and(|sample| {
+            matches!(profile["kind"].as_str(), Some("codex" | "claude"))
+                && sample
+                    .models
+                    .values()
+                    .any(|r| r.usd.is_none() && r.breakdown.is_none())
+        });
+        if (history.is_empty() || needs_native)
+            && let Some(f) = optional(&dir.join("result.json"))?
+        {
+            let native = legacy_sample(&dir, profile, f, &turns[..index], root)?;
+            if history.is_empty() {
+                history = native;
+            } else if let (Some(last), Some(receipt)) = (history.last_mut(), native.last()) {
+                for (model, reading) in &mut last.models {
+                    if let Some(raw) = receipt.models.get(model)
+                        && raw.tokens == reading.tokens
+                    {
+                        reading.usd = reading.usd.or(raw.usd);
+                        if reading.breakdown.is_none() {
+                            reading.breakdown.clone_from(&raw.breakdown);
+                        }
+                    }
+                }
+            }
+        }
+        for sample in &mut history {
+            for (name, reading) in &mut sample.models {
+                if reading.usd.is_none() {
+                    reading.usd = crate::pricing::estimate(&run["model_rates"][name], reading);
+                }
+            }
+        }
+        let started = t["started"].as_i64().or_else(|| {
+            let time = fs::metadata(dir.join("job.json")).ok()?.modified().ok()?;
+            Some(chrono::DateTime::<Utc>::from(time).timestamp_millis())
+        });
+        rows.push(json!({"id":t["id"],"agent":agent,"role":t["role"],"model":name,"state":t["state"],"started":started,"samples":history,"harness":profile["kind"]}));
     }
     Ok(json!({"turns":rows,"next":next}))
 }
@@ -459,6 +553,7 @@ mod tests {
             writer.history.last().unwrap().models["mini"],
             Reading {
                 tokens: Some(12),
+                breakdown: None,
                 usd: Some(0.)
             }
         );
@@ -472,9 +567,11 @@ mod tests {
         fs::create_dir_all(&dir)?;
         fs::write(dir.join("result.json"), r#"{"tokens":11}"#)?;
         fs::write(dir.join("events.log"),json!({"type":"turn.completed","raw":{"usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":1}}}).to_string())?;
-        let run = json!({"turns":[{"id":"eval","role":"eval"},{"id":"a","role":"worker","agent":"runner","state":"received"},
-            {"id":"b","role":"chat","agent":"runner","state":"running"}],"profiles":{"runner":{"kind":"codex","model":"gpt-6.2-sol"}}});
+        let run = json!({"turns":[{"id":"eval","role":"eval"},{"id":"a","role":"worker","task":"legacy-task","state":"received"},
+            {"id":"b","role":"chat","state":"running"}],"input":{"coordinator":"leader"},"tasks":[{"id":"legacy-task","worker":"runner"}],"profiles":{"runner":{"kind":"codex","model":"gpt-6.2-sol"}}});
         let r = report(&run, root.path(), 0)?;
+        assert_eq!(r["turns"][0]["agent"], "runner");
+        assert_eq!(r["turns"][1]["agent"], "leader");
         assert_eq!(r["next"], 2);
         assert_eq!(r["turns"].as_array().unwrap().len(), 2);
         let reading = &r["turns"][0]["samples"][0]["models"]["gpt-6.2-sol"];
