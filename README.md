@@ -39,3 +39,5 @@ Use **Open working folder** on the run page to open the milestone checkouts insi
 ## Contribute
 
 [Development checks and bug reports](CONTRIBUTING.md) · [Apache-2.0 license](LICENSE) · [Notice](NOTICE)
+
+To connect another coding harness or contribute a built-in integration, follow the [agent adapter guide](docs/agent-adapters.md).

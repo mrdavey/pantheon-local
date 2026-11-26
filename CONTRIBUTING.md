@@ -47,3 +47,5 @@ To inspect the selection for committed changes without contacting GitHub, run `p
 CI reuses a successful command from the last 20 runs when its selected targets, input files, workflow, runner and tool versions match. A later failure or missing evidence runs the command. A fresh runner builds fixtures needed by a pending test even if the earlier build passed. GitHub caches the web bundle separately.
 
 For a release tag, the selector reuses green main CI for the tagged commit or waits up to ten minutes for a known active run. Tags qualify the full daemon-backed browser suite, including changes previously checked by the frontend job alone. An unverified tag also runs the missing Rust checks. Release tags build fresh archives and run the packaged fixture suites on all three release platforms before publication. To exercise the selection rules locally, run `cargo test --locked --test ci` with Python 3 and Node.js available.
+
+To connect another coding harness or contribute a built-in integration, follow the [agent adapter guide](docs/agent-adapters.md).
