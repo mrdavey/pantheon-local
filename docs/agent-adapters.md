@@ -15,4 +15,6 @@ For a built-in adapter, wire the harness into [profile validation and process di
 
 ## Open an integration pull request
 
-Push the proposed changes to a topic branch or fork. In **Agent setup → Set up new agent**, choose **Request new agent integration** and select that branch on GitHub. The [adapter PR template](../.github/PULL_REQUEST_TEMPLATE/agent_adapter.md) covers installation, capabilities, usage, and test evidence. For a direct PR form, substitute your fork owner and branch in `https://github.com/mrdavey/pantheon-local/compare/main...OWNER:BRANCH?quick_pull=1&template=agent_adapter.md`.
+For a suggestion, give the agent name and what you would use it for. Installation details, implementation plans, and test results are optional. GitHub needs a change to compare when opening a PR, so a branch with a short Markdown proposal is enough.
+
+For an implemented adapter, push the changes to a topic branch or fork. In **Agent setup → Set up new agent**, choose **Request new agent integration** and select that branch on GitHub. Fill in the parts of the [adapter PR template](../.github/PULL_REQUEST_TEMPLATE/agent_adapter.md) that apply. For a direct PR form, substitute your fork owner and branch in `https://github.com/mrdavey/pantheon-local/compare/main...OWNER:BRANCH?quick_pull=1&template=agent_adapter.md`.

@@ -1,15 +1,21 @@
-## Agent and harness
+## Agent and use case
 
-Name the agent, link its official CLI or protocol documentation, and list the versions and platforms you tested. Describe the developer workflow this integration enables.
+Which agent would you like Pantheon Local to support? What would you use it for?
 
-## Installation and profile
+<!-- For a suggestion, the agent name and use case are enough. If you know the project's website or CLI docs, include a link. You can delete any optional sections below. -->
 
-Give the install and sign-in commands, executable name, and a minimal profiles.json entry. Describe how setup distinguishes a missing executable, a signed-out account, and an available agent. Use placeholders for credentials and private paths.
+## Implementation plans (optional)
 
-## Turn behavior
+<!-- If you'd like to build or help test the adapter, say how. It's also fine to leave the implementation to someone else. -->
 
-List supported roles, model and reasoning settings, skill discovery, and subagent limits. Describe how the adapter starts and resumes a session, respects its assigned checkout and permissions, reports progress and errors, and responds to cancellation. Identify any unsupported behavior.
+## Installation and setup (optional)
 
-## Usage and verification
+<!-- If known, share the install and sign-in commands, executable name, or a sample profiles.json entry. Use placeholders for credentials and private paths. -->
 
-Describe token and cost reporting, including which counts are per-turn or cumulative. List the fixture tests you ran and their results. Include a short, redacted example of a successful turn and a failure. Identify any native-account checks you performed separately.
+## Adapter behavior (optional)
+
+<!-- For an implementation, describe the supported roles, model and reasoning settings, skills, and subagent controls. Mention how sessions, checkout permissions, progress, errors, and cancellation work. If usage is reported, indicate whether tokens and costs are per turn or cumulative. -->
+
+## Testing (optional)
+
+<!-- If you tested an adapter, list the harness version, platforms, fixture tests, and results. Redacted examples of a successful or failed turn are welcome. List any native-account checks separately. -->
