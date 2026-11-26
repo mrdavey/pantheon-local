@@ -389,6 +389,7 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
             .env("TERM", "xterm-256color")
             .env_remove("SWARM_PLAIN")
             .env_remove("REDUCE_MOTION")
+            .env_remove("NO_COLOR")
             .env("SWARM_STATE_DIR", &state)
             .env("SWARM_UPDATE_URL", "off")
             .stdin(Stdio::piped())
@@ -411,7 +412,13 @@ fn foreground_launch_reveals_a_working_link_and_restores_the_terminal() -> Resul
             thread::sleep(Duration::from_millis(30));
         }
     };
-    let first = wait_text("Show browser link")?;
+    let first = wait_text("Stop service")?;
+    for key in ["Enter", "Ctrl+C"] {
+        assert!(first.contains(&format!("\x1b[1;36m{key}\x1b[0m")));
+    }
+    for description in ["Show browser link", "Stop service"] {
+        assert!(first.contains(&format!("H  {description}")));
+    }
     assert!(first.contains("Workbench online"));
     assert!(first.contains("\x1b[?1049h"));
     let token = session["token"].as_str().context("session token")?;

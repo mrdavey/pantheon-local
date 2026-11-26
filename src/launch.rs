@@ -92,12 +92,29 @@ fn frame(size: Size, host: &str, phase: f32) -> Vec<Line> {
     let status_row = start + height + usize::from(height > 0);
     place(status_row, "●  Workbench online", "\x1b[1m", true);
     place(status_row + 1, host, "", true);
-    let keys = if columns >= 51 {
-        "Enter  Show browser link     Ctrl+C  Stop service"
+    let (open_hint, stop_hint) = if columns >= 51 {
+        ("  Show browser link     ", "  Stop service")
     } else {
-        "Enter  Link    Ctrl+C  Stop"
+        ("  Link    ", "  Stop")
     };
-    place(rows - 1, keys, "", true);
+    let key_style = "\x1b[1;36m";
+    let footer = [
+        ("Enter", key_style),
+        (open_hint, ""),
+        ("Ctrl+C", key_style),
+        (stop_hint, ""),
+    ];
+    let width: usize = footer.iter().map(|(text, _)| text.len()).sum();
+    let mut column = (columns - width) / 2 + 1;
+    for (text, style) in footer {
+        lines.push(Line {
+            row: rows - 1,
+            column,
+            style,
+            text: text.into(),
+        });
+        column += text.len();
+    }
     lines.push(Line {
         row: 2,
         column: columns - version.len(),

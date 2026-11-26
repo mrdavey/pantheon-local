@@ -24,7 +24,7 @@ cargo build --locked --release
 
 If you have a Pantheon Local archive for your platform, extract it and run `./swarm open` from its folder. On macOS you can also double-click **Open Pantheon Local.command**.
 
-In an interactive terminal, `swarm` and `swarm open` open the browser and show a rotating Pantheon mark while the workbench is online. Press **Enter** to reveal the browser link and keep the service running. **Ctrl+C** stops the service. Use `REDUCE_MOTION=1` for a still mark or `SWARM_PLAIN=1` for plain text. `swarm serve` and redirected output always print the link.
+In an interactive terminal, `swarm` and `swarm open` open the browser and show a rotating Pantheon mark while the workbench is online. Keyboard shortcuts appear in bold cyan when terminal colors are enabled. Press **Enter** to reveal the browser link and keep the service running. **Ctrl+C** stops the service. Use `REDUCE_MOTION=1` for a still mark or `SWARM_PLAIN=1` for plain text. `swarm serve` and redirected output always print the link.
 
 ### Start a run
 
