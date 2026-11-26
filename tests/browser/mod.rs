@@ -325,6 +325,16 @@ impl<'a> Locator<'a> {
             if self.browser.get(&format!("element/{id}/enabled"))? != true {
                 return Ok(None);
             }
+            // A docked chat intentionally overlays the page. Scroll the target
+            // into the free part of the viewport before a real pointer click.
+            self.browser.eval(r#"
+                const el = arguments[0], box = el.getBoundingClientRect();
+                const x = Math.min(innerWidth - 1, Math.max(0, box.left + box.width / 2));
+                const y = Math.min(innerHeight - 1, Math.max(0, box.top + box.height / 2));
+                const cover = document.elementFromPoint(x,y)?.closest('.coordinator-chat');
+                if (cover && !cover.contains(el)) el.scrollIntoView({block:'center',inline:'nearest'});
+                return null;
+            "#, vec![Self::obj(id)])?;
             self.browser
                 .post(&format!("element/{id}/click"), json!({}))?;
             Ok(Some(()))

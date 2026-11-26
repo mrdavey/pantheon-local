@@ -63,7 +63,6 @@ main:has(.run-workspace) { width: 100%; padding-bottom: 5rem; }
 .chat-header { background: var(--paper); }
 .coordinator-status { padding: .4rem 1rem; background: var(--clay-wash); color: var(--clay); font-size: .82rem; font-weight: 550; }
 .chat-empty { padding: .25rem 0; }
-main:has(.coordinator-chat .chat-panel) { padding-bottom: min(27rem, 46dvh); }
 .assignment-map { display: block; min-width: 0; padding: 0; overflow: hidden; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
 .assignment-map > header, .assignment-map > header > div, .map-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
 .assignment-map > header { justify-content: flex-start; column-gap: 1.4rem; padding: .65rem .85rem; border-bottom: 1px solid var(--line); }
@@ -86,12 +85,6 @@ main:has(.coordinator-chat .chat-panel) { padding-bottom: min(27rem, 46dvh); }
   .window-status [data-slot=progress-indicator] { transform: none !important; }
 }
 
-.map-coordinator { display: flex; flex-wrap: wrap; gap: .5rem; width: 100%; justify-content: start; padding: .65rem 1rem; border: 0; border-radius: 0; text-align: start; }
-.map-coordinator span { color: var(--muted); font-weight: 400; }
-.turn-history { padding-inline-start: 1.3rem; }
-.turn-history li { padding: .3rem 0; }
-.turn-history .state { margin-inline-start: .65rem; }
-
 .run-nav-row .run-name { display: -webkit-box; white-space: normal; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 
 .assignment-map { display: flex; flex-direction: column; gap: 0; min-height: max(25rem, calc(100dvh - 18rem)); }
@@ -105,16 +98,8 @@ main:has(.coordinator-chat .chat-panel) { padding-bottom: min(27rem, 46dvh); }
 .map-screen .assignment-map { flex: 1; min-height: 0; }
 .map-screen .assignment-map h2 { display: none; }
 @media (max-width: 720px) {
-  .app:has(.coordinator-chat) {
-    height: calc(100dvh - 4rem - env(safe-area-inset-bottom));
-    min-height: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-  }
-  .app:has(.coordinator-chat .chat-panel) {height:calc(100dvh - min(18rem, 36dvh));}
   .coordinator-chat:has(.chat-panel) { inset: auto 0 0; }
   .coordinator-chat .chat-panel { width: 100vw; height: min(18rem, 36dvh); border-radius: var(--radius) var(--radius) 0 0; }
-  main:has(.coordinator-chat .chat-panel) { padding-bottom: 1rem; }
 }
 
 .map-world .map-node {position:absolute;}
@@ -153,7 +138,6 @@ main:has(.coordinator-chat .chat-panel) { padding-bottom: min(27rem, 46dvh); }
 .map-node[data-faded=true] {opacity:.5;}
 .map-node .map-select {background:transparent;border:0;box-shadow:none;display:grid;align-content:center;justify-content:start;justify-items:start;gap:.15rem;text-align:left;width:100%;height:100%;padding:.35rem .55rem;white-space:normal;}
 .map-node small {padding-right:1.55rem;max-width:100%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;color:var(--muted);}
-.map-node .map-info {position:absolute;right:1px;top:1px;width:28px;height:28px;min-height:28px;padding:4px;}
 .activity-filters {margin:1rem 0;}
 .activity-filters input {flex:1 1 12rem;min-width:8rem;}
 .activity-log td:first-child {white-space:normal;min-width:10rem;}
@@ -167,5 +151,3 @@ main:has(.coordinator-chat .chat-panel) { padding-bottom: min(27rem, 46dvh); }
 @media(max-width:460px) {.kanban {grid-template-columns:1fr;}.activity-filters input {flex-basis:100%;}}
 .activity-filters [data-slot=native-select-wrapper],.activity-pages [data-slot=native-select-wrapper] {width:auto;}
 .view-selector > small {margin-inline-start:auto;color:var(--muted);}
-.activity-open[data-slot=button] {color:var(--clay);padding-inline:0;font-weight:600;}
-.activity-open svg {width:.9rem;}

@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Status, statusLabel } from "./status";
-import { canRetryMilestone, retryTokens, shortSummary } from "./run-summary";
+import { canRetryMilestone, retryTokens } from "./run-summary";
 
 const columns = ["Milestone", "Owner", "Status", "Completed"];
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -37,9 +37,9 @@ export function MilestoneTable({ run, tasks, api, act, busy, onSelect, card, que
       });
     return () => controller.abort();
   }, [api, run.id, missing, retry]);
-  const rows = tasks.map((task) => ({
+  const rows = tasks.map((task, index) => ({
     task,
-    Milestone: shortSummary(task.goal, 90) || task.id,
+    Milestone: index,
     Owner: task.worker || "",
     Status: statusLabel(task.state),
     Completed:
@@ -50,7 +50,7 @@ export function MilestoneTable({ run, tasks, api, act, busy, onSelect, card, que
       const x = a[sort.key],
         y = b[sort.key];
       if (x == null || y == null) return Number(x == null) - Number(y == null);
-      return (sort.key === "Completed" ? x - y : collator.compare(x, y)) * sort.direction;
+      return (typeof x === "number" ? x - y : collator.compare(x, y)) * sort.direction;
     });
   return (
     <>

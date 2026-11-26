@@ -1,9 +1,8 @@
 import { Disclosure } from "./disclosure";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Pause, Play } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
-import { Card } from "./components/ui/card";
 import { Label } from "./components/ui/label";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "./components/ui/table";
@@ -394,12 +393,9 @@ export function Metrics({ run, api }) {
       ? run.tokens
       : null;
   return (
-    <Card className="run-metrics" aria-label="Run metrics">
+    <section className="run-metrics" aria-label="Run metrics">
       <header>
-        <h2>
-          <Activity aria-hidden="true" />
-          Run metrics
-        </h2>
+
         {(!terminal || paused) && (
           <Button variant="outline" size="sm" disabled={!data} onClick={() => setPaused(!paused)}>
             {paused ? <Play /> : <Pause />}
@@ -642,6 +638,6 @@ export function Metrics({ run, api }) {
           </section>
         </>
       )}
-    </Card>
+    </section>
   );
 }

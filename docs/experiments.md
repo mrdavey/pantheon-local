@@ -16,9 +16,9 @@ Use stderr for diagnostics. A required case must pass every sample. A missing, d
 
 To compare previews using human judgment, set a `rubric` and a `preview` command in the recipe. Start **Blind review**, open both previews, then record a preference, tie or skip. A rubric calls for a human selection.
 
-Use **Eval suite** to approve a case or rule revision. If you revise the suite from the CLI while review is paused, checks wait until you resume. A threshold change can reuse matching samples. Changes to what was measured require new evidence. **Measurements** shows how metrics vary across samples or rounds. Use **Compare case results** to inspect observations and errors behind the scores.
+Use **Evaluation tools → Eval suite** to approve a case or rule revision. If you revise the suite from the CLI while review is paused, checks wait until you resume. A threshold change can reuse matching samples. Changes to what was measured require new evidence. **Measurements** shows how metrics vary across samples or rounds. Use **Compare case results** to inspect observations and errors behind the scores.
 
-When you spot a missed edge case, send feedback in **Experiment**. The coordinator can save it under **Project eval cases**. It becomes part of a run’s checks when you approve a suite that references it.
+When you spot a missed edge case, choose **Give feedback** in **Experiment**. The coordinator can save it under **Evaluation tools → Project eval cases**. It becomes part of a run’s checks when you approve a suite that references it.
 
 ## Choose and refine
 

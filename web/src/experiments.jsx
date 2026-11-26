@@ -334,6 +334,9 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
           </Button></>}
       {run.state !== "landed" && run.input.delivery && run.input.delivery !== "review" &&
         <Button variant="outline" disabled={busy || !!run.combination} onClick={() => act({ kind: run.held ? "unhold" : "hold" })}>{run.held ? "Resume auto-land" : "Hold auto-land"}</Button>}
+    </div>
+    <div className="experiment-next"><h3>Next steps</h3><div className="actions">
+      <Button variant="outline" onClick={() => setDetail("feedback")}>Give feedback</Button>
       {isCurrent && implemented.length > 1 && (canDecide || run.state === "landed") &&
         <Button variant="outline" className={run.state === "landed" ? "primary" : undefined} aria-expanded={mode === "combine"} disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>
           {run.state === "landed" ? "Improve this version" : "Combine aspects"}
@@ -342,7 +345,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         <Button variant="outline" onClick={() => { setBase(previewable[0].id); setDonors([previewable[1].id]); setMode("blind"); }}>Blind review</Button>}
       {isCurrent && (canDecide || run.state === "landed") &&
         <Button variant="outline" aria-expanded={mode === "next"} disabled={busy} onClick={() => { setMode(mode === "next" ? "" : "next"); setGoal(""); }}>Start another round</Button>}
-    </div>
+    </div></div>
     {canDecide && run.input.recipe.rubric && <p>Review criteria · {run.input.recipe.rubric}</p>}
     {mode === "next" && <form className="answer" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "new-round", text: goal }).then((ok) => { if (ok) setMode(""); });
@@ -383,11 +386,11 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         <div className="actions">{[["left", "Prefer A"], ["right", "Prefer B"], ["tie", "Tie"], ["skip", "Skip"]].map(([value, label]) =>
           <Button variant="outline" key={value} disabled={busy} onClick={() => act({ kind: "vote", task: p.id, text: value })}>{label}</Button>)}</div></>}
     </article>)}
-    <div className="actions experiment-tools">
+    <Disclosure className="experiment-library" title="Evaluation tools"><div className="actions">
       <Button variant="outline" onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</Button>
       <Button variant="outline" onClick={() => { setDetail("cases"); if (!savedCases) loadCases(); }}>Project eval cases</Button>
       <Button variant="outline" onClick={() => { setDetail("history"); if (!history) loadHistory(); }}>Project run history</Button>
-    </div>
+    </div></Disclosure>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
       <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"
         busy={busy || !canUpdateSuite}
@@ -408,14 +411,15 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</Button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <Button variant="outline" disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</Button>}
     </Dialog>}
-    <Card asChild><form className="form-card" onSubmit={(event) => {
+    {detail === "feedback" && <Dialog title="Give feedback" onClose={() => setDetail("")}><form className="experiment-feedback" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
-        .then((ok) => { if (ok) setFeedback(""); });
+        .then((ok) => { if (ok) { setFeedback(""); setDetail(""); } });
     }}>
+      <p>Share a missed case or a rollout observation for the next evaluation.</p>
       <Label>Feedback for the coordinator<Textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} /></Label>
       <Label className="checkbox"><Checkbox checked={rollout} onCheckedChange={setRollout} />From a live rollout</Label>
       <Button variant="outline" disabled={!feedback.trim() || busy}>Send feedback</Button>
-    </form></Card>
+    </form></Dialog>}
   </section>;
 }
 

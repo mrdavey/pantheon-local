@@ -129,7 +129,11 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
                 milestone("foundation", "Create a project explanation.", Value::Null),
                 milestone(
                     "api",
-                    "Implement persistence.",
+                    if prompt.contains("Inspect the assignment map") {
+                        "Add persistence."
+                    } else {
+                        "Implement persistence."
+                    },
                     json!({"depends":["foundation"]}),
                 ),
                 task(

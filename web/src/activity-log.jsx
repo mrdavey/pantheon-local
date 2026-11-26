@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, ListFilter } from "lucide-react";
 import { Button } from "./components/ui/button";
+import { Badge } from "./components/ui/badge";
 import { Input } from "./components/ui/input";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
@@ -32,12 +33,12 @@ function Choice({ label, value, options, onChange }) {
   );
 }
 function name(row) {
-  return [activityRoles[row.role] || row.role, shortSummary(row.detail, 55)].filter(Boolean).join(" · ");
+  return shortSummary(row.detail, 110) || activityRoles[row.role] || row.role;
 }
-export function ActivityLog({ run, api, initialTurn = null }) {
+export function ActivityLog({ run, api, explain, initialScope = "" }) {
   const [query, setQuery] = useState({
     q: "",
-    role: "",
+    role: initialScope,
     state: "",
     agent: "",
     sort: "newest",
@@ -47,7 +48,7 @@ export function ActivityLog({ run, api, initialTurn = null }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
-  const [selected, select] = useState(initialTurn),
+  const [selected, select] = useState(null),
     [now, setNow] = useState(Date.now);
   const params = new URLSearchParams(query).toString();
   const result = data?.params === params ? data : null;
@@ -78,7 +79,7 @@ export function ActivityLog({ run, api, initialTurn = null }) {
   return (
     <section className="activity-log">
       <header className="work-section-heading">
-        <h2>Activity Log</h2>
+
         {result && (
           <span>
             {result.total} {result.total === 1 ? "turn" : "turns"}
@@ -96,7 +97,7 @@ export function ActivityLog({ run, api, initialTurn = null }) {
         <Choice
           label="Activity type"
           value={query.role}
-          options={[["", "All types"], ...Object.entries(activityRoles)]}
+          options={[["", "All types"], ["coordinator", "Coordinator activity"], ...Object.entries(activityRoles)]}
           onChange={(v) => filter("role", v)}
         />
         <Choice
@@ -142,22 +143,13 @@ export function ActivityLog({ run, api, initialTurn = null }) {
             </TableHeader>
             <TableBody>
               {result.items.map((row) => (
-                <TableRow key={row.id} className="open-row" onClick={event=>{
-                  if (!event.target.closest("button")) {event.currentTarget.querySelector("button").focus({preventScroll:true});select(row);}
-                }}>
-                  <TableCell>
-                    <Button
-                      className="activity-open"
-                      variant="link"
-                      size="sm"
-                      aria-label={"View log for " + name(row)}
-                      onClick={() => select(row)}
-                    >
-                      {activityRoles[row.role] || row.role}
-                      <ChevronRight aria-hidden="true" />
-                    </Button>
-                    {row.detail && <small>{shortSummary(row.detail, 85)}</small>}
-                  </TableCell>
+                <TableRow key={row.id} className="open-row" tabIndex={0} aria-haspopup="dialog"
+                  aria-label={"View log for " + name(row)}
+                  onClick={event => {event.currentTarget.focus({preventScroll:true}); select(row);}}
+                  onKeyDown={event => {
+                    if (event.key === "Enter" || event.key === " ") {event.preventDefault(); select(row);}
+                  }}>
+                  <TableCell><strong>{name(row)}</strong><Badge variant="secondary" className="activity-type">{activityRoles[row.role] || row.role}</Badge></TableCell>
                   <TableCell>{row.agent || "—"}</TableCell>
                   <TableCell>
                     <Status state={row.state} />
@@ -211,7 +203,7 @@ export function ActivityLog({ run, api, initialTurn = null }) {
         </nav>
       )}
       {selected && (
-        <Dialog title={name(selected)} className="evidence-dialog" onClose={() => select(null)}>
+        <Dialog onExplain={() => explain("activity", selected.id)} title={name(selected)} className="evidence-dialog" onClose={() => select(null)}>
           <TurnLog
             key={selected.id}
             api={api}

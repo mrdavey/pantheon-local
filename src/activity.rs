@@ -19,12 +19,22 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
         .flatten()
         .filter_map(|t| Some((t["id"].as_str()?, t)))
         .collect();
-    let messages: HashMap<_, _> = run["conversation"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|m| Some((m["id"].as_str()?, m["text"].as_str()?)))
-        .collect();
+    let mut descriptions = HashMap::new();
+    for (role, collection, field) in [
+        ("worker", "tasks", "goal"),
+        ("chat", "conversation", "text"),
+        ("eval", "candidates", "name"),
+        ("observe", "observations", "text"),
+        ("release", "releases", "destination"),
+    ] {
+        for item in run[collection].as_array().into_iter().flatten() {
+            if let (Some(id), Some(text)) = (item["id"].as_str(), item[field].as_str())
+                && !text.trim().is_empty()
+            {
+                descriptions.insert((role, id), text);
+            }
+        }
+    }
     let mut rows = Vec::new();
     for t in turns {
         let role = t["role"].as_str().unwrap_or("");
@@ -41,14 +51,6 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
                 }
             })
             .unwrap_or("");
-        let detail = if role == "chat" {
-            messages.get(task).copied().unwrap_or(task)
-        } else {
-            tasks
-                .get(task)
-                .and_then(|t| t["goal"].as_str())
-                .unwrap_or(task)
-        };
         let label = match role {
             "plan" => "Planning",
             "observe" => "Coordinator review",
@@ -58,7 +60,26 @@ pub fn page(run: &Value, root: &Path, query: &str) -> Result<Value> {
             "pricing" => "Model pricing",
             _ => role,
         };
-        if (!get("role").is_empty() && role != get("role"))
+        let role_matches = match get("role") {
+            "" => true,
+            "coordinator" => matches!(role, "plan" | "observe" | "repair" | "chat" | "pricing"),
+            specific => role == specific,
+        };
+        let detail = descriptions
+            .get(&(role, task))
+            .copied()
+            .unwrap_or(match role {
+                "plan" => "Create the run plan",
+                "observe" => "Review milestone progress",
+                "repair" => "Plan the next repair",
+                "pricing" => "Look up model prices",
+                "eval" => "Check the implementation",
+                "chat" => "Respond to the developer",
+                "release" => "Deliver the selected implementation",
+                "worker" => "Work on the assigned milestone",
+                _ => label,
+            });
+        if !role_matches
             || (!get("state").is_empty() && t["state"] != get("state"))
             || (!get("agent").is_empty() && agent != get("agent"))
             || (!search.is_empty()
@@ -117,6 +138,7 @@ mod tests {
         let get = |q| page(&run, dir.path(), q);
         assert_eq!(get("size=1&page=2")?["items"][0]["id"], "two");
         assert_eq!(get("size=1&sort=oldest")?["items"][0]["id"], "one");
+        assert_eq!(get("role=coordinator")?["total"], 2);
         assert_eq!(get("q=planning")?["total"], 1);
         assert_eq!(
             get("q=receipts&state=received&agent=local")?["items"][0]["id"],

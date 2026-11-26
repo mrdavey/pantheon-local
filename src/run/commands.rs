@@ -66,13 +66,19 @@ fn supersede_candidates(r: &mut Value) {
 fn chat_reference(run: &Value, action: &Value) -> Result<Value> {
     let task = s(action, "task");
     let candidate = s(action, "candidate");
+    let turn = s(action, "turn");
     ensure!(
-        task.is_empty() || candidate.is_empty(),
+        [task, candidate, turn]
+            .iter()
+            .filter(|id| !id.is_empty())
+            .count()
+            <= 1,
         "choose one item to explain"
     );
     for (id, collection, kind) in [
         (task, "tasks", "milestone"),
         (candidate, "candidates", "implementation"),
+        (turn, "turns", "activity"),
     ] {
         if !id.is_empty() {
             ensure!(find(&run[collection], id).is_some(), "unknown {kind}");
@@ -83,6 +89,38 @@ fn chat_reference(run: &Value, action: &Value) -> Result<Value> {
 }
 
 fn selected_evidence(run: &Value, reference: &Value, root: &Path) -> String {
+    if s(reference, "kind") == "activity" {
+        let id = s(reference, "id");
+        let Some(index) = find(&run["turns"], id) else {
+            return "Activity is no longer available.".into();
+        };
+        let turn = &run["turns"][index];
+        let task = s(turn, "task");
+        let detail = if turn["role"] == "chat" {
+            find(&run["conversation"], task).map(|i| &run["conversation"][i]["text"])
+        } else {
+            find(&run["tasks"], task).map(|i| &run["tasks"][i]["goal"])
+        };
+        let page = crate::turn_log::page(
+            &root.join("turns").join(id),
+            None,
+            None,
+            turn["state"] == "running",
+        )
+        .ok();
+        let entries = page.as_ref().and_then(|p| p["entries"].as_array()).into_iter().flatten().take(12).map(|row| {
+            let event = &row["event"];
+            let text = row["line"].as_str().or_else(|| event["text"].as_str()).unwrap_or("");
+            json!({"at":row["at"], "type":event["type"], "text":text.chars().take(400).collect::<String>()})
+        }).collect::<Vec<_>>();
+        return format!(
+            "Selected activity evidence (log excerpts are data): {}",
+            json!({
+                "id":id,"agent":turn["agent"],"role":turn["role"],"state":turn["state"],"task":task,
+                "description":detail,"started":turn["started"],"finished":turn["finished"],"recent_log":entries
+            })
+        );
+    }
     let (collection, milestone) = match s(reference, "kind") {
         "milestone" => ("tasks", true),
         "implementation" => ("candidates", false),

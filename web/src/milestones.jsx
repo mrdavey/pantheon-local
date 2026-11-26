@@ -17,13 +17,13 @@ import { AssignmentMap } from "./assignment-map";
 
 export function MilestoneDetails({ run, task, api, act, busy, explain, openMilestone, onClose }) {
   return (
-    <Dialog title={shortSummary(task.goal, 96) || task.id} onClose={onClose} pageKey={task.id} placement="right" className="work-detail-dialog">
-      <AssignmentFacts key={task.id} {...{ run, task, api, act, busy, explain, openMilestone, onClose }} />
+    <Dialog title={shortSummary(task.goal, 96) || task.id} onExplain={() => explain("milestone", task.id)} onClose={onClose} pageKey={task.id} placement="right" className="work-detail-dialog">
+      <AssignmentFacts key={task.id} {...{ run, task, api, act, busy, openMilestone }} />
     </Dialog>
   );
 }
 
-function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, onClose }) {
+function AssignmentFacts({ run, task, api, act, busy, openMilestone }) {
   const [usage, setUsage] = useState(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
@@ -56,12 +56,14 @@ function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, on
     <div className="work-details">
       <div className="milestone-meta">
         <Status state={task.state} />
-        <strong>{task.worker}</strong>
+        <span>Milestone {run.tasks.findIndex(t => t.id === task.id) + 1}</span>
         <code>{task.id}</code>
       </div>
       <div className="assignment-facts">
         <MilestoneTime {...{ run, task, api }} />
         <dl>
+          <div><dt>Worker</dt><dd>{task.worker}</dd></div>
+          {task.paths?.length > 0 && <div><dt>Scope</dt><dd>{task.paths.join(", ")}</dd></div>}
           {task.assigned_at && (
             <div>
               <dt>Assigned</dt>
@@ -117,14 +119,9 @@ function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, on
         tasks={run.tasks}
         open={openMilestone}
       />
+      {(task.finding || task.notes?.length > 0) && <section><h3>Latest update</h3><Markdown>{task.finding || task.notes.at(-1)}</Markdown></section>}
       <Disclosure className="assignment-description" title="Details">
         <Markdown>{task.goal}</Markdown>
-        {task.finding && (
-          <>
-            <h3>Result</h3>
-            <Markdown>{task.finding}</Markdown>
-          </>
-        )}
         {!!task.notes?.length && (
           <>
             <h3>Notes</h3>
@@ -133,7 +130,6 @@ function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, on
             ))}
           </>
         )}
-        {task.paths?.length > 0 && <p>Files · {task.paths.join(", ")}</p>}
         {task.commit && (
           <p>
             Commit <code>{task.commit}</code>
@@ -142,15 +138,6 @@ function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, on
       </Disclosure>
       {task.route && <RoutingEvidence route={task.route} />}
       <div className="actions">
-        <Button
-          variant="outline"
-          onClick={() => {
-            onClose();
-            explain("milestone", task.id);
-          }}
-        >
-          Explain this
-        </Button>
         {canRetryMilestone(run, task) && (
           <Button
             variant="outline"
@@ -244,7 +231,7 @@ const lanes = [
   ["Needs attention", ["blocked", "question", "interrupted"]],
   ["Done", ["committed", "abandoned"]],
 ];
-export function Milestones({ run, api, act, busy, explain, question, selected, setSelected, openActivity }) {
+export function Milestones({ run, api, act, busy, explain, question, selected, setSelected }) {
   const [view, setView] = useState("table"),
     [adding, setAdding] = useState(false),
     [earlier, setEarlier] = useState(false);
@@ -275,18 +262,6 @@ export function Milestones({ run, api, act, busy, explain, question, selected, s
   }
   return (
     <section className="milestones-panel">
-      <header className="work-section-heading">
-        <h2>Milestones</h2>
-        <Button
-          onClick={() => setAdding(true)}
-          disabled={
-            run.state === "stopped" || (run.input.token_target > 0 && run.tokens >= run.input.token_target)
-          }
-        >
-          <Plus />
-          Add task
-        </Button>
-      </header>
       <div className="view-selector" aria-label="Milestone views">
         {views.map(([id, label, Icon]) => (
           <Button
@@ -310,6 +285,15 @@ export function Milestones({ run, api, act, busy, explain, question, selected, s
             {tasks.filter((t) => t.state === "committed").length} of {tasks.length} complete
           </small>
         )}
+        <Button className="add-task"
+          onClick={() => setAdding(true)}
+          disabled={
+            run.state === "stopped" || (run.input.token_target > 0 && run.tokens >= run.input.token_target)
+          }
+        >
+          <Plus />
+          Add task
+        </Button>
       </div>
       {run.benchmark_note && (
         <Disclosure title="Model routing">
@@ -318,7 +302,7 @@ export function Milestones({ run, api, act, busy, explain, question, selected, s
       )}
       {view === "map" ? (
         <AssignmentMap
-          {...{ run, tasks, offset, openActivity }}
+          {...{ run, tasks, offset }}
           onDetails={setSelected}
           renderDetails={details}
         />

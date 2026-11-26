@@ -170,9 +170,9 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
   const lastView = useRef(view);
   const [selectedTask,setSelectedTask] = useState(null);
-  const [activityTurn,setActivityTurn] = useState(null);
+  const [activityScope,setActivityScope] = useState("");
   const openMilestone = id => { setTab("work"); setSelectedTask(id); };
-  const openActivity = row => { setActivityTurn(row); setTab("activity"); };
+  const openActivity = (scope = "") => { setActivityScope(scope); setTab("activity"); };
   const expandChat = () => { if (view !== "chat") lastView.current = view; setTab("chat"); };
   const [chatRequest, setChatRequest] = useState(null);
   const explain = (kind, id) => {
@@ -209,12 +209,12 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     <div className="run-body">
     <nav className="run-tabs" aria-label="Run views">
       <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}><ListTree/>Milestones</Button>
-      <Button variant="outline" aria-pressed={view === "activity"} onClick={() => openActivity(null)}><Activity/>Activity Log</Button>
+      <Button variant="outline" aria-pressed={view === "activity"} onClick={() => openActivity()}><Activity/>Activity Log</Button>
       <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}><ChartNoAxesCombined/>Metrics</Button>
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
       <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}><MessageSquare/>Coordinator chat</Button>
     </nav>
-    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} expanded={view === "chat"} onExpand={expandChat} onDock={() => setTab(lastView.current)} />
+    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} onExpand={expandChat} onDock={() => setTab(lastView.current)} />
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
@@ -234,11 +234,11 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
     </div>}
     </div>
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
-    {view === "activity" && <ActivityLog initialTurn={activityTurn} {...{run,api}} />}
+    {view === "activity" && <ActivityLog key={activityScope} initialScope={activityScope} {...{run,api,explain}} />}
     {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
-      <Milestones selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain,openActivity}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
+      <Milestones selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
       {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
         {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
           <Button variant="outline" className="text-button" onClick={showExperiment}>Compare in Experiment</Button></header>}

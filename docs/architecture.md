@@ -10,6 +10,8 @@ The dock and Coordinator chat tab share one conversation and composer. The chat 
 
 The activity viewer reads up to 25 messages in reverse append order from `GET /api/runs/{id}/turns/{turn}/log`. The response includes `entries`, the snapshot's `end` offset and an optional `older` cursor. Passing an offset as `before` revisits a stable page while output grows. Live polling sends the previous `end` as `known` to skip rereading unchanged output. The supervisor timestamps agent events as they are recorded. For external command output it records the observation time of each appended byte range in `output.times` at 250 ms intervals and on exit. Older data uses a native event timestamp when available.
 
+A chat command can reference one milestone (`task`), implementation (`candidate`), or activity (`turn`) from the same run. For an activity, the daemon resolves the turn ID and sends its role, agent, status, timing, and up to 12 recent log excerpts to the coordinator. The Activity Log’s coordinator filter includes planning, review, repair, pricing, and conversation turns even when a worker shares the coordinator’s profile.
+
 ## Process and Git lifetimes
 
 Each model turn or check has a durable job directory. Its supervisor owns the process group and writes a final result to disk. After a restart, the daemon consumes each completed result once or records an uncertain outcome. Pausing cancels active process groups. Resuming reuses saved sessions where available.
@@ -19,6 +21,8 @@ The scheduler restores active runs from SQLite. It starts every ready milestone 
 Each alternative gets a separate candidate. Conflict repairs must preserve both histories and cleanly merged files. A worker combining approaches gets Git refs for its donors. The service pins each candidate before testing it. Landing requires a local fast-forward and a clean target checkout. A moved target requires fresh checks. If the target is unavailable during landing, the scheduler records the error once and checks again. After an interrupted landing it verifies the branch before recording success or returning the decision to you.
 
 ## Native adapters
+
+For setup, contribution steps and fixture coverage, see [Add an agent adapter](agent-adapters.md).
 
 The adapter accepts a role, working directory, prompt, optionally an existing session ID, and a user-configured profile. It returns session and activity events plus a final response. The native harness retains its own account, plugins, tools and skill discovery. Pantheon also lists portable SKILL.md files from the assigned directory, checkout root and ~/.agents/skills in the turn context. A project skill takes precedence over a global skill of the same name. The harness reads the files on demand with its existing permissions. Hermes Desktop profiles use the local Hermes runtime over ACP. Pantheon Local passes the profile and assigned checkout to separate sessions for coordinator and worker turns. Hermes workers use the native Accept Edits mode when advertised. Pantheon declines additional permission requests. The adapter reads the final worker receipt after a text summary and folds identical replays. It retains native edit warnings on commit handoffs. The service verifies the commit in Git. Coordinator and worker outcomes are parsed as typed JSON. A worker session that ends with an unreadable receipt gets up to two follow-ups in the same checkout. An explicit blocker is shown immediately. When you switch coordinators, a generation number ensures only the active coordinator can update the run.
 

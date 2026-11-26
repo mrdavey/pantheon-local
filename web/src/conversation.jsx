@@ -1,4 +1,4 @@
-import { Card } from "./components/ui/card";
+import { ChevronRight } from "lucide-react";
 import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
 import { MilestoneLinks } from "./milestone-links";
@@ -60,6 +60,11 @@ export function Proposal({ message, run, act, busy, onDecision, openMilestone })
 }
 
 function referenceLabel(run, reference) {
+  if (reference.kind === "activity") {
+    const turn = run.turns?.find(t => t.id === reference.id);
+    const item = turn?.role === "chat" ? run.conversation?.find(m => m.id === turn.task)?.text : run.tasks?.find(t => t.id === turn?.task)?.goal;
+    return shortSummary(item || turn?.role || reference.id, 60);
+  }
   const item = (reference.kind === "milestone" ? run.tasks : run.candidates)?.find((row) => row.id === reference.id);
   return shortSummary(item?.goal || item?.name || reference.id, 60);
 }
@@ -85,7 +90,7 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
   const panelId = useId();
   const titleId = useId();
   const [dockOpen, setOpen] = useState(true);
@@ -131,8 +136,8 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
     explained.current = reference.key;
     setSending(true);
     setSendError(false);
-    const key = reference.kind === "milestone" ? "task" : "candidate";
-    const ok = await act({ kind: "chat", text: `Explain this ${reference.kind}.`, [key]: reference.id });
+    const key = ({milestone:"task",implementation:"candidate",activity:"turn"})[reference.kind];
+    const ok = await act({ kind: "chat", id:reference.key, text: `Explain this ${reference.kind}.`, [key]: reference.id });
     setSending(false);
     if (ok) setAttachment((current) => current?.key === reference.key ? null : current);
     else setSendError(true);
@@ -209,16 +214,16 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
       aria-haspopup="dialog" hidden={open} onClick={() => { activated.current = true; setOpen(true); }}>
       <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
     </Button>
-    <div id={panelId}>{open && <Card asChild><section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
+    <div id={panelId}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
-      <header className="chat-header"><div><h2 id={titleId}>Coordinator chat</h2>
+      <header className="chat-header"><div><h2 id={titleId} className={expanded ? "visually-hidden" : undefined}>Coordinator chat</h2>
         <span>{run.input.coordinator}</span></div>
         <div className="chat-window-actions">{!expanded && <Button variant="ghost" size="icon" aria-label="Full screen coordinator chat" title="Full screen" onClick={() => {activated.current=true; onExpand();}}><Maximize2/></Button>}
         <Button variant="ghost" ref={minimize} type="button" title={expanded ? "Return to dock" : "Minimize chat"} aria-label={expanded ? "Return to dock" : "Minimize chat"} onClick={close}>{expanded ? <Minimize2/> : <ChatIcon minimize />}</Button></div>
       </header>
-      <div className="coordinator-status" role="status">{coordinatorStatus(run)}</div>
+      <Button variant="ghost" className="coordinator-status" aria-label={"View coordinator activity: " + coordinatorStatus(run)} onClick={() => {setOpen(false); onCoordinatorActivity();}}>{coordinatorStatus(run)} <ChevronRight aria-hidden="true"/></Button>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
         onScroll={trackPosition}>
         {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
@@ -267,7 +272,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
           <Button variant="outline" type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</Button>
         </div>
       </form>
-    </section></Card>}</div>
+    </section>}</div>
   </div>;
 }
 

@@ -216,6 +216,15 @@ fn main() -> Result<()> {
             );
             json!({"reply":"The live answer is complete."})
         }
+        "chat" if prompt.ends_with("Explain this activity.") => {
+            ensure!(
+                prompt.contains("Selected activity evidence")
+                    && prompt.contains("recent_log")
+                    && prompt.contains("\"role\":\"plan\""),
+                "missing activity context"
+            );
+            json!({"reply":"This activity created the run plan."})
+        }
         "chat" if prompt.ends_with("Explain this milestone.") => {
             ensure!(
                 prompt.contains("Selected milestone evidence")

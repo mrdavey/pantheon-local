@@ -1,10 +1,10 @@
 .new-run-form { max-width: 52rem; display: grid; gap: 1.4rem; }
 .goal-composer { min-width: 0; display: grid; gap: .75rem; padding: clamp(1rem, 2.5vw, 1.5rem); border: 1px solid var(--input-line); border-radius: 1.1rem; background: var(--paper); }
-.goal-composer:focus-within { border-color: var(--clay); }
+.goal-composer:focus-within { border-color: var(--input-line); }
 .goal-composer.dragging { outline: 3px dashed var(--clay); outline-offset: 3px; background: var(--clay-wash); }
 .goal-composer > label { font-size: 1.1rem; }
 .goal-composer > textarea { width: 100%; min-height: 7rem; padding: .45rem .15rem; border: 0; border-radius: .2rem; background: transparent; resize: vertical; }
-.goal-composer > textarea:focus-visible { outline-offset: 3px; }
+
 .composer-tools, .brief-files, .run-preferences { display: flex; gap: .65rem .9rem; flex-wrap: wrap; align-items: center; }
 .composer-tools { border-top: 1px solid var(--line); padding-top: .9rem; }
 .attach-button { display: inline-flex; gap: .4rem; align-items: center; }

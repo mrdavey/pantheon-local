@@ -159,6 +159,9 @@ fn color_and_keyboard(h: &Harness) -> Result<()> {
         "setup navigation not active"
     );
     ensure!(h.b.eval("return document.documentElement.dataset.appearance", vec![])? == "dark");
+    if !h.mobile {
+        ensure!(h.b.eval("const centers = ['.local-indicator','.appearance select','.new-run-action'].map(s => {const r=document.querySelector(s).getBoundingClientRect();return r.y+r.height/2}); return Math.max(...centers)-Math.min(...centers) <= 1",vec![])? == true, "header controls have different centerlines");
+    }
     h.b.label("Appearance").select("system")?;
     for scheme in ["dark", "light"] {
         h.b.cdp("Emulation.setEmulatedMedia",json!({"features":[{"name":"prefers-color-scheme","value":scheme},{"name":"prefers-reduced-motion","value":"reduce"}]}))?;
@@ -295,6 +298,7 @@ fn export(h: &Harness) -> Result<()> {
     b.role("heading", "Your configured agents").visible()?;
     h.click("Set up new agent")?;
     b.text("Sign in required").visible()?;
+    ensure!(b.role("link","Request new agent integration ↗").attr("href")?.as_str().is_some_and(|url|url.contains("github.com/mrdavey/pantheon-local/compare/main?quick_pull=1&template=agent_adapter.md")));
     b.role("link", "Install Claude Code").visible()?;
     fs::write(h.dir.path().join("signed-in"), "")?;
     h.click("Check again")?;
@@ -539,6 +543,7 @@ fn compare(h: &Harness) -> Result<()> {
     h.click("Milestones")?;
     valid_commit(b)?;
     h.click("Experiment")?;
+    h.click("Evaluation tools")?;
     b.text("Eval suite").click()?;
     b.text("latency must be at most 5 ms").visible()?;
     h.click("Close dialog")?;
@@ -566,6 +571,7 @@ fn compare(h: &Harness) -> Result<()> {
     h.button("Reload case results").absent()?;
     b.role("combobox", "Show").select("Regressions")?;
     b.text("No regressions in the loaded results.").visible()?;
+    h.click("Give feedback")?;
     b.label("Feedback for the coordinator")
         .fill("Exact title lookup should survive.")?;
     h.click("Send feedback")?;
@@ -583,6 +589,7 @@ fn compare(h: &Harness) -> Result<()> {
     b.text("No open questions or blockers in your inbox.")
         .visible()?;
     h.run_button("Measure approaches").click()?;
+    h.click("Evaluation tools")?;
     b.text("Project eval cases").click()?;
     b.text("Exact title lookup should survive.").visible()?;
     h.click("Close dialog")?;
@@ -720,7 +727,8 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
             .attr("datetime")?;
     h.click("Close dialog")?;
     h.click("Map")?;
-    h.click("Details for recover-export")?;
+    h.b.xpath("//button[contains(@class,'map-select')]")
+        .click()?;
     ensure!(
         h.b.xpath("//time[@aria-label='Completed in']")
             .attr("datetime")?
@@ -803,7 +811,7 @@ fn turn_activity(h: &Harness) -> Result<()> {
     );
     h.click("Activity Log")?;
     h.proxy.inject(Once::LogFailure);
-    h.click("View log for Planning")?;
+    h.b.label("View log for Create the run plan").click()?;
     h.click("Try again")?;
     let log_file = log;
     let log = h.b.label("Turn log");
@@ -843,12 +851,12 @@ fn turn_activity(h: &Harness) -> Result<()> {
     first.contains("src/main.rs")?;
     h.no_overflow()?;
     h.click("Close dialog")?;
-    h.button("View log for Planning").focused()?;
+    h.b.label("View log for Create the run plan").focused()?;
     fs::write(log_file, "")?;
-    h.click("View log for Planning")?;
+    h.b.label("View log for Create the run plan").click()?;
     log.contains("This turn has no log output yet.")?;
     h.click("Close dialog")?;
-    h.button("View log for Planning").focused()
+    h.b.label("View log for Create the run plan").focused()
 }
 scenario!(desktop_turn_activity, mobile_turn_activity, turn_activity);
 fn live_turn_log(h: &Harness) -> Result<()> {
@@ -861,7 +869,7 @@ fn live_turn_log(h: &Harness) -> Result<()> {
     h.svc
         .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
     h.click("Activity Log")?;
-    h.click("View log for Conversation · Stream this answer")?;
+    h.b.label("View log for Stream this answer").click()?;
     let log = h.b.label("Turn log");
     log.contains("The live answer")?;
     let saved = h.svc.get(&path)?;
@@ -1030,7 +1038,7 @@ fn explain_context(h: &Harness) -> Result<()> {
     h.click("Minimize chat")?;
     h.click("Map")?;
     h.click("Full screen")?;
-    h.click("Details for export")?;
+    b.xpath("//button[contains(@class,'map-select')]").click()?;
     h.click("Explain this")?;
     b.role("log", "Coordinator conversation")
         .contains("This milestone writes the open quotes export.")?;
@@ -1247,11 +1255,13 @@ fn assignment_map(h: &Harness) -> Result<()> {
     h.run_button(goal).click()?;
     let b = &h.b;
     b.text("Waiting for check approval").visible()?;
+    let bounds = b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?;
+    h.click("Minimize chat")?;
+    ensure!(bounds == b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?);
     b.text("Install locked dependencies").click()?;
     b.xpath("//*[@data-slot='collapsible'][@data-state='open']//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
         .visible()?;
     b.text("Install locked dependencies").click()?;
-    h.click("Minimize chat")?;
     for column in ["Owner", "Status", "Milestone", "Completed"] {
         let head = b.xpath(&format!(
             "//table[@aria-label='Milestones']//th[button[contains(.,'{column}')]]"
@@ -1278,11 +1288,11 @@ fn assignment_map(h: &Harness) -> Result<()> {
                 }
         );
         if column == "Milestone" {
-            ensure!(b.eval("return document.querySelector('.milestone-table tbody [data-task]').dataset.task",vec![])?=="ui");
+            ensure!(b.eval("return Array.from(document.querySelectorAll('.milestone-table tbody [data-task]'), e=>e.dataset.task).join(',')",vec![])?=="ui,api,foundation");
         }
     }
     b.xpath("//tr[td/button[@data-task='api']]/td[2]").click()?;
-    b.role("dialog", "Implement persistence.").visible()?;
+    b.role("dialog", "Add persistence.").visible()?;
     h.click("Open milestone foundation")?;
     b.role("dialog", "Create a project explanation.")
         .visible()?;
@@ -1291,9 +1301,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
     b.key("\u{e00c}")?;
     b.xpath("//button[@data-task='api']").focused()?;
     h.click("Map")?;
-    h.click("View coordinator activity")?;
-    b.role("heading", "Coordinator activity").visible()?;
-    h.click("Close dialog")?;
+    b.label("Selected milestone").absent()?;
     let view = b.label("Assignment map, scroll to pan");
     view.visible()?;
     ensure!(
@@ -1332,7 +1340,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
             vec![]
         )? == true
     );
-    h.click("Details for ui")?;
+    b.role("dialog", "Implement the interface.").visible()?;
     b.xpath("//*[@role='dialog']//button[@aria-label='Open milestone foundation']")
         .visible()?;
     h.button("Explain this").visible()?;
@@ -1345,9 +1353,16 @@ fn assignment_map(h: &Harness) -> Result<()> {
             "map-desktop.png"
         }))?;
     }
-    b.xpath("//table[@aria-label='Recent run activity']/tbody/tr[1]/td[3]")
-        .click()?;
-    b.role("dialog", "Planning").visible()?;
+    b.label("Recent run activity").absent()?;
+    h.click("Coordinator chat")?;
+    h.click("View coordinator activity: Waiting for check approval")?;
+    b.label("Activity type").value("coordinator")?;
+    b.label("View log for Create the run plan").focus()?;
+    b.key("\u{e007}")?;
+    b.role("dialog", "Create the run plan").visible()?;
+    h.click("Explain this")?;
+    b.role("log", "Coordinator conversation")
+        .contains("This activity created the run plan.")?;
     h.no_overflow()
 }
 scenario!(

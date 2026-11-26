@@ -24,14 +24,13 @@ export function ImplementationDetails({ candidate, run, rule, decision, onClose,
   const description = candidate?.name;
   const showDescription = description && description !== name && description !== candidate.tasks?.join(" · ") &&
     !tasks.some(task => task.goal === description);
-  return <Dialog title={decision ? "Decision details" : "Implementation details"} placement="right" className="work-detail-dialog" onClose={onClose}>
+  return <Dialog title={decision ? "Decision details" : "Implementation details"} placement="right" className="work-detail-dialog" onClose={onClose} onExplain={candidate ? () => explain("implementation", candidate.id) : undefined}>
     <div className="work-details">
       <section><h3>{name}</h3><div className="milestone-meta">
         {candidate && <Badge asChild variant="outline"><span className={`state ${candidate.state}`}>{candidate.state}</span></Badge>}
         {decision?.state && <span>{decision.state}</span>}
         {candidate?.commit && <code title={candidate.commit}>{candidate.commit.slice(0, 10)}</code>}
       </div>
-        {candidate && <Button variant="outline" className="text-button explain-context" onClick={() => { onClose(); explain("implementation", candidate.id); }}>Explain this</Button>}
       </section>
       {decision?.reason && <section><h3>Why this decision?</h3><Markdown>{decision.reason}</Markdown></section>}
       {showDescription && <section><h3>Description</h3><Markdown>{description}</Markdown></section>}

@@ -4,14 +4,11 @@ import {
   Clock3,
   CircleAlert,
   LoaderCircle,
-  ArrowUpRight,
   Focus,
   Minus,
   Plus,
-  Workflow,
   Bot,
   Maximize2,
-  Info,
   Layers,
   Code2,
   Sparkles,
@@ -19,13 +16,9 @@ import {
   Terminal,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
-import { Table, TableBody, TableRow, TableCell, TableHeader, TableHead } from "./components/ui/table";
-import { MilestoneLinks } from "./milestone-links";
-import { activityRoles } from "./activity-log";
 import { shortSummary } from "./run-summary";
 import { Card } from "./components/ui/card";
 import { Dialog } from "./dialog";
-import { Status, coordinatorStatus } from "./status";
 
 const stride = 292;
 const rowHeight = 116;
@@ -118,79 +111,11 @@ function NodeState({ state }) {
   );
 }
 
-function RecentActivity({ run, openActivity }) {
-  return (
-    <section className="map-activity">
-      <header>
-        <h3>Recent activity</h3>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => openActivity(null)}
-          aria-label="Open full activity log"
-        >
-          Activity Log
-          <ArrowUpRight />
-        </Button>
-      </header>
-      <Table aria-label="Recent run activity">
-        <TableHeader>
-          <TableRow>
-            {["Time", "Activity", "Status", "Agent"].map((label) => (
-              <TableHead key={label}>{label}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {run.turns
-            .slice(-4)
-            .reverse()
-            .map((turn) => {
-              const task = run.tasks.find((t) => t.id === turn.task);
-              const detail = task ? shortSummary(task.goal, 70) : activityRoles[turn.role] || turn.role;
-              function open() {
-                openActivity({ ...turn, detail: task?.goal || "" });
-              }
-              return (
-                <TableRow
-                  key={turn.id}
-                  className="open-row"
-                  onClick={(e) => {
-                    if (!e.target.closest("button")) open();
-                  }}
-                >
-                  <TableCell>
-                    {turn.started
-                      ? new Date(turn.started).toLocaleTimeString(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" onClick={open}>
-                      {detail}
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <Status state={turn.state} />
-                  </TableCell>
-                  <TableCell>{turn.agent || task?.worker || "—"}</TableCell>
-                </TableRow>
-              );
-            })}
-        </TableBody>
-      </Table>
-    </section>
-  );
-}
-
-export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, openActivity }) {
+export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) {
   const [zoom, setZoom] = useState(1),
     [selected, select] = useState(null);
   const [agent, setAgent] = useState(""),
     [expanded, setExpanded] = useState(false);
-  const [coordinator, setCoordinator] = useState(false);
   const viewport = useRef(null),
     drag = useRef(null),
     expandButton = useRef(null);
@@ -201,11 +126,11 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, op
   const graph = useMemo(() => layout(tasks, workers), [tasks, workers]);
   const highlighted = useMemo(() => chain(graph.edges, selected), [graph, selected]);
   const faded = (t) => (highlighted ? !highlighted.has(t.id) : !!agent && t.worker !== agent);
-  const inspected = tasks.find((t) => t.id === selected);
   const shade = (worker) => (156 + workers.indexOf(worker) * 137.5) % 360;
   function focusTask(id) {
     setAgent("");
-    select(selected === id ? null : id);
+    select(id);
+    onDetails(id);
   }
   function fit() {
     const el = viewport.current;
@@ -219,12 +144,8 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, op
     el.setPointerCapture(event.pointerId);
   }
   const map = (
-    <Card className="assignment-map">
+    <section className="assignment-map" aria-label="Agent map">
       <header>
-        <div>
-          <Workflow aria-hidden="true" />
-          <h2>Agent map</h2>
-        </div>
         <div className="map-tools">
           <Button
             variant="outline"
@@ -257,16 +178,6 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, op
           </Button>
         </div>
       </header>
-      <Button
-        variant="ghost"
-        className="map-coordinator"
-        aria-label="View coordinator activity"
-        onClick={() => setCoordinator(true)}
-      >
-        <Workflow />
-        <strong>{run.input.coordinator}</strong>
-        <span>{coordinatorStatus(run)}</span>
-      </Button>
       <div className="map-filter" role="group" aria-label="Filter assignments">
         <strong>Filter</strong>
         <Button
@@ -361,7 +272,7 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, op
                     <Button
                       variant="ghost"
                       className="map-select"
-                      title="Highlight dependency chain"
+                      aria-haspopup="dialog"
                       aria-pressed={selected === task.id}
                       aria-label={`Milestone ${offset + order + 1}: ${task.goal}`}
                       onClick={() => focusTask(task.id)}
@@ -371,73 +282,16 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, op
                       <strong>{shortSummary(task.goal, 70)}</strong>
                       <span className="node-owner">{task.worker}</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="map-info"
-                      aria-label={`Details for ${task.id}`}
-                      title="Assignment details"
-                      onClick={() => onDetails(task.id)}
-                    >
-                      <Info />
-                    </Button>
+
                   </div>
                 </Card>
               ))}
             </div>
           </div>
         </div>
-        {inspected && (
-          <Card asChild>
-            <aside className="map-inspector" aria-label="Selected milestone">
-              <small>Milestone {String(tasks.indexOf(inspected) + offset + 1).padStart(2, "0")}</small>
-              <h3>{shortSummary(inspected.goal, 90)}</h3>
-              <Status state={inspected.state} />
-              <dl>
-                <div>
-                  <dt>Worker</dt>
-                  <dd>{inspected.worker}</dd>
-                </div>
-                {inspected.paths?.length > 0 && (
-                  <div>
-                    <dt>Scope</dt>
-                    <dd>{inspected.paths.join(", ")}</dd>
-                  </div>
-                )}
-              </dl>
-              <MilestoneLinks ids={inspected.depends} tasks={run.tasks} open={onDetails} />
-              {(inspected.finding || inspected.notes?.length > 0) && (
-                <div className="inspector-note">
-                  <strong>Latest update</strong>
-                  <p>{shortSummary(inspected.finding || inspected.notes.at(-1), 220)}</p>
-                </div>
-              )}
-              <Button size="sm" variant="outline" onClick={() => onDetails(inspected.id)}>
-                Assignment details
-                <ArrowUpRight />
-              </Button>
-            </aside>
-          </Card>
-        )}
       </div>
-      {!expanded && run.turns?.length > 0 && <RecentActivity {...{ run, openActivity }} />}
       {renderDetails(() => setExpanded(false))}
-      {coordinator && (
-        <Dialog title="Coordinator activity" onClose={() => setCoordinator(false)}>
-          <p>{coordinatorStatus(run)}</p>
-          <ol className="turn-history">
-            {(run.turns || [])
-              .filter((t) => ["plan", "observe", "repair", "chat", "pricing"].includes(t.role))
-              .map((t) => (
-                <li key={t.id}>
-                  {t.role} · {t.agent || run.input.coordinator}
-                  <Status state={t.state} />
-                </li>
-              ))}
-          </ol>
-        </Dialog>
-      )}
-    </Card>
+    </section>
   );
   return expanded ? (
     <Dialog

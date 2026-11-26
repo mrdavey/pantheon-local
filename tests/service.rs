@@ -496,7 +496,9 @@ fn foreground_launcher_keeps_the_link_and_updates_on_screen() -> Result<()> {
         );
         thread::sleep(Duration::from_millis(30));
     }
-    let exit_text = fs::read_to_string(&transcript)?;
+    // A nonblocking animation frame can end midway through a glyph under backpressure.
+    let bytes = fs::read(&transcript)?;
+    let exit_text = String::from_utf8_lossy(&bytes);
     let after_screen = exit_text
         .rsplit_once("\x1b[?1049l")
         .context("alternate screen not restored")?
