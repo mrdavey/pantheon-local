@@ -1,5 +1,4 @@
 import { Card } from "./components/ui/card";
-import { Disclosure } from "./disclosure";
 import { Alert } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -8,13 +7,14 @@ import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider, runStatus, statusLabel } from "./status.jsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { WorkbenchHeader, RunFooter } from "./workbench-shell";
-import { ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PackageCheck, ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { changeRoute, useRoute, destination } from "./navigation";
 import { RunsIndex } from "./runs-index";
 import { ActivityLog } from "./activity-log";
 import { Milestones } from "./milestones";
 import { Metrics } from "./metrics";
-import { ImplementationDetails, implementationLabel } from "./implementation.jsx";
+import { ImplementationFiles } from "./implementation-files";
+import { implementationLabel, ImplementationLink } from "./implementation.jsx";
 import { Dialog } from "./dialog.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { RunSettings } from "./run-settings.jsx";
@@ -119,16 +119,18 @@ function Evidence({ path, kind, name, refreshable }) {
   </>;
 }
 
-function Candidate({ route, run, candidate, act, perform, busy, name, explain }) {
-  const [preview, setPreview] = useState("");
+function Candidate({ route, run, candidate, act, busy, name, explain, openMilestone }) {
   const evalTurn = (run.turns || []).findLast((turn) => turn.role === "eval" && (turn.task === candidate.id || turn.id === candidate.evidence));
-  const panel = route.tab === "milestones" && route.candidate === candidate.id ? route.detail : "";
-  const show = detail => changeRoute({candidate:detail ? candidate.id : null, detail});
+  const panel = route.tab === "implementations" && route.candidate === candidate.id ? route.detail : "";
+  const show = detail => changeRoute({candidate:detail ? candidate.id : null, detail, file:null});
   const [target, setTarget] = useState("");
   const needsSelection = !!run.input.recipe.rubric && run.selection?.candidate !== candidate.id;
   const canLand = !candidate.baseline && candidate.eligible !== false && (candidate.policy || 0) === (run.policy || 0) &&
     (candidate.round || 0) === (run.round || 0) && candidate.state === "passed" && run.state === "review";
-  const previewCommand = candidate.round ? candidate.preview : run.input.recipe.preview;
+  const tasks = (candidate.tasks || []).map(id => run.tasks?.find(t => t.id === id)).filter(Boolean);
+  const terminalTasks = tasks.filter(t => !tasks.some(next => next.depends?.includes(t.id)));
+  const finalTask = tasks.find(t => t.commit === candidate.commit) ||
+    terminalTasks.sort((a,b) => (a.completed_at || 0) - (b.completed_at || 0)).at(-1);
   const blocked = (run.inbox || []).some((q) => q.state === "open" && q.blocking &&
     (!q.tasks?.length || q.tasks.some((task) => candidate.tasks?.includes(task))));
   const evidence = panel === "diff" && candidate.commit ? {kind:"diff", path:"/runs/" + run.id + "/diff/" + candidate.id} :
@@ -156,28 +158,33 @@ function Candidate({ route, run, candidate, act, perform, busy, name, explain })
     <div className="actions result-tools">
       {candidate.commit && <Button variant="outline" disabled={busy} onClick={() => show("diff")}>View diff</Button>}
       {evalTurn && <Button variant="outline" disabled={busy} onClick={() => show("checks")}>View checks</Button>}
-      {candidate.commit && <Button variant="outline" disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", { candidate: candidate.id }), "Opening folder…")}>Open output folder</Button>}
-      {candidate.commit && previewCommand?.length > 0 && !preview && <Button variant="outline" disabled={busy || candidate.state === "evaluating"} onClick={() => perform(async () => setPreview((await api("/runs/" + run.id + "/preview/" + candidate.id, {})).url), "Starting preview…")}>Start preview</Button>}
-      <Button variant="outline" onClick={() => show("details")}>View details</Button>
-      {preview && <a href={preview} target="_blank" rel="noreferrer">Open preview ↗</a>}
+      {finalTask && <Button variant="outline" onClick={() => openMilestone(finalTask.id)}>View final milestone</Button>}
+      <Button onClick={() => show("files")}>View details</Button>
     </div>
-    {panel === "details" && <ImplementationDetails {...{ run, candidate, explain }} onClose={() => show(null)} />}
+    {panel === "files" && <ImplementationFiles {...{api,run,candidate,explain}} path={route.file} onClose={() => show(null)} />}
     {evidence && <Dialog title={evidence.kind === "diff" ? "File changes" : "Acceptance checks"} className="evidence-dialog" onClose={() => show(null)}>
       <Evidence {...evidence} name="Acceptance checks" refreshable={evidence.kind === "checks" && evalTurn?.state === "running"} />
     </Dialog>}
   </article></Card>;
 }
 
+function successful(run) {
+  const available = new Set(run.implementation_ids);
+  return (run.candidates || []).filter(c => available.has(c.id));
+}
 function defaultTab(run) {
+  if (successful(run).length) return "implementations";
   return run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "milestones";
 }
 
 function RunView({ run, send, perform, busy, openRun, openInbox, settings, route }) {
   const tabs = {milestones:"work",chat:"chat",activity:"activity",metrics:"metrics",experiment:"experiment"};
+  const implementations = successful(run);
+  if (implementations.length) tabs.implementations = "implementations";
   const fallback = tabs[defaultTab(run)];
   useEffect(() => {
     if (!Object.hasOwn(tabs, route.tab)) changeRoute({tab: defaultTab(run)}, {replace:true});
-  }, [run.id, route.tab]);
+  }, [run.id, route.tab, implementations.length]);
   const view = Object.hasOwn(tabs, route.tab) ? tabs[route.tab] : fallback;
   const setTab = (next, extra = {}) => changeRoute({...destination(run.id), tab: next === "work" ? "milestones" : next, ...extra}, {reset:true});
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
@@ -195,11 +202,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
   const questions = (run.inbox || []).filter((q) => q.state === "open" && (q.source !== "plan" || run.state !== "question"));
   const landed = run.state === "landed" && run.detail;
   const showExperiment = () => { setExperimentOpened(true); setTab("experiment"); };
-  const candidates = (run.candidates || []).filter(c => (c.round || 1) === (run.round || 1));
-  const activeCandidates = candidates.filter(c => (c.policy || 0) === (run.policy || 0) && c.state !== "superseded");
-  const superseded = candidates.filter(c => c.state === "superseded");
-  const renderCandidate = (candidate) => <Candidate key={candidate.id} name={activeCandidates.length === 1 && candidate === activeCandidates[0] ? "" : implementationLabel(candidate)}
-    {...{ route, candidate, run, act, perform, busy, explain }} />;
+  const landedBuild = implementations.find(c => c.id === run.selection?.candidate) || implementations.find(c => c.commit === run.detail);
   const projectPath = runProjectPath(run);
   return <section className="panel run-workspace">
     <header className="run-heading">
@@ -213,6 +216,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     </header>
     <div className="run-body">
     <nav className="run-tabs" aria-label="Run views">
+      {implementations.length > 0 && <Button variant="outline" aria-pressed={view === "implementations"} onClick={() => setTab("implementations")}><PackageCheck/>Implementations</Button>}
       <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}><ListTree/>Milestones</Button>
       <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}><MessageSquare/>Coordinator chat</Button>
       <Button variant="outline" aria-pressed={view === "activity"} onClick={() => openActivity()}><Activity/>Activity Log</Button>
@@ -220,12 +224,13 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
     </nav>
     <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
-    <div hidden={view !== "work"}>
-    {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
-    {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
-      <strong>Implementation landed{run.repo.Target && ` on ${branchName(run.repo.Target)}`}</strong>
+    {landed && ["work","implementations"].includes(view) && <div className="notice landed-receipt" role="status">
+      <strong>Implementation landed</strong>
+      {landedBuild && <ImplementationLink run={run} candidate={landedBuild.id}>View implementation</ImplementationLink>}
       <code aria-label="Landed commit">{run.detail}</code>
     </div>}
+    <div hidden={view !== "work"}>
+    {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
     {run.state === "checks" && <Card asChild><section className="answer decision" aria-labelledby="review-checks-title">
       <h2 id="review-checks-title">Review acceptance checks</h2>
@@ -238,20 +243,16 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
       <Button variant="outline" className="text-button" onClick={openInbox}>Open Needs you</Button>
     </div>}
     </div>
+    {view === "implementations" && <section aria-label="Successful implementations">
+      {implementations.map(candidate => <Candidate key={candidate.id} name={implementationLabel(candidate)}
+        {...{route,candidate,run,act,busy,explain,openMilestone}} />)}
+    </section>}
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
     {view === "activity" && <ActivityLog route={route} {...{run,api,explain}} />}
     {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {(experimentOpened || view === "experiment") && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
       <Milestones route={route} selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
-      {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
-        {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
-          <Button variant="outline" className="text-button" onClick={showExperiment}>Compare in Experiment</Button></header>}
-        {activeCandidates.map(renderCandidate)}
-        {superseded.length > 0 && <Disclosure className="superseded-work" title={<>Superseded implementations ({superseded.length})</>}>
-          {superseded.map(renderCandidate)}
-        </Disclosure>}
-      </section>}
     </div>
     </div>
   </section>;
@@ -491,7 +492,7 @@ function App() {
         {pending && <Loading top>{pending}</Loading>}
       </div>}
       {setup && <div hidden={selection !== ""}>
-        <Brief key={draftVersion} setup={setup} {...{ api, report, checking, checkError }} cwd={sessionStorage.getItem(cwdKey) || setup.cwd || ""} saveModel={updateModel} agentChoice={agentChoice} onSetup={() => navigate("setup")} {...{ onCreate, perform, busy }} />
+        <Brief key={draftVersion} setup={setup} {...{ api, report, checking, checkError }} cwd={sessionStorage.getItem(cwdKey) || setup.cwd || ""} agentChoice={agentChoice} onSetup={() => navigate("setup")} {...{ onCreate, perform, busy }} />
       </div>}
       {selection === "runs" && setup && <RunsIndex {...{runs,navigate,route}}/>}
       {setup && route.page === "run" && !current && <section><h1>Run unavailable</h1><Button onClick={()=>navigate(runs.length ? "runs" : "")}>Back to runs</Button></section>}

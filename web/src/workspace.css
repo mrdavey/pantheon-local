@@ -150,3 +150,13 @@ main:has(.run-workspace) { width: 100%; padding-bottom: 5rem; }
 @media(max-width:460px) {.kanban {grid-template-columns:1fr;}.filter-controls input {flex-basis:100%;}}
 .filter-controls [data-slot=native-select-wrapper],.activity-pages [data-slot=native-select-wrapper] {width:auto;}
 .view-selector > small {margin-inline-start:auto;color:var(--muted);}
+
+.workbench-dialog.snapshot-dialog { width: min(52rem, calc(100vw - 2rem)); max-width: 52rem; }
+.snapshot-path { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem; }
+.snapshot-path svg { width: .9rem; }
+.snapshot-path button { max-width: 100%; padding-inline: .25rem; white-space: normal; overflow-wrap: anywhere; }
+.snapshot-list { list-style: none; padding: 0; margin: 0; }
+.snapshot-list li + li { border-top: 1px solid var(--border); }
+.snapshot-list button { justify-content: flex-start; width: 100%; height: auto; min-height: 2.65rem; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.snapshot-source { max-width: 100%; overflow: auto; padding: .75rem; }
+.snapshot-image { display: block; max-width: 100%; max-height: 60dvh; object-fit: contain; }

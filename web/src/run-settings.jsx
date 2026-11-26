@@ -1,7 +1,7 @@
 import { Button } from "./components/ui/button";
 import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
-import { runTitle, overTokenTarget } from "./run-summary.js";
+import { runTitle, runProjectPath, overTokenTarget } from "./run-summary.js";
 
 import { FileText, FolderOpen } from "lucide-react";
 import { RunBrief } from "./run-brief";
@@ -35,8 +35,7 @@ export function RunSettings({
       : active
         ? "Waiting for active work to stop."
         : "";
-  const workspace =
-    run.working_folder || run.tasks?.find((t) => t.workspace)?.workspace?.replace(/\/[^/]+$/, "");
+  const workspace = runProjectPath(run);
   function agent(name) {
     const profile = run.profiles?.[name],
       { model, effort } = runModel(profile);
@@ -107,6 +106,7 @@ export function RunSettings({
               <dd>{agent(run.input.coordinator)}</dd>
               <dt>Workers</dt>
               <dd>{run.input.workers.map(agent)}</dd>
+              {run.input.min_workers > 1 && <><dt>Minimum agents</dt><dd>{run.input.min_workers}</dd></>}
               <dt>Subagents</dt>
               <dd>
                 {run.input.subagents === false

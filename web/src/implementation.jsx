@@ -1,3 +1,4 @@
+import { changeRoute } from "./navigation";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import React, { useState } from "react";
@@ -6,6 +7,15 @@ import { Markdown } from "./markdown.jsx";
 import { shortSummary } from "./run-summary.js";
 
 function taskName(id) { return id.replace(/[-_]+/g, " "); }
+
+export function ImplementationLink({run, candidate, children}) {
+  const href = "?" + new URLSearchParams({page:"run",run:run.id,tab:"implementations",candidate,detail:"files"});
+  return <Button asChild variant="link"><a href={href} onClick={event => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    changeRoute({page:"run",run:run.id,tab:"implementations",candidate,detail:"files"}, {reset:true});
+  }}>{children}</a></Button>;
+}
 
 export function implementationLabel(candidate) {
   if (!candidate) return "Implementation";

@@ -11,7 +11,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { NativeSelectOption } from "./components/ui/native-select";
 import { Label } from "./components/ui/label";
 import { Checkbox } from "./components/ui/checkbox";
-import { ImplementationDetails, ExperimentHelp, implementationLabel } from "./implementation.jsx";
+import { ImplementationLink, ImplementationDetails, ExperimentHelp, implementationLabel } from "./implementation.jsx";
 import { Fields } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { Dialog } from "./dialog.jsx";
@@ -208,7 +208,6 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   const [historyError, setHistoryError] = useState("");
   const inspected = active && route.candidate;
   const setInspected = candidate => changeRoute({candidate});
-  const [expandedGroup, setExpandedGroup] = useState("");
   const round = Number(route.round) || 0;
   const policy = route.policy == null ? null : Number(route.policy);
   const visibleRound = round || run.round || 1;
@@ -268,9 +267,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   );
   const headline = winner && title(winner);
   const inspectedCandidate = all.find(c => c.id === inspected);
-  const group = visibleRound + ":" + latestPolicy;
-  const superseded = candidates.filter(c => c.state === "superseded");
-  const visibleCandidates = expandedGroup === group ? candidates : candidates.filter(c => c.state !== "superseded");
+  const visibleCandidates = candidates.filter(c => c.state !== "superseded");
   const reason = shortSummary(selected?.reason);
   return <section className="experiment">
     <h2 className="visually-hidden">Experiment</h2>
@@ -279,7 +276,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       <div className="outcome-copy">
         <Badge asChild variant="outline"><strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
           selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong></Badge>
-        {winner && <h3>{headline}</h3>}
+        {winner && <h3>{selected.state === "landed" && run.implementation_ids?.includes(winner.id)
+          ? <ImplementationLink run={run} candidate={winner.id}>{headline} · View implementation</ImplementationLink> : headline}</h3>}
         {reason && <p>{reason}</p>}
         <Button variant="outline" className="text-button" onClick={() => setDetail("decision")}>View decision details</Button>
         {detail === "decision" && <ImplementationDetails candidate={winner} decision={selected} {...{run, rule, explain}} onClose={() => setDetail("")} />}
@@ -300,37 +298,11 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       {policies.length > 1 ? <Label>Suite revision<NativeSelect value={latestPolicy} onChange={(event) => { changeRoute({policy:event.target.value,candidate:null}); setMode(""); }}>
         {policies.map((entry) => <NativeSelectOption key={entry}>{entry}</NativeSelectOption>)}</NativeSelect></Label> :
         run.policies?.length > 1 && <p>Suite revision {latestPolicy}</p>}
-      <div className={rule?.metrics?.length ? "experiment-results with-charts" : "experiment-results"}>
-        <Card asChild><section className="comparison-card" aria-labelledby="comparison-heading">
-          <h3 id="comparison-heading">Implementations</h3>
-          <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
-            <Table><TableHeader><TableRow><TableHead scope="col">Implementation</TableHead><TableHead scope="col">Checks</TableHead>{rule?.metrics?.map((m) => <TableHead scope="col" key={m.name}>{m.name} ({m.unit})</TableHead>)}<TableHead scope="col">Decision</TableHead></TableRow></TableHeader>
-              <TableBody>{visibleCandidates.map((c) => <TableRow key={c.id} className={c.id === selected?.candidate ? "open-row selected-row" : "open-row"} onClick={event => {
-                if (!event.target.closest("button,a")) {
-                  event.currentTarget.querySelector("button").focus({preventScroll:true});
-                  setInspected(c.id);
-                }
-              }}>
-                <TableHead scope="row"><Button variant="outline" className="text-button implementation-title" aria-label={"View details for " + title(c)} onClick={() => setInspected(c.id)}>{title(c)}</Button></TableHead>
-                <TableCell><Badge asChild variant="outline"><span className={`state ${c.state}`}>{c.state}</span></Badge></TableCell>
-                {rule?.metrics?.map((m) => <TableCell key={m.name}>{c.score?.[m.name] ? number(c.score[m.name].value) : "—"}</TableCell>)}
-                <TableCell>
-                  {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
-                    c.id === selected?.recommended ? "Recommended" :
-                    c.baseline ? "Baseline" : c.state === "passed" && c.eligible === false ? "Doesn’t qualify" : ""}
-                  {canDecide && !c.baseline && c.state === "passed" && c.eligible !== false && c.id !== selected?.candidate &&
-                    <Button variant="outline" disabled={busy} onClick={() => act({ kind: "select", candidate: c.id })}>Select</Button>}
-                </TableCell>
-              </TableRow>)}</TableBody></Table>
-          </div>
-          {superseded.length > 0 && <Button variant="outline" className="text-button superseded-toggle" aria-expanded={expandedGroup === group}
-            onClick={() => setExpandedGroup(expandedGroup === group ? "" : group)}>
-            {expandedGroup === group ? "Hide" : "Show"} superseded implementations ({superseded.length})
-          </Button>}
-          <ExperimentHelp />
-        </section></Card>
-        <Charts {...{ run, rule }} candidates={visibleCandidates} policy={latestPolicy} includeSuperseded={expandedGroup === group} />
-      </div>
+      {canDecide && <Label>Selected implementation<NativeSelect value={selected?.candidate || ""} disabled={busy} onChange={e => act({kind:"select",candidate:e.target.value})}>
+        <NativeSelectOption value="" disabled>Choose an implementation</NativeSelectOption>
+        {candidates.filter(c => !c.baseline && c.state === "passed" && c.eligible !== false).map(c => <NativeSelectOption key={c.id} value={c.id}>{title(c)}</NativeSelectOption>)}
+      </NativeSelect></Label>}
+      <Charts {...{ run, rule }} candidates={visibleCandidates} policy={latestPolicy} />
       {inspectedCandidate && <ImplementationDetails candidate={inspectedCandidate} {...{run, rule, explain}} onClose={() => setInspected("")} />}
     </> : <p>Measurements appear as candidates finish.</p>}
     <div className="actions">
@@ -344,7 +316,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       {run.state !== "landed" && run.input.delivery && run.input.delivery !== "review" &&
         <Button variant="outline" disabled={busy || !!run.combination} onClick={() => act({ kind: run.held ? "unhold" : "hold" })}>{run.held ? "Resume auto-land" : "Hold auto-land"}</Button>}
     </div>
-    <div className="experiment-next"><h3>Next steps</h3><div className="actions">
+    <div className="experiment-next"><header className="experiment-next-heading"><h3>Next steps</h3><ExperimentHelp /></header><div className="actions">
       <Button variant="outline" onClick={() => setDetail("feedback")}>Give feedback</Button>
       {isCurrent && implemented.length > 1 && (canDecide || run.state === "landed") &&
         <Button variant="outline" className={run.state === "landed" ? "primary" : undefined} aria-expanded={mode === "combine"} disabled={busy || !!run.combination} onClick={() => { setBase((!winner?.baseline && winner?.id) || current[0]?.id || ""); setDonors([]); setMode(mode === "combine" ? "" : "combine"); }}>

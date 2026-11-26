@@ -523,7 +523,19 @@ impl Local {
             ("POST", ["runs"]) => {
                 let input = decode(body, "start")?;
                 let cfg = setup(&self.dir)?;
-                let prefs = json!({"coordinator":input["coordinator"],"workers":input["workers"]});
+                let preferred = input["worker_pool"]
+                    .as_array()
+                    .map(|slots| {
+                        let mut names = Vec::new();
+                        for name in slots.iter().filter_map(|slot| slot["profile"].as_str()) {
+                            if !names.contains(&name) {
+                                names.push(name);
+                            }
+                        }
+                        json!(names)
+                    })
+                    .unwrap_or_else(|| input["workers"].clone());
+                let prefs = json!({"coordinator":input["coordinator"],"workers":preferred});
                 let run = self.mutate(|e| e.start(input, cfg["profiles"].clone()))?;
                 if let Err(err) = write_local(&self.dir.join("roles.json"), &prefs) {
                     eprintln!("saving role preferences: {err}")
@@ -601,17 +613,11 @@ impl Local {
                             working: bool,
                         }
                         let request: FolderRequest = serde_json::from_slice(body)?;
-                        let folder = if request.working {
-                            ensure!(request.candidate.is_none(), "select one folder");
-                            let work = run["working_folder"]
-                                .as_str()
-                                .map(PathBuf::from)
-                                .unwrap_or_else(|| root.join("work"));
-                            work.canonicalize()
-                                .context("worker folders appear when the first milestone starts")?
-                        } else {
-                            output_folder(&run, &root, request.candidate.as_deref())?
-                        };
+                        ensure!(
+                            !request.working || request.candidate.is_none(),
+                            "select one folder"
+                        );
+                        let folder = output_folder(&run, &root, request.candidate.as_deref())?;
                         let opener = if cfg!(target_os = "macos") {
                             "/usr/bin/open"
                         } else {
@@ -712,6 +718,23 @@ impl Local {
                             }
                             Err(e) => Err(e.into()),
                         }
+                    }
+                    ("GET", ["implementations", cid, "files"]) => {
+                        let candidate = find(&run, "candidates", cid)?;
+                        ensure!(
+                            experiment::successful_implementation(&run, candidate),
+                            "implementation has not passed"
+                        );
+                        let path = url::form_urlencoded::parse(query.as_bytes())
+                            .find(|(k, _)| k == "path")
+                            .map(|(_, v)| v.into_owned())
+                            .unwrap_or_default();
+                        project::snapshot(
+                            &root.join("integration"),
+                            candidate["commit"].as_str().context("missing commit")?,
+                            run["repo"]["Subdir"].as_str().unwrap_or("."),
+                            &path,
+                        )
                     }
                     ("GET", ["diff", cid]) => {
                         let c = find(&run, "candidates", cid)?;

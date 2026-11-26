@@ -519,7 +519,7 @@ summary:focus-visible {
   }
   .coordinator-chat .chat-panel {
     width: clamp(15rem, 24vw, 22rem);
-    height: min(35rem, calc(100dvh - 8rem));
+    height: min(32rem, 50dvh);
     border-radius: 8px 0 0 0;
   }
 }
@@ -697,3 +697,6 @@ button.board-card {width:100%;text-align:left;align-items:stretch;gap:.45rem;pad
 }
 
 .recovery-decision { white-space: pre-line; overflow-wrap: anywhere; }
+
+.experiment-next-heading {display:flex; align-items:center; gap:.6rem; margin-bottom:.45rem;}
+.experiment-next-heading :is(h3,.implementation-help) {margin:0;}

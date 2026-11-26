@@ -13,7 +13,18 @@ macro_rules! request {
         struct $name { $( $key: Option<$ty> ),* }
     };
 }
+request!(WorkerSlot {
+    profile: String,
+    model: String,
+    effort: String
+});
+request!(RunModel {
+    model: String,
+    effort: String
+});
 request!(Start{
+    coordinator_settings:RunModel,
+    worker_pool:Vec<WorkerSlot>, min_workers:u32,
     subagents:bool, subagent_limit:u32, compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,
     attachments:Vec<crate::attachments::Upload>,coordinator:String,workers:Vec<String>,initial_files:Vec<String>,skip_init:bool,target:String,token_target:i64,recipe:Recipe
 });

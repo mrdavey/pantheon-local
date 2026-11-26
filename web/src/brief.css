@@ -31,3 +31,11 @@
 .advanced-sheet[open] { display: flex; flex-direction: column; overflow: hidden; }
 .advanced-sheet .brief-options { overflow: auto; align-content: start; min-height: 0; padding: .3rem .25rem; }
 .advanced-sheet .dialog-footer { border-top: 1px solid var(--line); padding-top: .8rem; flex: none; }
+.workbench-dialog .worker-pool { display: grid; grid-template-columns: minmax(0, 1fr); }
+.worker-pool ol { list-style: none; padding: 0; margin: 0; }
+.worker-pool li { padding: .65rem 0; border-top: 1px solid var(--border); }
+.worker-pool .add-worker, .worker-pool-heading { display: flex; align-items: end; gap: .75rem; justify-content: space-between; }
+.worker-pool-heading { align-items: center; }
+.worker-pool .add-worker label { flex: 1; min-width: 0; }
+.worker-pool-heading { flex-wrap: wrap; }
+.worker-pool-heading small { display: block; color: var(--muted); overflow-wrap: anywhere; }

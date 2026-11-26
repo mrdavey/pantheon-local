@@ -14,6 +14,7 @@ use scheduler::budget;
 mod candidate;
 mod commands;
 pub(crate) mod failure_log;
+mod pool;
 mod recovery;
 mod scheduler;
 #[cfg(test)]
@@ -267,6 +268,7 @@ fn context(r: &Value, worker: Option<&Value>) -> Value {
         decisions.push(json!({"answer":r["answer"]}))
     }
     let mut c = json!({"planning_decisions":decisions,"round_goal":r["round_goal"],"checks_approved":r["recipe_approved"]});
+    c["minimum_workers"] = json!(r["input"]["min_workers"].as_u64().unwrap_or(1));
     c["team"] = json!(strings(&r["input"]["workers"]).iter().map(|name| {
         let p = &r["profiles"][name];
         let effective = |key: &str| p[key].as_str().filter(|s| !s.is_empty()).or_else(|| p["detected"][key].as_str());
@@ -359,7 +361,14 @@ impl Engine {
         }
         eval::pin(&recipe, &self.root(r).join("evaluators"))
     }
-    pub fn start(&self, mut input: Value, profiles: Value) -> Result<Value> {
+    pub fn start(&self, mut input: Value, mut profiles: Value) -> Result<Value> {
+        pool::configure(&mut input, &mut profiles)?;
+        if input["worker_pool"].is_array() {
+            adapter::models::discover(
+                profiles.as_object_mut().context("invalid profiles")?,
+                &self.dir,
+            );
+        }
         ensure!(
             input["subagent_limit"].is_null()
                 || input["subagent_limit"].as_u64().is_some_and(|n| n > 0),
@@ -455,11 +464,12 @@ impl Engine {
         let workspace = tempfile::Builder::new()
             .prefix(&format!("Pantheon work {}", s(&r, "id")))
             .rand_bytes(0)
-            .tempdir_in(selected)?;
+            .tempdir_in(&selected)?;
         // Each milestone is an independent checkout. Keep even the marker out
         // of the target index and leave these user-visible files on run deletion.
         fs::write(workspace.path().join(".gitignore"), "*\n")?;
-        r["working_folder"] = json!(workspace.path());
+        r["worker_folder"] = json!(workspace.path());
+        r["working_folder"] = json!(selected);
         self.save(&mut r, "started")?;
         let _ = workspace.keep();
         let _ = pending.keep();

@@ -888,3 +888,16 @@ fn chat_files_and_proposal_acceptance_replay_once() -> Result<()> {
     assert_eq!(engine.command("files", accept)?["tasks"], accepted["tasks"]);
     Ok(())
 }
+
+#[test]
+fn implementation_index_only_includes_qualifying_builds_and_historical_landings() {
+    let run = json!({"past_selections":[{"state":"landed","candidate":"landed"}],"candidates":[
+        {"id":"ok","state":"passed","commit":"abc"},{"id":"landed","state":"superseded","commit":"def"},
+        {"id":"baseline","state":"passed","commit":"123","baseline":true},
+        {"id":"over-limit","state":"passed","commit":"456","eligible":false},
+        {"id":"incomplete","state":"evaluating","commit":"789"},{"id":"no-commit","state":"passed"}]});
+    assert_eq!(
+        experiment::public(run)["implementation_ids"],
+        json!(["ok", "landed"])
+    );
+}

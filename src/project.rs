@@ -1,5 +1,7 @@
+mod snapshot;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
+pub use snapshot::snapshot;
 use std::{
     env, fs,
     io::{Read, Seek},

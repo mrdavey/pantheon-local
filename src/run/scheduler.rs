@@ -553,6 +553,21 @@ impl Engine {
                         t["round"] = r["round"].clone()
                     }
                 }
+                let minimum = r["input"]["min_workers"].as_u64().unwrap_or(1);
+                if minimum > 1 {
+                    let mut owners = std::collections::HashSet::new();
+                    for task in &mut tasks {
+                        let owner = s(task, "worker").to_owned();
+                        if owners.len() < minimum as usize && owners.insert(owner.clone()) {
+                            // Preserve the requested staffing floor during benchmark routing.
+                            task["eligible_workers"] = json!([owner]);
+                        }
+                    }
+                    ensure!(
+                        owners.len() >= minimum as usize,
+                        "plan must assign meaningful milestones to at least {minimum} different worker agents"
+                    );
+                }
                 self.assign(r, &mut tasks);
                 prev.extend(tasks);
                 r["tasks"] = json!(prev);

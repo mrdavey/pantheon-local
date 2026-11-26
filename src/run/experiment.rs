@@ -26,7 +26,7 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.
 - For a requested combination, {"kind":"combine","ref":"combination ID","text":"scoped implementation instructions","tasks":[{"id":"new-slug","worker":"profile","goal":"specific change","paths":[]}]}.
 - {"kind":"revise_milestone","ref":"pending task ID","tasks":[{"id":"same task ID","goal":"revised deliverable","worker":"profile","paths":[],"depends":[]}]}. Replace the assignment of an unstarted top-level milestone. Preserve prerequisites and variant where applicable. Send guidance to a worker already in progress.
-Reassess the remaining graph against the original objective on each review. Add missing deliverables or revise unstarted work to close gaps. Use each profile's model and thinking effort in the team context. Release independent work in parallel. List eligible_workers when only some model and effort combinations suit a new or revised milestone. Respect delegation.allowed. With a finite limit, request scoped child milestones through Pantheon.
+Reassess the remaining graph against the original objective on each review. Add missing deliverables or revise unstarted work to close gaps. Use each profile's model and thinking effort in the team context. Respect minimum_workers when assigning work across the run. Release independent work in parallel. List eligible_workers when only some model and effort combinations suit a new or revised milestone. Respect delegation.allowed. With a finite limit, request scoped child milestones through Pantheon.
 When delegation is allowed, look proactively for independent child milestones that shorten delivery or improve verification. Use as many as the work benefits from within the run's limit. Give concurrent writers separate file scopes and each child a checkable result. Weigh handoff, review and integration effort before splitting tightly coupled work. The parent integrates and verifies the combined result.
 Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval or relax an approved check. Routine progress needs no action. "#;
 pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
@@ -931,7 +931,25 @@ pub fn command(r: &mut Value, act: &Value) -> Result<bool> {
     }
     Ok(true)
 }
+pub fn successful_implementation(run: &Value, candidate: &Value) -> bool {
+    candidate["commit"].is_string()
+        && candidate["baseline"] != true
+        && ((candidate["state"] == "passed" && candidate["eligible"] != false)
+            || std::iter::once(&run["selection"])
+                .chain(a(&run["past_selections"]))
+                .any(|selection| {
+                    selection["state"] == "landed" && selection["candidate"] == candidate["id"]
+                }))
+}
+
 pub fn public(mut r: Value) -> Value {
+    r["implementation_ids"] = json!(
+        a(&r["candidates"])
+            .iter()
+            .filter(|candidate| successful_implementation(&r, candidate))
+            .map(|candidate| &candidate["id"])
+            .collect::<Vec<_>>()
+    );
     if let Some(obj) = r.as_object_mut() {
         obj.remove("deploy_config");
         obj.remove("commands");

@@ -2,7 +2,7 @@
 
 ## Run a team
 
-Choose a coordinator and the workers you want to use. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
+In **New run → Team**, choose a coordinator. Select a harness and click **Add agent** for each worker. You can repeat a harness. Open **Settings** on a worker or **Model settings** under the coordinator, choose the model and thinking effort, then select **Apply to this run**. **Minimum agents** sets how many distinct workers must own milestones in the plan. Dependencies still determine which milestones can run concurrently. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
 
 The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Once you approve the checks, workers can start independent milestones in parallel.
 
@@ -49,3 +49,5 @@ Supported classes are `implementation`, `debugging`, `testing`, `automation`, `d
 Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. Filter by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
 
 Costs use harness receipts where available. For supported Codex models, Pantheon estimates standard short-context API cost from input, cached input, and output tokens at published rates dated November 25, 2026. Subscription charges, tool fees, cache-write premiums, and service-tier adjustments are outside this estimate. Unreported costs and tokens are shown as unavailable. Older runs use saved turn receipts and their timestamps. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)
+
+The run API accepts a `worker_pool` array of objects with a configured `profile` and optional `model` and `effort`, plus `min_workers` and optional `coordinator_settings` with its own model and effort. Existing callers can still send `workers` as a list of configured profile names. Each pool entry gets a separate run-local worker ID, visible in assignments and usage. Overrides apply only to that run. Custom adapters manage their own model settings.

@@ -23,8 +23,8 @@ fn prices_itemized_usage_with_the_coordinator_and_preserves_receipts() -> Result
         Ok((run["pricing_revision"] == 1).then_some(run))
     })?;
     assert_eq!(
-        Path::new(run["working_folder"].as_str().unwrap()).parent(),
-        Some(project.canonicalize()?.as_path())
+        Path::new(run["working_folder"].as_str().unwrap()),
+        project.canonicalize()?.as_path()
     );
     assert_eq!(git(&project, &["status", "--porcelain"])?, "");
     let usage = svc.get(&format!("{url}/metrics"))?;
@@ -116,7 +116,7 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
         &json!({"kind":"answer-inbox","task":question["id"],"text":"No quotes"}),
     )?;
     let ready = svc.wait_state(&url, "review")?;
-    let folder = Path::new(ready["working_folder"].as_str().context("working folder")?);
+    let folder = Path::new(ready["worker_folder"].as_str().context("working folder")?);
     for task in rows(&ready["tasks"]) {
         let checkout = Path::new(task["workspace"].as_str().context("milestone workspace")?);
         ensure!(checkout.is_dir() && checkout.parent() == Some(folder));

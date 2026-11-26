@@ -67,7 +67,7 @@ export function modelHint(profile) {
   }
 }
 
-export function ModelSettings({ name, profile, save, onClose }) {
+export function ModelSettings({ name, profile, save, onClose, runLabel }) {
   const [draft, setDraft] = useState({});
   const [status, setStatus] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -101,6 +101,7 @@ export function ModelSettings({ name, profile, save, onClose }) {
         input[key] = Object.hasOwn(draft, key) ? (draft[key] || "").trim() : profile[key] || "";
       }
       await save(input);
+      if (runLabel) { onClose(); return; }
       setDraft({});
       setStatus({ text: "Saved for new runs." });
     } catch (problem) {
@@ -111,7 +112,7 @@ export function ModelSettings({ name, profile, save, onClose }) {
   }
   const modelName = modelChanged ? value("model") : profile.model || detected.label || detected.model;
   const manualModel = passesModel && !!(Object.hasOwn(draft, "model") ? draft.model : profile.model);
-  return <Dialog title={`Settings for ${profileLabel(name, profile)}`} onClose={onClose}>
+  return <Dialog title={`Settings for ${runLabel || profileLabel(name, profile)}`} onClose={onClose}>
     <form onSubmit={submit}>
       <div className="model-identity">
         <h3>{modelName || "Agent default"}</h3>
@@ -126,7 +127,7 @@ export function ModelSettings({ name, profile, save, onClose }) {
         {(profile.kind === "codex" ? (!modelChanged && detected.efforts?.length ? detected.efforts : ["low","medium","high","xhigh","max","ultra"]) : ["low","medium","high","xhigh","max"]).map(level => <NativeSelectOption key={level}>{level}</NativeSelectOption>)}
       </NativeSelect></Label>}
       <p>{modelHint(profile)}</p>
-      <h3>Benchmark routing</h3>
+      {!runLabel && <><h3>Benchmark routing</h3>
       {!Object.keys(draft).length && (detected.routing?.source
         ? <p className="model-provenance">Matched {detected.routing.source}.</p>
         : <p className="model-provenance">No matching local benchmark result.</p>)}
@@ -135,9 +136,9 @@ export function ModelSettings({ name, profile, save, onClose }) {
         <Label>Agent name on the benchmark<Input {...editable("benchmark_agent")} placeholder="Benchmark agent name" /></Label>
         <Label>Benchmark effort<Input {...editable("benchmark_effort")} placeholder="Optional" /></Label>
       </div>
-      <p><a href="https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard" target="_blank" rel="noreferrer">View Terminal-Bench results</a></p>
+      <p><a href="https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/5?tab=leaderboard" target="_blank" rel="noreferrer">View Terminal-Bench results</a></p></>}
       <div className="agent-actions">
-        <Button variant="default" className="primary" type="submit" disabled={saving}>{saving ? "Saving model settings…" : "Save model settings"}</Button>
+        <Button variant="default" className="primary" type="submit" disabled={saving}>{saving ? "Saving model settings…" : runLabel ? "Apply to this run" : "Save model settings"}</Button>
         {(Object.keys(auto).some((key) => !!profile[key]) || Object.keys(draft).length > 0) &&
           <Button variant="outline" type="button" disabled={saving} onClick={() => {
             setDraft({ model: null, effort: null, benchmark_model: null, benchmark_agent: null, benchmark_effort: null });
