@@ -5,7 +5,8 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
-import { Status, Loading, LoadingProvider } from "./status.jsx";
+import { Status, Loading, LoadingProvider, runStatus, statusLabel } from "./status.jsx";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { WorkbenchHeader, RunFooter } from "./workbench-shell";
 import { ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { changeRoute, useRoute, destination } from "./navigation";
@@ -456,16 +457,22 @@ function App() {
           </nav>
           {runs.length > 0 && <div className="run-history">
             <div className="nav-heading" aria-hidden="true">Recent runs</div>
-            <nav className="run-nav" aria-label="Runs">{runs.slice(0,8).map((run) => {
-              const title = runTitle(run);
+            <nav className="run-nav" aria-label="Runs"><TooltipProvider delayDuration={200}>{runs.slice(0,8).map((run) => {
+              const title = runTitle(run, { truncate: !collapsed });
+              const shortcut = <Button variant="outline" title={collapsed ? undefined : title} {...navProps(run.id)}>
+                <span className="recent-initials" aria-hidden="true">{runInitials(title)}</span>
+                <span className="run-name">{title}</span>
+                <Status run={run} compact={collapsed} />
+              </Button>;
               return <div className="run-nav-row" key={run.id}>
-                <Button variant="outline" title={title} {...navProps(run.id)}>
-                  <span className="recent-initials" aria-hidden="true">{runInitials(title)}</span>
-                  <span className="run-name">{title}</span>
-                  <Status state={run.state} run={run} />
-                </Button>
+                {collapsed ? <Tooltip>
+                  <TooltipTrigger asChild>{shortcut}</TooltipTrigger>
+                  <TooltipContent side="right" className="recent-run-tooltip">
+                    <strong>{title}</strong><span>{statusLabel(runStatus(run))}</span>
+                  </TooltipContent>
+                </Tooltip> : shortcut}
               </div>;
-            })}</nav>
+            })}</TooltipProvider></nav>
           </div>}
         </div>
       </>}

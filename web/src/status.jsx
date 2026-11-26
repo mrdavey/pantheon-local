@@ -44,11 +44,12 @@ export function runStatus(run) {
   return run.state === "working" && blockedTasks(run).length ? "milestone-blocked" : run.state;
 }
 
-export function Status({ state, run }) {
+export function Status({ state, run, compact = false }) {
   const status = run ? runStatus(run) : state;
   const active = run ? run.turns?.some(t => t.state === "running") : state === "running";
   return <Badge variant="outline" className={"state " + (status === "milestone-blocked" ? "blocked" : status)}>
-    {active && <Spinner aria-hidden="true" />}{statusLabel(status)}
+    {active && <Spinner aria-hidden="true" />}
+    {compact ? <span className="visually-hidden">{statusLabel(status)}</span> : statusLabel(status)}
   </Badge>;
 }
 

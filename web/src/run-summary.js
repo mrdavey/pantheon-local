@@ -9,11 +9,12 @@ function plainText(value) {
 }
 
 // Older runs and runs awaiting their first coordinator turn only have a brief.
-export function runTitle(run) {
+export function runTitle(run, { truncate = true } = {}) {
   const goal = (run.input?.prompt || run.brief || "").split(/\r?\n/).map((line) => line.trim()
     .replace(/^#+\s*/, "").replace(/^(?:goal|objective|task|brief)\s*(?::\s*|$)/i, ""))
     .find(Boolean);
   const title = (plainText(run.title || goal || "") || "Untitled run").replace(/\s+/g, " ").trim();
+  if (!truncate) return title;
   const chars = Array.from(title);
   if (chars.length <= 80) return title;
   const prefix = chars.slice(0, 79).join("");

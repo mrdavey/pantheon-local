@@ -438,6 +438,17 @@ impl<'a> Locator<'a> {
         self.browser
             .get(&format!("element/{}/rect", self.element()?))
     }
+    pub fn hover(&self) -> Result<()> {
+        let id = self.element()?;
+        self.browser.post(
+            "actions",
+            json!({"actions":[{
+                "type":"pointer","id":"mouse","parameters":{"pointerType":"mouse"},
+                "actions":[{"type":"pointerMove","origin":Self::obj(&id),"x":0,"y":0}]
+            }]}),
+        )?;
+        Ok(())
+    }
     pub fn tap(&self) -> Result<()> {
         let id = self.element()?;
         self.browser.post("actions",json!({"actions":[{"type":"pointer","id":"finger","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":50,"origin":Self::obj(&id),"x":0,"y":0},{"type":"pointerDown","button":0},{"type":"pointerUp","button":0}]}]}))?;

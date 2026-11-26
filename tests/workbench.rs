@@ -694,6 +694,11 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     let run = h.svc.post("/runs",&json!({"path":h.repo("recovery")?,"prompt":brief,"coordinator":"first","workers":["writer"],"recipe":{"checks":[["true"]]}}))?;
     let path = common::run_path(&run)?;
     h.goto()?;
+    h.click("Collapse sidebar")?;
+    h.run_button("Recover the fixture milestone")
+        .xpath(".//span[contains(@class,'state working')]/*[local-name()='svg']")
+        .visible()?;
+    h.click("Expand sidebar")?;
     h.run_button("Recover the fixture milestone").click()?;
     h.b.xpath("//button[@data-task='recover-export']").click()?;
     let clock = h.b.xpath("//time[@aria-label='Elapsed time']");
@@ -1282,6 +1287,24 @@ fn runs_navigation(h: &Harness) -> Result<()> {
     h.run_button("Quote export")
         .xpath(".//span[@class='recent-initials' and .='QE']")
         .visible()?;
+    let quote_shortcut = h.run_button("Quote export");
+    let indicator = quote_shortcut.xpath(".//span[contains(@class,'state question')]");
+    let dot = indicator.rect()?;
+    ensure!(dot["width"].as_f64().unwrap_or_default() >= 6.);
+    indicator.xpath(".//*[local-name()='svg']").absent()?;
+    let tooltip = h.b.xpath("//*[@data-slot='tooltip-content']");
+    if !h.mobile {
+        h.run_button("Build the team export").hover()?;
+        tooltip.contains("Build the team export")?;
+        tooltip.contains("Stopped")?;
+        h.b.key("\u{e00c}")?;
+        tooltip.absent()?;
+    }
+    quote_shortcut.focus()?;
+    tooltip.contains("Quote export")?;
+    tooltip.contains("Needs an answer")?;
+    h.b.key("\u{e00c}")?;
+    tooltip.absent()?;
     let search = h.b.label("Search runs by name or project");
     let status = h.b.label("Run status");
     search.fill("quote EXPORT")?;
