@@ -1,54 +1,24 @@
 :root {
-  color-scheme: light;
-  font: 15px/1.5 system-ui, sans-serif;
+  color-scheme: dark;
+  font: 15px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   color: var(--ink);
   background: var(--canvas);
-  --canvas: #f8f7f3;
-  --rail: #f1f0ea;
-  --paper: #fffefa;
-  --ink: #252c28;
-  --muted: #526158;
-  --line: #dbdfd7;
-  --input-line: #828e82;
-  --wash: #eeefe9;
-  --clay: #963d24;
-  --clay-hover: #7b2e19;
-  --clay-wash: #f6e9df;
-  --on-clay: #fffaf5;
-  --green: #35604a;
-  --green-wash: #eaf0e8;
-  --red: #a3313b;
-  --red-wash: #faeced;
-  --amber: #765019;
-  --amber-wash: #f7efdc;
-  --radius: 14px;
+  --canvas: #041416; --rail: #061719; --paper: #0a2022; --ink: #edf5f1;
+  --muted: #a3bcb8; --line: #284649; --input-line: #547174; --wash: #122e30;
+  --clay: #dcfa69; --clay-hover: #e7ff94; --clay-wash: #25382b; --on-clay: #192407;
+  --green: #90ebb2; --green-wash: #12352c; --red: #ffaaa4; --red-wash: #402628;
+  --amber: #f0ce8a; --amber-wash: #38321e; --radius: 8px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --canvas: #191c19;
-    --rail: #1e221e;
-    --paper: #232824;
-    --ink: #eef0e9;
-    --muted: #b2beb4;
-    --line: #3a453c;
-    --input-line: #849187;
-    --wash: #2c352e;
-    --clay: #f1a889;
-    --clay-hover: #ffbb9e;
-    --clay-wash: #3a2b24;
-    --on-clay: #2a190f;
-    --green: #b4d9bd;
-    --green-wash: #293b30;
-    --red: #ffb1b9;
-    --red-wash: #47292d;
-    --amber: #edd09a;
-    --amber-wash: #3f3526;
-  }
+:root[data-appearance="light"] {
+  color-scheme: light;
+  --canvas: #f5f8f6; --rail: #edf3ef; --paper: #fff; --ink: #112d2b;
+  --muted: #4c6561; --line: #cddbd4; --input-line: #78928a; --wash: #e4efe8;
+  --clay: #3a6014; --clay-hover: #294a09; --clay-wash: #e0edcf; --on-clay: #fff;
+  --green: #236246; --green-wash: #deeee4; --red: #993a39; --red-wash: #fae9e7;
+  --amber: #715018; --amber-wash: #f5edda;
 }
-
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; }

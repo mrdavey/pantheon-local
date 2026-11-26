@@ -37,11 +37,13 @@ export function Loading({ children, top = false }) {
   return top ? null : <div className="loading-status"><Spinner aria-hidden="true" /><span>{children}</span></div>;
 }
 
+export const statusLabel = state => labels[state] || state;
+
 export function Status({ state, run }) {
   const blocked = run && state === "working" && blockedTasks(run).length > 0;
   const active = run ? run.turns?.some(t => t.state === "running") : state === "running";
   return <Badge variant="outline" className={"state " + (blocked ? "blocked" : state)}>
-    {active && <Spinner aria-hidden="true" />}{blocked ? "Milestone blocked" : labels[state] || state}
+    {active && <Spinner aria-hidden="true" />}{blocked ? "Milestone blocked" : statusLabel(state)}
   </Badge>;
 }
 

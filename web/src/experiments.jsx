@@ -1,3 +1,6 @@
+import { Card } from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
+import { Disclosure } from "./disclosure";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "./components/ui/table";
 import { Loading } from "./status.jsx";
 import { Button } from "./components/ui/button";
@@ -113,7 +116,7 @@ function Charts({ run, candidates, rule, policy, includeSuperseded }) {
   const label = (m) => `${m.name} (${m.unit})`;
   const history = (run.candidates || []).filter((c) => (c.policy || 0) === policy && (includeSuperseded || c.state !== "superseded"));
   const showHistory = !x || new Set(history.filter((c) => c.score?.[y.name]).map((c) => c.round)).size > 1;
-  return <section className="charts-card" aria-labelledby="metrics-heading">
+  return <Card asChild><section className="charts-card" aria-labelledby="metrics-heading">
     <h3 id="metrics-heading">Measurements</h3>
     <div className="actions chart-controls">
       <Label>Metric<NativeSelect value={y.name} onChange={(event) => setChosen(event.target.value)}>{metrics.map((m) => <NativeSelectOption key={m.name} value={m.name}>{label(m)}</NativeSelectOption>)}</NativeSelect></Label>
@@ -124,7 +127,7 @@ function Charts({ run, candidates, rule, policy, includeSuperseded }) {
       {x && <ScorePlot xMetric={label(x)} metric={label(y)} yLimit={rule.limits?.[y.name]} xLimit={rule.limits?.[x.name]}
         values={candidates.map((c) => ({ id: c.id, name: title(c), x: c.score?.[x.name]?.value, y: c.score?.[y.name]?.value, kind: c.baseline ? "baseline" : c.id === run.selection?.candidate ? "winner" : "", ...c.score?.[y.name] }))} />}
     </div>
-  </section>;
+  </section></Card>;
 }
 
 function Cases({ run, candidates, api }) {
@@ -160,7 +163,7 @@ function Cases({ run, candidates, api }) {
     return { name, cells, regressed, improved };
   });
   const filtered = rows.filter(({ regressed, improved }) => filter === "All cases" || (filter === "Regressions" ? regressed : improved));
-  return <section className="form-card">
+  return <Card asChild><section className="form-card">
     <h3>Case results</h3>
     {failed > 0 && <div className="notice">
       <p role="status">Couldn’t load case results for {failed} {failed === 1 ? "implementation" : "implementations"}.</p>
@@ -173,14 +176,14 @@ function Cases({ run, candidates, api }) {
     {filtered.length > 0 && <div className="table-scroll" tabIndex={0} role="region" aria-label="Case comparison">
       <Table><TableHeader><TableRow><TableHead scope="col">Case</TableHead>{reports.map(([c]) => <TableHead scope="col" key={c.id}>{title(c)}</TableHead>)}</TableRow></TableHeader>
         <TableBody>{filtered.map(({ name, cells }) => <TableRow key={name}><TableHead scope="row">{name}</TableHead>{cells.map((samples, i) =>
-            <TableCell key={reports[i][0].id}>{samples.length ? <details><summary>{samples.filter((s) => s.state === "pass").length}/{samples.length} passed</summary>
+            <TableCell key={reports[i][0].id}>{samples.length ? <Disclosure title={<>{samples.filter((s) => s.state === "pass").length}/{samples.length} passed</>}>
               {samples.map((s) => <div key={s.number}><strong>Sample {s.number} · {s.state}</strong>
                 {s.observed && <p>{s.observed}</p>}{s.error && <p>{s.error}</p>}
                 {s.expected != null && <div><strong>Expected</strong><Fields value={s.expected} /></div>}
                 {Object.entries(s.values || {}).map(([metric, value]) => <p key={metric}>{metric} · {number(value)}</p>)}</div>)}
-            </details> : "Missing"}</TableCell>)}</TableRow>)}</TableBody></Table>
+            </Disclosure> : "Missing"}</TableCell>)}</TableRow>)}</TableBody></Table>
     </div>}
-  </section>;
+  </section></Card>;
 }
 
 export function Experiment({ active, run, act, perform, api, busy, openRun, explain }) {
@@ -263,10 +266,10 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
   return <section className="experiment">
     <h2 className="visually-hidden">Experiment</h2>
     {isCurrent && run.round_goal && <div className="round-goal"><Markdown>{run.round_goal}</Markdown></div>}
-    {selected && <div className="outcome">
+    {selected && <Card asChild><div className="outcome">
       <div className="outcome-copy">
-        <strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
-          selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong>
+        <Badge asChild variant="outline"><strong className={`state ${selected.state}`}>{selected.state === "landed" ? "Landed" : selected.state === "selected" ? "Selected" :
+          selected.state === "recommended" ? "Recommended" : selected.state === "baseline" ? "Keeping the baseline" : "Awaiting a decision"}</strong></Badge>
         {winner && <h3>{headline}</h3>}
         {reason && <p>{reason}</p>}
         <Button variant="outline" className="text-button" onClick={() => setDetail("decision")}>View decision details</Button>
@@ -279,7 +282,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         </code>}
         {isCurrent && run.started && selected.landed_at && <span>{run.interventions || 0} developer actions · {number((Date.parse(selected.landed_at) - Date.parse(run.started)) / 1000)} seconds to land</span>}
       </div>}
-    </div>}
+    </div></Card>}
     {run.observer_error && <div role="status"><p>{run.observer_error}</p><Button variant="outline" disabled={busy} onClick={() => act({ kind: "retry-coordinator" })}>Retry coordinator</Button></div>}
     {run.combination && <div role="status"><p>Waiting for the coordinator to plan the combination.</p>
       <Button variant="outline" disabled={busy} onClick={() => act({ kind: "cancel-combination" })}>Cancel request</Button></div>}
@@ -289,13 +292,18 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         {policies.map((entry) => <NativeSelectOption key={entry}>{entry}</NativeSelectOption>)}</NativeSelect></Label> :
         run.policies?.length > 1 && <p>Suite revision {latestPolicy}</p>}
       <div className={rule?.metrics?.length ? "experiment-results with-charts" : "experiment-results"}>
-        <section className="comparison-card" aria-labelledby="comparison-heading">
+        <Card asChild><section className="comparison-card" aria-labelledby="comparison-heading">
           <h3 id="comparison-heading">Implementations</h3>
           <div className="table-scroll" role="region" aria-label="Implementation comparison" tabIndex={0}>
             <Table><TableHeader><TableRow><TableHead scope="col">Implementation</TableHead><TableHead scope="col">Checks</TableHead>{rule?.metrics?.map((m) => <TableHead scope="col" key={m.name}>{m.name} ({m.unit})</TableHead>)}<TableHead scope="col">Decision</TableHead></TableRow></TableHeader>
-              <TableBody>{visibleCandidates.map((c) => <TableRow key={c.id} className={c.id === selected?.candidate ? "selected-row" : ""}>
+              <TableBody>{visibleCandidates.map((c) => <TableRow key={c.id} className={c.id === selected?.candidate ? "open-row selected-row" : "open-row"} onClick={event => {
+                if (!event.target.closest("button,a")) {
+                  event.currentTarget.querySelector("button").focus({preventScroll:true});
+                  setInspected(c.id);
+                }
+              }}>
                 <TableHead scope="row"><Button variant="outline" className="text-button implementation-title" aria-label={"View details for " + title(c)} onClick={() => setInspected(c.id)}>{title(c)}</Button></TableHead>
-                <TableCell><span className={`state ${c.state}`}>{c.state}</span></TableCell>
+                <TableCell><Badge asChild variant="outline"><span className={`state ${c.state}`}>{c.state}</span></Badge></TableCell>
                 {rule?.metrics?.map((m) => <TableCell key={m.name}>{c.score?.[m.name] ? number(c.score[m.name].value) : "—"}</TableCell>)}
                 <TableCell>
                   {c.id === selected?.candidate ? (selected.state === "landed" ? "Landed" : "Selected") :
@@ -311,7 +319,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
             {expandedGroup === group ? "Hide" : "Show"} superseded implementations ({superseded.length})
           </Button>}
           <ExperimentHelp />
-        </section>
+        </section></Card>
         <Charts {...{ run, rule }} candidates={visibleCandidates} policy={latestPolicy} includeSuperseded={expandedGroup === group} />
       </div>
       {inspectedCandidate && <ImplementationDetails candidate={inspectedCandidate} {...{run, rule, explain}} onClose={() => setInspected("")} />}
@@ -400,14 +408,14 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
         onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</Button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <Button variant="outline" disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</Button>}
     </Dialog>}
-    <form className="form-card" onSubmit={(event) => {
+    <Card asChild><form className="form-card" onSubmit={(event) => {
       event.preventDefault(); act({ kind: "feedback", text: feedback, candidate: winner?.id, task: rollout ? "rollout" : "" })
         .then((ok) => { if (ok) setFeedback(""); });
     }}>
       <Label>Feedback for the coordinator<Textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} /></Label>
       <Label className="checkbox"><Checkbox checked={rollout} onCheckedChange={setRollout} />From a live rollout</Label>
       <Button variant="outline" disabled={!feedback.trim() || busy}>Send feedback</Button>
-    </form>
+    </form></Card>
   </section>;
 }
 
@@ -427,9 +435,9 @@ export function ReleaseList({ run, act, busy }) {
     {run.releases.map((release) => {
       const running = (run.turns || []).some((t) => t.state === "running" && t.role === "release" && t.task === release.id);
       return <article key={release.id} className="row">
-        <header><strong>{release.destination}</strong><span className={`state ${release.state === "deployed" ? "passed" : release.state === "failed" ? "failed" : release.state === "uncertain" || release.held ? "question" : ""}`}>
+        <header><strong>{release.destination}</strong><Badge asChild variant="outline"><span className={`state ${release.state === "deployed" ? "passed" : release.state === "failed" ? "failed" : release.state === "uncertain" || release.held ? "question" : ""}`}>
           {release.held ? "On hold" : releaseLabels[release.state] || release.state}
-        </span></header>
+        </span></Badge></header>
         <p><code>{release.commit}</code></p>
         {release.digest && <p>Artifact <code>{release.digest}</code></p>}
         {release.observed && <p>Live artifact <code>{release.observed}</code></p>}

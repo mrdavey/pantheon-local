@@ -1,3 +1,4 @@
+import { Card } from "./components/ui/card";
 import { Loading } from "./status.jsx";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -108,7 +109,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
   return <section className="panel brief">
     <h1 tabIndex={-1}>Start a run</h1>
     <form className="new-run-form" onSubmit={create}>
-      <div className={"goal-composer" + (dragging ? " dragging" : "")}
+      <Card className={"goal-composer" + (dragging ? " dragging" : "")}
         onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
         onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
         onDrop={event => { event.preventDefault(); setDragging(false); addFiles(Array.from(event.dataTransfer.files)); }}>
@@ -124,7 +125,7 @@ export function Brief({ setup, report, checking, checkError, cwd, saveModel, api
             onClick={() => runBriefTask(async () => setSuggestion(await api("/advice", { profile: advisorName, prompt, attachments: await encodeAttachments(files) })), "Improving brief…")}>Improve brief</Button>
           <Button variant="default" className="primary start-run" aria-label="Start run" type="submit" disabled={!ready}>Start run <span aria-hidden="true">↑</span></Button>
         </div>
-      </div>
+      </Card>
       {original && <Button variant="outline" type="button" className="text-button" onClick={() => setModal("original")}>Original brief</Button>}
       {suggestion && <div className="answer">
         <Label>Suggested brief<Textarea rows={4} value={suggestion} onChange={(event) => setSuggestion(event.target.value)} /></Label>

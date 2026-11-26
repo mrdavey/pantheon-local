@@ -32,7 +32,11 @@ Use the gear beside a run to pause, resume, require review, or delete it. Deleti
 
 In a run, **Open working folder** opens the milestone checkouts. New runs put them under **Pantheon work <run ID>** in the folder you selected. Each milestone has its own copy so several agents can edit in parallel. Passing work appears on the target branch when it lands. Older runs open their original working folder in the service state directory. Deleting a new run keeps its project-side milestone folders.
 
-In **Milestones**, switch between **Table**, **Map**, and **Kanban**. On the map, choose a colored worker filter to dim other workers’ assignments. Choose **All** to clear it. Select an assignment to trace its prerequisites and downstream work. Click the canvas to clear the chain. The card’s details icon opens the same milestone details as the table and board, including status, tokens, estimated cost, duration, and **Explain this**. Elapsed time starts at the first worker turn and includes waits between attempts. It updates each second during work and shows the final duration after completion. **Full screen** expands the map and Escape returns to the run.
+The workbench opens in dark mode. Use **Appearance** in the top bar to choose Light or follow your system.
+
+In **Milestones**, switch between **Table**, **Map**, and **Kanban**. Select any table row or board card to open its details. Choose a table heading to sort, then choose it again to reverse the order. **Completed** shows local date and time and keeps milestones without a completion time at the bottom. Select a dependency in the details panel to open that milestone, including work from earlier rounds.
+
+On the map, choose a colored worker filter to dim other workers’ assignments. Choose **All** to clear it. Select an assignment to trace its prerequisites and downstream work. Click the canvas to clear the chain. The card’s details icon opens the same milestone details as the table and board, including status, tokens, estimated cost, duration, and **Explain this**. Elapsed time starts at the first worker turn and includes waits between attempts. It updates each second during work and shows the final duration after completion. **Full screen** expands the map and Escape returns to the run.
 
 Choose **Add task**, describe the work, then select **Create milestone(s)**. Review the proposed owners, dependencies, and extra checks before choosing **Add to run**. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
 

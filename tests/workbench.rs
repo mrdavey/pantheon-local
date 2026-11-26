@@ -158,6 +158,8 @@ fn color_and_keyboard(h: &Harness) -> Result<()> {
         h.button("Agent setup").attr("aria-current")? == "page",
         "setup navigation not active"
     );
+    ensure!(h.b.eval("return document.documentElement.dataset.appearance", vec![])? == "dark");
+    h.b.label("Appearance").select("system")?;
     for scheme in ["dark", "light"] {
         h.b.cdp("Emulation.setEmulatedMedia",json!({"features":[{"name":"prefers-color-scheme","value":scheme},{"name":"prefers-reduced-motion","value":"reduce"}]}))?;
         until("requested color scheme", || {
@@ -169,6 +171,8 @@ fn color_and_keyboard(h: &Harness) -> Result<()> {
         })?;
         h.no_overflow()?;
     }
+    h.goto()?;
+    h.b.role("heading", "Agent setup").visible()?;
     h.b.key("\u{e004}")?;
     h.b.role("link", "Skip to content").focused()
 }
@@ -375,7 +379,7 @@ fn export(h: &Harness) -> Result<()> {
     ensure!(!project.join("scope.md").exists());
     b.text("Full brief").focus()?;
     b.key("\u{e007}")?;
-    b.xpath("//details[@open]//p[.='Add quote export']")
+    b.xpath("//*[@data-slot='collapsible'][@data-state='open']//p[.='Add quote export']")
         .visible()?;
     b.key("\u{e007}")?;
     b.role("dialog", "Coordinator chat").visible()?;
@@ -411,7 +415,7 @@ fn export(h: &Harness) -> Result<()> {
         .xpath(".//strong[.='Write the open quotes export.']")
         .visible()?;
     milestone.click()?;
-    b.xpath("//details/summary[.='Details']").click()?;
+    b.xpath("//button[normalize-space(.)='Details']").click()?;
     b.xpath("//*[@data-slot='dialog-content']//code[.='open quotes']")
         .visible()?;
     b.text("Why this model?").click()?;
@@ -448,11 +452,11 @@ fn export(h: &Harness) -> Result<()> {
     h.button("Land on main").visible()?;
     b.xpath("//button[@data-task='timing']//*[@aria-label='Milestone 2']")
         .visible()?;
-    let past = b.xpath("//details[contains(@class,'superseded-work')]");
-    ensure!(past.property("open")? == false);
-    past.xpath(".//summary").click()?;
+    let past = b.xpath("//*[@data-slot='collapsible'][contains(@class,'superseded-work')]");
+    ensure!(past.attr("data-state")? == "closed");
+    past.xpath(".//button[@aria-expanded]").click()?;
     past.xpath(".//article//span[.='Superseded']").visible()?;
-    past.xpath(".//summary").click()?;
+    past.xpath(".//button[@aria-expanded]").click()?;
     h.click("Experiment")?;
     b.role("combobox", "Suite revision").select("1")?;
     h.click("Show superseded implementations (1)")?;
@@ -681,7 +685,8 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
         Ok((clock.attr("datetime")? != initial).then_some(()))
     })?;
     fs::write(h.dir.path().join("milestone-gate"), "")?;
-    h.b.xpath("//details/summary[.='Details']").click()?;
+    h.b.xpath("//button[normalize-space(.)='Details']")
+        .click()?;
     h.b.text("Cannot write Git metadata.").visible()?;
     h.click("Close dialog")?;
     h.b.xpath("//button[contains(.,'Needs you') and contains(.,'1')]")
@@ -706,7 +711,8 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     h.b.role("heading", "Recover the fixture milestone")
         .visible()?;
     h.b.xpath("//button[@data-task='recover-export']").click()?;
-    h.b.xpath("//details/summary[.='Details']").click()?;
+    h.b.xpath("//button[normalize-space(.)='Details']")
+        .click()?;
     h.b.text("Recovered the verified commit from the worker checkout.")
         .visible()?;
     let duration =
@@ -811,9 +817,9 @@ fn turn_activity(h: &Harness) -> Result<()> {
     log.xpath(".//dt[.='Files']").visible()?;
     log.contains("src/main.rs")?;
     log.contains("Public response.")?;
-    let usage = log.xpath(".//details[summary/strong[.='Usage update']]");
-    ensure!(usage.property("open")? == false);
-    usage.xpath(".//summary").click()?;
+    let usage = log.xpath(".//*[@data-slot='collapsible'][button/strong[.='Usage update']]");
+    ensure!(usage.attr("data-state")? == "closed");
+    usage.xpath(".//button[@aria-expanded]").click()?;
     usage.xpath(".//dt[.='Tokens']").visible()?;
     ensure!(!log.text_content()?.contains("private-fixture"));
     log.contains("Time unavailable")?;
@@ -1242,10 +1248,48 @@ fn assignment_map(h: &Harness) -> Result<()> {
     let b = &h.b;
     b.text("Waiting for check approval").visible()?;
     b.text("Install locked dependencies").click()?;
-    b.xpath("//details[@open]//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
+    b.xpath("//*[@data-slot='collapsible'][@data-state='open']//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
         .visible()?;
     b.text("Install locked dependencies").click()?;
     h.click("Minimize chat")?;
+    for column in ["Owner", "Status", "Milestone", "Completed"] {
+        let head = b.xpath(&format!(
+            "//table[@aria-label='Milestones']//th[button[contains(.,'{column}')]]"
+        ));
+        let button = b.xpath(&format!(
+            "//table[@aria-label='Milestones']//th/button[contains(.,'{column}')]"
+        ));
+        button.click()?;
+        ensure!(
+            head.attr("aria-sort")?
+                == if column == "Completed" {
+                    "descending"
+                } else {
+                    "ascending"
+                }
+        );
+        button.click()?;
+        ensure!(
+            head.attr("aria-sort")?
+                == if column == "Completed" {
+                    "ascending"
+                } else {
+                    "descending"
+                }
+        );
+        if column == "Milestone" {
+            ensure!(b.eval("return document.querySelector('.milestone-table tbody [data-task]').dataset.task",vec![])?=="ui");
+        }
+    }
+    b.xpath("//tr[td/button[@data-task='api']]/td[2]").click()?;
+    b.role("dialog", "Implement persistence.").visible()?;
+    h.click("Open milestone foundation")?;
+    b.role("dialog", "Create a project explanation.")
+        .visible()?;
+    b.role("heading", "Create a project explanation.")
+        .focused()?;
+    b.key("\u{e00c}")?;
+    b.xpath("//button[@data-task='api']").focused()?;
     h.click("Map")?;
     h.click("View coordinator activity")?;
     b.role("heading", "Coordinator activity").visible()?;
@@ -1289,7 +1333,8 @@ fn assignment_map(h: &Harness) -> Result<()> {
         )? == true
     );
     h.click("Details for ui")?;
-    b.text("Depends on foundation").visible()?;
+    b.xpath("//*[@role='dialog']//button[@aria-label='Open milestone foundation']")
+        .visible()?;
     h.button("Explain this").visible()?;
     h.click("Close dialog")?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
@@ -1300,6 +1345,9 @@ fn assignment_map(h: &Harness) -> Result<()> {
             "map-desktop.png"
         }))?;
     }
+    b.xpath("//table[@aria-label='Recent run activity']/tbody/tr[1]/td[3]")
+        .click()?;
+    b.role("dialog", "Planning").visible()?;
     h.no_overflow()
 }
 scenario!(
@@ -1436,14 +1484,22 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
         .contains("Record export timing.")?;
     h.click("Add to run")?;
     h.click("Kanban")?;
-    b.xpath("//div[@class='board-card']//button[@data-task='timing']")
+    b.xpath("//*[@data-slot='card']//button[@data-task='timing']")
         .click()?;
-    b.text("Depends on export").visible()?;
-    b.xpath("//details[not(@open)]/summary[.='Details']")
+    h.click("Open milestone export")?;
+    b.xpath("//*[@role='dialog']//code[.='export']").visible()?;
+    b.xpath("//button[@aria-expanded='false' and normalize-space(.)='Details']")
         .visible()?;
     h.click("Close dialog")?;
     let current = h.svc.wait_state(&path, "review")?;
     ensure!(current["round"] == 2 && current["tasks"][1]["round"] == 2);
+    h.click("Table")?;
+    h.click("Earlier milestones")?;
+    h.click("Completed")?;
+    b.xpath("//table[@aria-label='Milestones']/tbody/tr[1][td/button[@data-task='timing']]/td/time[@datetime]").visible()?;
+    h.click("Completed")?;
+    b.xpath("//table[@aria-label='Milestones']/tbody/tr[1][td/button[@data-task='export']]/td/time[@datetime]").visible()?;
+    h.click("Kanban")?;
     if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
         b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
             "kanban-mobile.png"

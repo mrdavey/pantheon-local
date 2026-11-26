@@ -9,7 +9,7 @@ import { Loading, Status } from "./status";
 import { LogTime, TurnLog } from "./turn-log";
 import { shortSummary } from "./run-summary";
 
-const roles = {
+export const activityRoles = {
   plan: "Planning",
   advisor: "Advisor",
   observe: "Coordinator review",
@@ -32,9 +32,9 @@ function Choice({ label, value, options, onChange }) {
   );
 }
 function name(row) {
-  return [roles[row.role] || row.role, shortSummary(row.detail, 55)].filter(Boolean).join(" · ");
+  return [activityRoles[row.role] || row.role, shortSummary(row.detail, 55)].filter(Boolean).join(" · ");
 }
-export function ActivityLog({ run, api }) {
+export function ActivityLog({ run, api, initialTurn = null }) {
   const [query, setQuery] = useState({
     q: "",
     role: "",
@@ -47,7 +47,7 @@ export function ActivityLog({ run, api }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
-  const [selected, select] = useState(null),
+  const [selected, select] = useState(initialTurn),
     [now, setNow] = useState(Date.now);
   const params = new URLSearchParams(query).toString();
   const result = data?.params === params ? data : null;
@@ -96,7 +96,7 @@ export function ActivityLog({ run, api }) {
         <Choice
           label="Activity type"
           value={query.role}
-          options={[["", "All types"], ...Object.entries(roles)]}
+          options={[["", "All types"], ...Object.entries(activityRoles)]}
           onChange={(v) => filter("role", v)}
         />
         <Choice
@@ -142,7 +142,9 @@ export function ActivityLog({ run, api }) {
             </TableHeader>
             <TableBody>
               {result.items.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow key={row.id} className="open-row" onClick={event=>{
+                  if (!event.target.closest("button")) {event.currentTarget.querySelector("button").focus({preventScroll:true});select(row);}
+                }}>
                   <TableCell>
                     <Button
                       className="activity-open"
@@ -151,7 +153,7 @@ export function ActivityLog({ run, api }) {
                       aria-label={"View log for " + name(row)}
                       onClick={() => select(row)}
                     >
-                      {roles[row.role] || row.role}
+                      {activityRoles[row.role] || row.role}
                       <ChevronRight aria-hidden="true" />
                     </Button>
                     {row.detail && <small>{shortSummary(row.detail, 85)}</small>}

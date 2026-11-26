@@ -1,7 +1,10 @@
+import { Disclosure } from "./disclosure";
 import React, { useEffect, useState } from "react";
 import { Columns3, List, Network, Plus } from "lucide-react";
 import { Button } from "./components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
+import { MilestoneTable } from "./milestone-table";
+import { MilestoneLinks } from "./milestone-links";
+import { Card } from "./components/ui/card";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Dialog } from "./dialog";
@@ -12,7 +15,15 @@ import { canRetryMilestone, retryTokens, shortSummary } from "./run-summary";
 import { Proposal, RoutingEvidence } from "./conversation";
 import { AssignmentMap } from "./assignment-map";
 
-export function MilestoneDetails({ run, task, api, act, busy, explain, onClose }) {
+export function MilestoneDetails({ run, task, api, act, busy, explain, openMilestone, onClose }) {
+  return (
+    <Dialog title={shortSummary(task.goal, 96) || task.id} onClose={onClose} pageKey={task.id} placement="right" className="work-detail-dialog">
+      <AssignmentFacts key={task.id} {...{ run, task, api, act, busy, explain, openMilestone, onClose }} />
+    </Dialog>
+  );
+}
+
+function AssignmentFacts({ run, task, api, act, busy, explain, openMilestone, onClose }) {
   const [usage, setUsage] = useState(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
@@ -42,117 +53,119 @@ export function MilestoneDetails({ run, task, api, act, busy, explain, onClose }
     };
   }, [api, run.id, task.id, task.state, run.pricing_revision, retry]);
   return (
-    <Dialog title={shortSummary(task.goal, 96) || task.id} onClose={onClose} className="work-detail-dialog">
-      <div className="work-details">
-        <div className="milestone-meta">
-          <Status state={task.state} />
-          <strong>{task.worker}</strong>
-          <code>{task.id}</code>
-        </div>
-        <div className="assignment-facts">
-          <MilestoneTime {...{ run, task, api }} />
-          <dl>
-            {task.assigned_at && (
-              <div>
-                <dt>Assigned</dt>
-                <dd>
-                  <time dateTime={task.assigned_at}>{new Date(task.assigned_at).toLocaleString()}</time>
-                </dd>
-              </div>
-            )}
-            {task.variant && (
-              <div>
-                <dt>Variant</dt>
-                <dd>{task.variant}</dd>
-              </div>
-            )}
+    <div className="work-details">
+      <div className="milestone-meta">
+        <Status state={task.state} />
+        <strong>{task.worker}</strong>
+        <code>{task.id}</code>
+      </div>
+      <div className="assignment-facts">
+        <MilestoneTime {...{ run, task, api }} />
+        <dl>
+          {task.assigned_at && (
             <div>
-              <dt>Tokens</dt>
+              <dt>Assigned</dt>
               <dd>
-                {usage?.tokens?.toLocaleString() ?? "—"}
-                {usage?.partial_tokens && usage.tokens != null && " (partial)"}
+                <time dateTime={task.assigned_at}>{new Date(task.assigned_at).toLocaleString()}</time>
               </dd>
             </div>
+          )}
+          {task.variant && (
             <div>
-              <dt>Est. cost</dt>
-              <dd>
-                {usage?.usd == null
-                  ? "—"
-                  : usage.usd.toLocaleString("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      maximumFractionDigits: 6,
-                    })}
-                {usage?.partial_cost && usage.usd != null && " (partial)"}
-              </dd>
+              <dt>Variant</dt>
+              <dd>{task.variant}</dd>
             </div>
-            <div>
-              <dt>Worker turns</dt>
-              <dd>{usage?.turns ?? "—"}</dd>
-            </div>
-          </dl>
-          {error && (
-            <p role="alert">
-              {error}{" "}
-              <Button variant="outline" onClick={() => setRetry((n) => n + 1)}>
-                Retry usage
-              </Button>
-            </p>
           )}
-        </div>
-        {!!task.depends?.length && <p>Depends on {task.depends.join(", ")}</p>}
-        {task.parent && <p>Delegated by {task.parent}</p>}
-        <details className="assignment-description">
-          <summary>Details</summary>
-          <Markdown>{task.goal}</Markdown>
-          {task.finding && (
-            <>
-              <h3>Result</h3>
-              <Markdown>{task.finding}</Markdown>
-            </>
-          )}
-          {!!task.notes?.length && (
-            <>
-              <h3>Notes</h3>
-              {task.notes.map((n, i) => (
-                <Markdown key={i}>{n}</Markdown>
-              ))}
-            </>
-          )}
-          {task.paths?.length > 0 && <p>Files · {task.paths.join(", ")}</p>}
-          {task.commit && (
-            <p>
-              Commit <code>{task.commit}</code>
-            </p>
-          )}
-        </details>
-        {task.route && <RoutingEvidence route={task.route} />}
-        <div className="actions">
+          <div>
+            <dt>Tokens</dt>
+            <dd>
+              {usage?.tokens?.toLocaleString() ?? "—"}
+              {usage?.partial_tokens && usage.tokens != null && " (partial)"}
+            </dd>
+          </div>
+          <div>
+            <dt>Est. cost</dt>
+            <dd>
+              {usage?.usd == null
+                ? "—"
+                : usage.usd.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 6,
+                  })}
+              {usage?.partial_cost && usage.usd != null && " (partial)"}
+            </dd>
+          </div>
+          <div>
+            <dt>Worker turns</dt>
+            <dd>{usage?.turns ?? "—"}</dd>
+          </div>
+        </dl>
+        {error && (
+          <p role="alert">
+            {error}{" "}
+            <Button variant="outline" onClick={() => setRetry((n) => n + 1)}>
+              Retry usage
+            </Button>
+          </p>
+        )}
+      </div>
+      <MilestoneLinks ids={task.depends} tasks={run.tasks} open={openMilestone} />
+      <MilestoneLinks
+        label="Delegated by"
+        ids={task.parent ? [task.parent] : []}
+        tasks={run.tasks}
+        open={openMilestone}
+      />
+      <Disclosure className="assignment-description" title="Details">
+        <Markdown>{task.goal}</Markdown>
+        {task.finding && (
+          <>
+            <h3>Result</h3>
+            <Markdown>{task.finding}</Markdown>
+          </>
+        )}
+        {!!task.notes?.length && (
+          <>
+            <h3>Notes</h3>
+            {task.notes.map((n, i) => (
+              <Markdown key={i}>{n}</Markdown>
+            ))}
+          </>
+        )}
+        {task.paths?.length > 0 && <p>Files · {task.paths.join(", ")}</p>}
+        {task.commit && (
+          <p>
+            Commit <code>{task.commit}</code>
+          </p>
+        )}
+      </Disclosure>
+      {task.route && <RoutingEvidence route={task.route} />}
+      <div className="actions">
+        <Button
+          variant="outline"
+          onClick={() => {
+            onClose();
+            explain("milestone", task.id);
+          }}
+        >
+          Explain this
+        </Button>
+        {canRetryMilestone(run, task) && (
           <Button
             variant="outline"
-            onClick={() => {
-              onClose();
-              explain("milestone", task.id);
-            }}
+            disabled={busy}
+            onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}
           >
-            Explain this
+            Retry milestone
           </Button>
-          {canRetryMilestone(run, task) && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => act({ kind: "resume", task: task.id, tokens: retryTokens(run) })}
-            >
-              Retry milestone
-            </Button>
-          )}
-        </div>
+        )}
       </div>
-    </Dialog>
+    </div>
   );
 }
 
-function AddTask({ run, act, busy, onClose }) {
+function AddTask({ run, act, busy, onClose, openMilestone }) {
   const [error, setError] = useState("");
   const [text, setText] = useState(""),
     [request, setRequest] = useState(null),
@@ -204,7 +217,15 @@ function AddTask({ run, act, busy, onClose }) {
           <Markdown>{reply.text}</Markdown>
           {reply.error && <p role="alert">{reply.error}</p>}
           {reply.tasks?.length > 0 && (
-            <Proposal message={reply} {...{ run, act, busy }} onDecision={onClose} />
+            <Proposal
+              message={reply}
+              {...{ run, act, busy }}
+              onDecision={onClose}
+              openMilestone={(id) => {
+                onClose();
+                openMilestone(id);
+              }}
+            />
           )}
         </>
       )}
@@ -223,9 +244,8 @@ const lanes = [
   ["Needs attention", ["blocked", "question", "interrupted"]],
   ["Done", ["committed", "abandoned"]],
 ];
-export function Milestones({ run, api, act, busy, explain, question }) {
+export function Milestones({ run, api, act, busy, explain, question, selected, setSelected, openActivity }) {
   const [view, setView] = useState("table"),
-    [selected, setSelected] = useState(null),
     [adding, setAdding] = useState(false),
     [earlier, setEarlier] = useState(false);
   const all = run.tasks || [],
@@ -242,8 +262,8 @@ export function Milestones({ run, api, act, busy, explain, question }) {
     return (
       task && (
         <MilestoneDetails
-          key={task.id}
           {...{ task, run, api, act, busy }}
+          openMilestone={setSelected}
           explain={(kind, id) => {
             beforeExplain?.();
             explain(kind, id);
@@ -281,7 +301,7 @@ export function Milestones({ run, api, act, busy, explain, question }) {
           </Button>
         ))}
         {run.task_start > 0 && (
-          <Button size="sm" variant="outline" aria-pressed={earlier} onClick={() => setEarlier(!earlier)}>
+          <Button size="sm" className="history-toggle" variant="outline" aria-pressed={earlier} onClick={() => setEarlier(!earlier)}>
             Earlier milestones
           </Button>
         )}
@@ -292,49 +312,20 @@ export function Milestones({ run, api, act, busy, explain, question }) {
         )}
       </div>
       {run.benchmark_note && (
-        <details>
-          <summary>Model routing</summary>
+        <Disclosure title="Model routing">
           <p>{run.benchmark_note}</p>
-        </details>
+        </Disclosure>
       )}
       {view === "map" ? (
-        <AssignmentMap {...{ run, tasks, offset }} onDetails={setSelected} renderDetails={details} />
+        <AssignmentMap
+          {...{ run, tasks, offset, openActivity }}
+          onDetails={setSelected}
+          renderDetails={details}
+        />
       ) : !tasks.length ? (
         <p>Waiting for the coordinator’s plan.</p>
       ) : view === "table" ? (
-        <Table aria-label="Milestones in order added">
-          <TableHeader>
-            <TableRow>
-              {["Milestone", "Owner", "Status"].map((k) => (
-                <TableHead key={k}>{k}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tasks.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell>
-                  {card(t)}
-                  {t.question && t.state === "question" && !run.project && question(t)}
-                </TableCell>
-                <TableCell>{t.worker}</TableCell>
-                <TableCell>
-                  <Status state={t.state} />
-                  {canRetryMilestone(run, t) && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => act({ kind: "resume", task: t.id, tokens: retryTokens(run) })}
-                    >
-                      Retry milestone
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <MilestoneTable {...{ run, tasks, api, act, busy, card, question }} onSelect={setSelected} />
       ) : (
         <div className="kanban">
           {lanes.map(([label, states], i) => {
@@ -348,13 +339,22 @@ export function Milestones({ run, api, act, busy, explain, question }) {
                   <small>{items.length}</small>
                 </h3>
                 {items.map((t) => (
-                  <div className="board-card" key={t.id}>
+                  <Card
+                    className="board-card"
+                    key={t.id}
+                    onClick={(e) => {
+                      if (!e.target.closest("button")) {
+                        e.currentTarget.querySelector("button").focus();
+                        setSelected(t.id);
+                      }
+                    }}
+                  >
                     {card(t)}
                     <footer>
                       {t.worker}
                       <Status state={t.state} />
                     </footer>
-                  </div>
+                  </Card>
                 ))}
               </section>
             );
@@ -362,7 +362,9 @@ export function Milestones({ run, api, act, busy, explain, question }) {
         </div>
       )}
       {view !== "map" && details()}
-      {adding && <AddTask {...{ run, act, busy }} onClose={() => setAdding(false)} />}
+      {adding && (
+        <AddTask {...{ run, act, busy }} openMilestone={setSelected} onClose={() => setAdding(false)} />
+      )}
     </section>
   );
 }

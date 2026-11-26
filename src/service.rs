@@ -634,6 +634,9 @@ impl Local {
                         engine.fetch_prices(&mut latest, 0, false)?;
                         Ok(json!({"status":latest["pricing_status"]}))
                     }),
+                    ("GET", ["milestones", "completions"]) => {
+                        Ok(crate::metrics::milestone_completions(&run, &root))
+                    }
                     ("GET", ["milestones", task, "timing"]) => {
                         crate::metrics::milestone_timing(&run, &root, task)
                     }

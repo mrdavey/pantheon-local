@@ -1,5 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
 import {
+  Check,
+  Clock3,
+  CircleAlert,
+  LoaderCircle,
+  ArrowUpRight,
   Focus,
   Minus,
   Plus,
@@ -14,13 +19,17 @@ import {
   Terminal,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
+import { Table, TableBody, TableRow, TableCell, TableHeader, TableHead } from "./components/ui/table";
+import { MilestoneLinks } from "./milestone-links";
+import { activityRoles } from "./activity-log";
+import { shortSummary } from "./run-summary";
 import { Card } from "./components/ui/card";
 import { Dialog } from "./dialog";
 import { Status, coordinatorStatus } from "./status";
 
-const stride = 238;
-const rowHeight = 98;
-const nodeWidth = 205;
+const stride = 292;
+const rowHeight = 116;
+const nodeWidth = 224;
 
 // Dependencies advance from left to right. Workers keep their own horizontal lanes.
 function layout(tasks, workers) {
@@ -93,7 +102,90 @@ function chain(edges, selected) {
   return result;
 }
 
-export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) {
+function NodeState({ state }) {
+  const Icon =
+    state === "committed"
+      ? Check
+      : state === "running"
+        ? LoaderCircle
+        : ["blocked", "question", "interrupted"].includes(state)
+          ? CircleAlert
+          : Clock3;
+  return (
+    <span className={"node-state " + state} title={state}>
+      <Icon aria-label={state} />
+    </span>
+  );
+}
+
+function RecentActivity({ run, openActivity }) {
+  return (
+    <section className="map-activity">
+      <header>
+        <h3>Recent activity</h3>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => openActivity(null)}
+          aria-label="Open full activity log"
+        >
+          Activity Log
+          <ArrowUpRight />
+        </Button>
+      </header>
+      <Table aria-label="Recent run activity">
+        <TableHeader>
+          <TableRow>
+            {["Time", "Activity", "Status", "Agent"].map((label) => (
+              <TableHead key={label}>{label}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {run.turns
+            .slice(-4)
+            .reverse()
+            .map((turn) => {
+              const task = run.tasks.find((t) => t.id === turn.task);
+              const detail = task ? shortSummary(task.goal, 70) : activityRoles[turn.role] || turn.role;
+              function open() {
+                openActivity({ ...turn, detail: task?.goal || "" });
+              }
+              return (
+                <TableRow
+                  key={turn.id}
+                  className="open-row"
+                  onClick={(e) => {
+                    if (!e.target.closest("button")) open();
+                  }}
+                >
+                  <TableCell>
+                    {turn.started
+                      ? new Date(turn.started).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="sm" onClick={open}>
+                      {detail}
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <Status state={turn.state} />
+                  </TableCell>
+                  <TableCell>{turn.agent || task?.worker || "—"}</TableCell>
+                </TableRow>
+              );
+            })}
+        </TableBody>
+      </Table>
+    </section>
+  );
+}
+
+export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails, openActivity }) {
   const [zoom, setZoom] = useState(1),
     [selected, select] = useState(null);
   const [agent, setAgent] = useState(""),
@@ -109,7 +201,8 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) 
   const graph = useMemo(() => layout(tasks, workers), [tasks, workers]);
   const highlighted = useMemo(() => chain(graph.edges, selected), [graph, selected]);
   const faded = (t) => (highlighted ? !highlighted.has(t.id) : !!agent && t.worker !== agent);
-  const shade = (worker) => (245 + workers.indexOf(worker) * 137.5) % 360;
+  const inspected = tasks.find((t) => t.id === selected);
+  const shade = (worker) => (156 + workers.indexOf(worker) * 137.5) % 360;
   function focusTask(id) {
     setAgent("");
     select(selected === id ? null : id);
@@ -215,81 +308,119 @@ export function AssignmentMap({ run, tasks, offset, onDetails, renderDetails }) 
         <small>{selected ? "Dependency chain" : graph.nodes.length + " milestones"} · Drag to pan</small>
       </div>
       {!tasks.length && <p>Assignments appear when the coordinator creates the plan.</p>}
-      <div
-        ref={viewport}
-        className="map-viewport"
-        role="region"
-        aria-label="Assignment map, scroll to pan"
-        tabIndex={0}
-        onClick={(e) => {
-          if (!e.target.closest("button")) select(null);
-        }}
-        onPointerDown={startDrag}
-        onLostPointerCapture={() => {
-          drag.current = null;
-        }}
-        onPointerMove={(event) => {
-          if (drag.current)
-            event.currentTarget.scrollTo(drag.current[0] - event.clientX, drag.current[1] - event.clientY);
-        }}
-      >
-        <div style={{ width: graph.width * zoom, height: graph.height * zoom, overflow: "hidden" }}>
+      <div className="map-stage">
+        <div
+          ref={viewport}
+          className="map-viewport"
+          role="region"
+          aria-label="Assignment map, scroll to pan"
+          tabIndex={0}
+          onClick={(e) => {
+            if (!e.target.closest("button")) select(null);
+          }}
+          onPointerDown={startDrag}
+          onLostPointerCapture={() => {
+            drag.current = null;
+          }}
+          onPointerMove={(event) => {
+            if (drag.current)
+              event.currentTarget.scrollTo(drag.current[0] - event.clientX, drag.current[1] - event.clientY);
+          }}
+        >
           <div
-            className="map-world"
-            style={{ width: graph.width, height: graph.height, transform: `scale(${zoom})` }}
+            className="map-extent"
+            style={{ width: graph.width * zoom, height: graph.height * zoom, overflow: "hidden" }}
           >
-            <svg aria-hidden="true" width={graph.width} height={graph.height}>
-              {graph.edges.map(([a, b], i) => {
-                const x = a.x + nodeWidth,
-                  y = a.y + 37,
-                  end = b.y + 37;
-                const mid = x + (b.x - x) / 2;
-                return (
-                  <path
-                    key={i}
-                    opacity={faded(a.task) || faded(b.task) ? 0.27 : 1}
-                    d={`M ${x} ${y} C ${mid} ${y}, ${mid} ${end}, ${b.x} ${end}`}
-                  />
-                );
-              })}
-            </svg>
-            {graph.nodes.map(({ task, x, y, order }) => (
-              <div
-                key={task.id}
-                className="map-node"
-                data-faded={faded(task)}
-                data-selected={selected === task.id}
-                style={{ left: x, top: y, width: nodeWidth, "--agent-hue": shade(task.worker) }}
-              >
-                <Button
-                  variant="ghost"
-                  className="map-select"
-                  title="Highlight dependency chain"
-                  aria-pressed={selected === task.id}
-                  aria-label={`Milestone ${offset + order + 1}: ${task.goal}`}
-                  onClick={() => focusTask(task.id)}
-                >
-                  <small>
-                    {task.worker} · {offset + order + 1}
-                  </small>
-                  <strong>{task.goal}</strong>
-                  <Status state={task.state} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="map-info"
-                  aria-label={`Details for ${task.id}`}
-                  title="Assignment details"
-                  onClick={() => onDetails(task.id)}
-                >
-                  <Info />
-                </Button>
-              </div>
-            ))}
+            <div
+              className="map-world"
+              style={{ width: graph.width, height: graph.height, transform: `scale(${zoom})` }}
+            >
+              <svg aria-hidden="true" width={graph.width} height={graph.height}>
+                {graph.edges.map(([a, b], i) => {
+                  const x = a.x + nodeWidth,
+                    y = a.y + 46,
+                    end = b.y + 46;
+                  const mid = x + (b.x - x) / 2;
+                  return (
+                    <path
+                      key={i}
+                      opacity={faded(a.task) || faded(b.task) ? 0.27 : 1}
+                      d={`M ${x} ${y} C ${mid} ${y}, ${mid} ${end}, ${b.x} ${end}`}
+                    />
+                  );
+                })}
+              </svg>
+              {graph.nodes.map(({ task, x, y, order }) => (
+                <Card asChild key={task.id}>
+                  <div
+                    className="map-node"
+                    data-faded={faded(task)}
+                    data-selected={selected === task.id}
+                    style={{ left: x, top: y, width: nodeWidth, "--agent-hue": shade(task.worker) }}
+                  >
+                    <Button
+                      variant="ghost"
+                      className="map-select"
+                      title="Highlight dependency chain"
+                      aria-pressed={selected === task.id}
+                      aria-label={`Milestone ${offset + order + 1}: ${task.goal}`}
+                      onClick={() => focusTask(task.id)}
+                    >
+                      <NodeState state={task.state} />
+                      <small>M-{String(offset + order + 1).padStart(2, "0")}</small>
+                      <strong>{shortSummary(task.goal, 70)}</strong>
+                      <span className="node-owner">{task.worker}</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="map-info"
+                      aria-label={`Details for ${task.id}`}
+                      title="Assignment details"
+                      onClick={() => onDetails(task.id)}
+                    >
+                      <Info />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
           </div>
         </div>
+        {inspected && (
+          <Card asChild>
+            <aside className="map-inspector" aria-label="Selected milestone">
+              <small>Milestone {String(tasks.indexOf(inspected) + offset + 1).padStart(2, "0")}</small>
+              <h3>{shortSummary(inspected.goal, 90)}</h3>
+              <Status state={inspected.state} />
+              <dl>
+                <div>
+                  <dt>Worker</dt>
+                  <dd>{inspected.worker}</dd>
+                </div>
+                {inspected.paths?.length > 0 && (
+                  <div>
+                    <dt>Scope</dt>
+                    <dd>{inspected.paths.join(", ")}</dd>
+                  </div>
+                )}
+              </dl>
+              <MilestoneLinks ids={inspected.depends} tasks={run.tasks} open={onDetails} />
+              {(inspected.finding || inspected.notes?.length > 0) && (
+                <div className="inspector-note">
+                  <strong>Latest update</strong>
+                  <p>{shortSummary(inspected.finding || inspected.notes.at(-1), 220)}</p>
+                </div>
+              )}
+              <Button size="sm" variant="outline" onClick={() => onDetails(inspected.id)}>
+                Assignment details
+                <ArrowUpRight />
+              </Button>
+            </aside>
+          </Card>
+        )}
       </div>
+      {!expanded && run.turns?.length > 0 && <RecentActivity {...{ run, openActivity }} />}
       {renderDetails(() => setExpanded(false))}
       {coordinator && (
         <Dialog title="Coordinator activity" onClose={() => setCoordinator(false)}>

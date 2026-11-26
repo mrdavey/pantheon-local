@@ -1,3 +1,4 @@
+import { Disclosure } from "./disclosure";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Pause, Play } from "lucide-react";
 import { Input } from "./components/ui/input";
@@ -221,8 +222,7 @@ function UsageChart({ events, field, mode, start, end, selectRange }) {
         <time>{clock.format(start)}</time>
         <time>{clock.format(end)}</time>
       </figcaption>
-      <details>
-        <summary>Chart data</summary>
+      <Disclosure title="Chart data">
         <Table>
           <TableHeader>
             <TableRow>
@@ -239,7 +239,7 @@ function UsageChart({ events, field, mode, start, end, selectRange }) {
             ))}
           </TableBody>
         </Table>
-      </details>
+      </Disclosure>
     </figure>
   );
 }
@@ -288,6 +288,7 @@ export function Metrics({ run, api }) {
   const [range, setRange] = useState("all"),
     [field, setField] = useState("tokens"),
     [mode, setMode] = useState("total");
+  const [zoomOpen, setZoomOpen] = useState(false);
   const [selection, setSelection] = useState(null);
   const [fetching, setFetching] = useState(false),
     [lookupMessage, setLookupMessage] = useState("");
@@ -537,8 +538,7 @@ export function Metrics({ run, api }) {
               />
             </div>
             {window.last > window.first && (
-              <details className="zoom-range" open={selection ? true : undefined}>
-                <summary>Zoom time range</summary>
+              <Disclosure className="zoom-range" title="Zoom time range" open={zoomOpen} onOpenChange={setZoomOpen}>
                 <div>
                   {["From", "To"].map((name, i) => (
                     <Label key={name}>
@@ -570,14 +570,14 @@ export function Metrics({ run, api }) {
                     Reset zoom
                   </Button>
                 </div>
-              </details>
+              </Disclosure>
             )}
             {summary.events.some((e) => e[field] != null) ? (
               mode === "pie" ? (
                 <ShareChart groups={summary.groups} field={field} />
               ) : (
                 <UsageChart
-                  selectRange={setSelection}
+                  selectRange={range => {setZoomOpen(true); setSelection(range);}}
                   events={summary.events}
                   field={field}
                   mode={mode}
@@ -591,8 +591,7 @@ export function Metrics({ run, api }) {
               </p>
             )}
           </section>
-          <details className="usage-method">
-            <summary>How cost is calculated</summary>
+          <Disclosure className="usage-method" title="How cost is calculated">
             <p>
               Claude and compatible adapters supply a USD estimate. For supported Codex models, Pantheon
               applies standard API rates to input, cached input, and output tokens. Your subscription, service
@@ -609,7 +608,7 @@ export function Metrics({ run, api }) {
                 · {new Date(rate.fetched).toLocaleDateString()}
               </p>
             ))}
-          </details>
+          </Disclosure>
           <section>
             <h3>Usage by agent and model</h3>
             <Table aria-label="Usage by agent and model">

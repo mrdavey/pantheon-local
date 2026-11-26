@@ -4,9 +4,15 @@ import { Button } from "./components/ui/button";
 import { X } from "lucide-react";
 import "./dialog.css";
 
-export function Dialog({ title, onClose, children, className = "" }) {
+export function Dialog({ title, onClose, children, className = "", placement = "center", pageKey }) {
   const opener = useRef(document.activeElement);
   const content = useRef(null);
+  const previousPage = useRef(pageKey);
+  const heading = useRef(null);
+  useLayoutEffect(() => {
+    if (previousPage.current !== pageKey) heading.current?.focus();
+    previousPage.current = pageKey;
+  }, [pageKey]);
   // A child dialog can receive Escape before Radix has registered its dismiss layer.
   useLayoutEffect(() => {
     function escape(event) {
@@ -21,7 +27,7 @@ export function Dialog({ title, onClose, children, className = "" }) {
     return () => window.removeEventListener("keydown", escape, true);
   }, [onClose]);
   return <Root open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent ref={content} showCloseButton={false} aria-describedby={undefined} className={`workbench-dialog ${className}`}
+    <DialogContent placement={placement} ref={content} showCloseButton={false} aria-describedby={undefined} className={`workbench-dialog ${className}`}
       onCloseAutoFocus={event => {
         event.preventDefault();
         // Radix restores focus asynchronously. Keep a newer user-selected field active.
@@ -30,7 +36,7 @@ export function Dialog({ title, onClose, children, className = "" }) {
           opener.current.focus({ preventScroll: true });
         }
       }}>
-      <header className="dialog-heading"><DialogTitle>{title}</DialogTitle>
+      <header className="dialog-heading"><DialogTitle ref={heading} tabIndex={-1}>{title}</DialogTitle>
         <Button variant="ghost" size="icon" type="button" aria-label="Close dialog" onClick={onClose}><X /></Button>
       </header>
       {children}

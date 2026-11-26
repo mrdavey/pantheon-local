@@ -14,5 +14,4 @@
 .settings-title { font-weight: 650; overflow-wrap: anywhere; }
 .settings-delete { padding-top: 1rem; margin-top: 1rem; border-top: 1px solid var(--line); }
 .workbench-dialog button.danger { color: var(--red, #a52b26); }
-@media (prefers-color-scheme: dark) { .workbench-dialog button.danger { color: #ffada6; } }
 @media (max-width: 760px) { .run-nav-row { flex: 0 0 min(82vw, 16rem); } }

@@ -1,4 +1,7 @@
+import { Card } from "./components/ui/card";
+import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
+import { MilestoneLinks } from "./milestone-links";
 import { Textarea } from "./components/ui/textarea";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { AttachmentButton, FileList, addAttachments, encodeAttachments } from "./brief-files";
@@ -20,8 +23,9 @@ function ChatIcon({ minimize = false }) {
   </svg>;
 }
 
-export function Proposal({ message, run, act, busy, onDecision }) {
+export function Proposal({ message, run, act, busy, onDecision, openMilestone }) {
   const [failed, setFailed] = useState(false);
+  const proposalId = useId();
   const canAdd = ["working", "review", "landed", "blocked", "checks"].includes(run.state) && (run.state !== "blocked" || run.recipe_approved) && !run.landing && !run.combination;
   async function decide(kind) {
     setFailed(false);
@@ -31,10 +35,13 @@ export function Proposal({ message, run, act, busy, onDecision }) {
 
   return <section className="chat-proposal">
     <h3>Proposed milestones</h3>
-    <ul>{message.tasks.map((task) => <li key={task.id}>
+    <ul>{message.tasks.map((task) => <li key={task.id} id={proposalId+task.id} tabIndex={-1}>
       <Markdown>{task.goal}</Markdown>
       <small>{task.worker}</small>{" "}
-      {task.depends?.length > 0 && <small>After {task.depends.join(", ")}</small>}
+      <MilestoneLinks ids={task.depends} tasks={[...(run.tasks||[]),...message.tasks]} open={id=>{
+        if (run.tasks?.some(t=>t.id===id)) openMilestone(id);
+        else document.getElementById(proposalId+id)?.focus();
+      }}/>
     </li>)}</ul>
     {message.checks?.length > 0 && <>
       <h4>Additional checks</h4>
@@ -78,7 +85,7 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone }) {
   const panelId = useId();
   const titleId = useId();
   const [dockOpen, setOpen] = useState(true);
@@ -202,7 +209,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
       aria-haspopup="dialog" hidden={open} onClick={() => { activated.current = true; setOpen(true); }}>
       <ChatIcon />Coordinator chat{unread && <span className="chat-unread" aria-hidden="true" />}
     </Button>
-    <div id={panelId}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
+    <div id={panelId}>{open && <Card asChild><section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
@@ -221,7 +228,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
           <Markdown>{message.text}</Markdown>
           {!!message.attachments?.length && <ul aria-label="Attached files">{message.attachments.map(f=><li key={f.path}>{f.name}</li>)}</ul>}
           {message.error && <p className="chat-error" role="alert">{message.error}</p>}
-          {message.tasks?.length > 0 && <Proposal {...{ message, run, act, busy }} />}
+          {message.tasks?.length > 0 && <Proposal {...{ message, run, act, busy, openMilestone }} />}
         </article>)}
         {waiting && <article className="chat-message chat-live" aria-live="off">
           <strong className="chat-author">Coordinator</strong>
@@ -260,16 +267,15 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
           <Button variant="outline" type="submit" className="primary" title="Enter to send · Shift+Enter for a new line" disabled={!canSend}>Send</Button>
         </div>
       </form>
-    </section>}</div>
+    </section></Card>}</div>
   </div>;
 }
 
 export function RoutingEvidence({ route }) {
   if (!route) return null;
   const evidence = route.evidence;
-  return <details className="routing-evidence">
-    <summary>{evidence ? "Why this model?" : "Why this worker?"}</summary>
+  return <Disclosure className="routing-evidence" title={evidence ? "Why this model?" : "Why this worker?"}>
     <p>{route.reason} {evidence && <>Compared {route.compared} profiles.</>}</p>
     {evidence && <p>{evidence.model} · {evidence.agent}{evidence.effort && " · " + evidence.effort} · {evidence.score.toFixed(1)}%{evidence.cost_per_trial != null && " · $" + evidence.cost_per_trial.toFixed(2) + " per benchmark trial"}. <a href={evidence.source} target="_blank" rel="noreferrer">{evidence.suite}, {evidence.date}</a></p>}
-  </details>;
+  </Disclosure>;
 }

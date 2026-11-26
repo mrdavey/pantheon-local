@@ -1,3 +1,5 @@
+import { Card } from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
 import { Loading } from "./status.jsx";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -174,14 +176,14 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
     {modal !== "new" && notices}
     {report && <>
       {!report.git && <p className="notice" role="alert">Git is required. <a href="https://git-scm.com/install/" target="_blank" rel="noreferrer">Install Git</a> and check again.</p>}
-      <section className="form-card configured">
+      <Card asChild><section className="form-card configured">
         <h2>Your configured agents</h2>
         {available.length ? <ul className="setup-list">{available.map((name) => {
           const profile = profiles[name];
           const label = profileLabel(name, profile);
           const state = report.profiles[name].state;
           return <li className="configured-row" key={name}>
-            <div><strong>{label}</strong><small className={"state " + (state === "connected" ? "passed" : "")}>{labels[state]}</small></div>
+            <div><strong>{label}</strong><Badge asChild variant="outline"><small className={"state " + (state === "connected" ? "passed" : "")}>{labels[state]}</small></Badge></div>
             <div className="agent-actions">
               <Button variant="outline" type="button" aria-label={`Settings for ${label}`} onClick={() => setModal({ name })}>Settings</Button>
               <Button variant="outline" type="button" aria-label={`Use ${label}`} disabled={checking || !report.git} onClick={() => onContinue(name, report.setup)}>Use</Button>
@@ -189,7 +191,7 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
           </li>;
         })}</ul> : <p>No agents configured yet.</p>}
         <Button variant="outline" type="button" className={available.length ? "" : "primary"} onClick={() => setModal("new")}>Set up new agent</Button>
-      </section>
+      </section></Card>
     </>}
     {modal === "new" && <Dialog title="Set up new agent" onClose={() => setModal(null)}>
       {others.length ? <ul className="setup-list">{others.map((name) => {

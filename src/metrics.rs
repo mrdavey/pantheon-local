@@ -459,6 +459,37 @@ fn modified_millis(dir: &Path, file: &str) -> Option<i64> {
     Some(chrono::DateTime::<Utc>::from(modified).timestamp_millis())
 }
 
+/// Older runs stored completion only on the worker turn or its receipt file.
+pub fn milestone_completions(run: &Value, root: &Path) -> Value {
+    let workers: BTreeMap<_, _> = run["turns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|turn| turn["role"] == "worker")
+        .filter_map(|turn| Some((turn["task"].as_str()?, turn)))
+        .collect();
+    let times: BTreeMap<_, _> = run["tasks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|task| task["state"] == "committed")
+        .filter_map(|task| {
+            let id = task["id"].as_str()?;
+            let at = task["completed_at"].as_i64().or_else(|| {
+                let turn = workers.get(id)?;
+                turn["finished"].as_i64().or_else(|| {
+                    modified_millis(
+                        &root.join("turns").join(turn["id"].as_str()?),
+                        "result.json",
+                    )
+                })
+            })?;
+            Some((id, at))
+        })
+        .collect();
+    json!(times)
+}
+
 /// Elapsed wall time begins at dispatch, including waits between attempts.
 /// Read only the first and last receipts when an older run lacks timestamps.
 pub fn milestone_timing(run: &Value, root: &Path, id: &str) -> Result<Value> {
@@ -658,6 +689,9 @@ mod tests {
         }
         let legacy = milestone_timing(&run, root, "build")?;
         assert!(legacy["started"].is_i64() && legacy["ended"].is_i64());
+        assert_eq!(milestone_completions(&run, root)["build"], legacy["ended"]);
+        run["tasks"][0]["state"] = json!("running");
+        assert_eq!(milestone_completions(&run, root), json!({}));
         assert_eq!(legacy["running"], false);
         Ok(())
     }

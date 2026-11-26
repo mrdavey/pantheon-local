@@ -1,3 +1,4 @@
+import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
@@ -40,7 +41,7 @@ function CheckSummary({ argv, preview = false }) {
   }
   if (preview) summary = "Start the local preview";
   if (!summary) return <Command argv={argv} />;
-  return <details className="check-command"><summary>{summary}</summary><Command argv={argv} /></details>;
+  return <Disclosure className="check-command" title={summary}><Command argv={argv} /></Disclosure>;
 }
 
 export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
@@ -67,25 +68,23 @@ export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
       {recipe.checks.map((command, index) => <li key={index}><CheckSummary argv={command} /></li>)}
     </ul>}
     {draft === null && recipe.rule && <SelectionRule rule={recipe.rule} />}
-    {draft === null && recipe.cases?.length > 0 && <details>
-      <summary>{recipe.cases.length} measured {recipe.cases.length === 1 ? "case" : "cases"}</summary>
+    {draft === null && recipe.cases?.length > 0 && <Disclosure title={<>{recipe.cases.length} measured {recipe.cases.length === 1 ? "case" : "cases"}</>}>
       <ul className="check-list">{recipe.cases.map((entry, index) => <li key={index}>
         <strong>{entry.id}</strong> · {entry.samples || 1} {(entry.samples || 1) === 1 ? "sample" : "samples"}
         {entry.required ? " · Required" : ""}{entry.holdback ? " · Held back" : ""}
         {entry.program ? <pre>{entry.program}</pre> : <p><code>{entry.driver}</code></p>}
       </li>)}</ul>
-    </details>}
+    </Disclosure>}
     {draft === null && recipe.preview?.length > 0 && <CheckSummary argv={recipe.preview} preview />}
     {draft === null && recipe.rubric && <p>Review criteria · {recipe.rubric}</p>}
-    <details open={editing} onToggle={(event) => setEditing(event.currentTarget.open)}>
-      <summary>View or edit JSON</summary>
+    <Disclosure open={editing} onOpenChange={setEditing} title="View or edit JSON">
       <Label>{label}<Textarea rows={8} spellCheck={false} aria-invalid={invalid || undefined}
         value={draft ?? JSON.stringify(recipe, null, 2)} onChange={(event) => {
           setDraft(event.target.value);
           setInvalid(false);
         }} /></Label>
       {invalid && <p role="alert">Enter a valid JSON object to approve these checks.</p>}
-    </details>
+    </Disclosure>
     <Button variant="outline" type="submit" className="primary" disabled={busy}>{submitLabel}</Button>
   </form>;
 }

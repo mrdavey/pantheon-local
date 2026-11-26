@@ -1,3 +1,4 @@
+import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
@@ -23,10 +24,10 @@ export function ImplementationDetails({ candidate, run, rule, decision, onClose,
   const description = candidate?.name;
   const showDescription = description && description !== name && description !== candidate.tasks?.join(" · ") &&
     !tasks.some(task => task.goal === description);
-  return <Dialog title={decision ? "Decision details" : "Implementation details"} className="work-detail-dialog" onClose={onClose}>
+  return <Dialog title={decision ? "Decision details" : "Implementation details"} placement="right" className="work-detail-dialog" onClose={onClose}>
     <div className="work-details">
       <section><h3>{name}</h3><div className="milestone-meta">
-        {candidate && <span className={`state ${candidate.state}`}>{candidate.state}</span>}
+        {candidate && <Badge asChild variant="outline"><span className={`state ${candidate.state}`}>{candidate.state}</span></Badge>}
         {decision?.state && <span>{decision.state}</span>}
         {candidate?.commit && <code title={candidate.commit}>{candidate.commit.slice(0, 10)}</code>}
       </div>
@@ -56,7 +57,7 @@ export function ExperimentHelp() {
   const [open, setOpen] = useState(false);
   return <div className="implementation-help">
     <Button variant="outline" className="help-icon" aria-label="Help with experiment actions" title="Help with experiment actions" onClick={() => setOpen(true)}>?</Button>
-    {open && <Dialog title="Experiment actions" className="work-detail-dialog" onClose={() => setOpen(false)}>
+    {open && <Dialog title="Experiment actions" placement="right" className="work-detail-dialog" onClose={() => setOpen(false)}>
       <dl className="experiment-glossary">
         <div><dt>Combine aspects or improve this version</dt><dd>Keep useful parts of different implementations. After landing, start from the version on your branch.</dd></div>
         <div><dt>Start another round</dt><dd>Give the coordinator a new goal to test against the current result.</dd></div>

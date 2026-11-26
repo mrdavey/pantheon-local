@@ -1,3 +1,4 @@
+import { Disclosure } from "./disclosure";
 import React, { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, Pause, Play } from "lucide-react";
 import { Button } from "./components/ui/button";
@@ -100,11 +101,11 @@ export function TurnLog({ api, path, running }) {
         if (!rows.length) return null;
         const important = rows.some(row => /^(Agent|Text|Message|Result|Error|Standard error|Output)$/i.test(row.title) || (row.title === "Exit code" && row.body !== "0"));
         return <article key={record.id} className="log-event">
-          <details open={important}><summary><strong>{rows[0].title}</strong><LogTime at={record.at} now={now}/></summary>
+          <Disclosure defaultOpen={important} title={<><strong>{rows[0].title}</strong><LogTime at={record.at} now={now}/></>}>
           {rows.map(({title,body,kind},i) => <React.Fragment key={i}>
             {i>0 && <h5>{title}</h5>}<LogBody body={body} kind={kind}/>
           </React.Fragment>)}
-        </details></article>;
+        </Disclosure></article>;
       })}
     </div>
   </section>;

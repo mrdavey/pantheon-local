@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "./components/ui/table";
 import "./markdown.css";
 
 const components = {
@@ -11,7 +12,12 @@ const components = {
   },
   // Agent output may reference private paths or remote tracking images.
   img({ alt }) { return alt ? <span>{alt}</span> : null; },
-  table({ children }) { return <div className="markdown-table"><table>{children}</table></div>; },
+  thead: ({ children }) => <TableHeader>{children}</TableHeader>,
+  tbody: ({ children }) => <TableBody>{children}</TableBody>,
+  tr: ({ children }) => <TableRow>{children}</TableRow>,
+  th: ({ children, style }) => <TableHead style={style}>{children}</TableHead>,
+  td: ({ children, style }) => <TableCell style={style}>{children}</TableCell>,
+  table({ children }) { return <Table className="markdown-table">{children}</Table>; },
 };
 
 export const Markdown = memo(function Markdown({ children, text, className = "" }) {

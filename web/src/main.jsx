@@ -1,9 +1,13 @@
+import { Card } from "./components/ui/card";
+import { Disclosure } from "./disclosure";
 import { Alert } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
 import { Status, Loading, LoadingProvider } from "./status.jsx";
+import { WorkbenchHeader, RunFooter } from "./workbench-shell";
+import { ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play } from "lucide-react";
 import { ActivityLog } from "./activity-log";
 import { Milestones } from "./milestones";
 import { Metrics } from "./metrics";
@@ -24,6 +28,7 @@ import { Conversation } from "./conversation.jsx";
 import { RecipeEditor, branchName } from "./review.jsx";
 
 import "./workspace.css";
+import "./workbench-shell.css";
 
 const tokenKey = "local-swarm-token";
 const [launchToken, ...launchOptions] = location.hash.slice(1).split("&");
@@ -125,7 +130,7 @@ function Candidate({ run, candidate, act, perform, busy, name, explain }) {
   const blocked = (run.inbox || []).some((q) => q.state === "open" && q.blocking &&
     (!q.tasks?.length || q.tasks.some((task) => candidate.tasks?.includes(task))));
   const load = (kind, path) => setEvidence({ kind, path: "/runs/" + run.id + path });
-  return <article className="row work-result">
+  return <Card asChild><article className="row work-result">
     <header>{name ? <h3>{name}</h3> : <h2>Implementation</h2>}<Status state={candidate.state} /></header>
     {candidate.tasks?.length > 0 && <p>{candidate.tasks.length} {candidate.tasks.length === 1 ? "milestone" : "milestones"} included</p>}
     {candidate.detail && <p>{shortSummary(candidate.detail)}</p>}
@@ -157,13 +162,17 @@ function Candidate({ run, candidate, act, perform, busy, name, explain }) {
     {evidence && <Dialog title={evidence.kind === "diff" ? "File changes" : "Acceptance checks"} className="evidence-dialog" onClose={() => setEvidence(null)}>
       <Evidence {...evidence} name="Acceptance checks" refreshable={evidence.kind === "checks" && evalTurn?.state === "running"} />
     </Dialog>}
-  </article>;
+  </article></Card>;
 }
 
 function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const [view, setTab] = useState(() => run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "work");
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
   const lastView = useRef(view);
+  const [selectedTask,setSelectedTask] = useState(null);
+  const [activityTurn,setActivityTurn] = useState(null);
+  const openMilestone = id => { setTab("work"); setSelectedTask(id); };
+  const openActivity = row => { setActivityTurn(row); setTab("activity"); };
   const expandChat = () => { if (view !== "chat") lastView.current = view; setTab("chat"); };
   const [chatRequest, setChatRequest] = useState(null);
   const explain = (kind, id) => {
@@ -183,29 +192,29 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
   const projectPath = subdir && subdir !== "." ? run.repo.Root.replace(/\/$/, "") + "/" + subdir : run.repo.Root;
   return <section className="panel run-workspace">
     <header className="run-heading">
+      <div className="run-crumb">Runs <span>/</span> {run.id.slice(0,8)}</div>
+      <div className="run-title"><h1 tabIndex={-1}>{runTitle(run)}</h1><Status state={run.state} run={run}/></div>
       <div className="run-meta">
         <Button variant="outline" className="text-button project-label" title={projectPath} aria-label="Open project folder" disabled={busy}
           onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {}), "Opening folder…")}><Icon name="folder" />{projectPath.split("/").filter(Boolean).at(-1) || projectPath}</Button>
         {(run.working_folder || tasks.some(t => t.workspace)) && <Button variant="outline" className="project-label" title={run.working_folder || "Milestone checkouts"}
           disabled={busy} onClick={() => perform(() => api("/runs/" + run.id + "/open-folder", {working:true}), "Opening working folder…")}><Icon name="folder" />Open working folder</Button>}
         {run.repo.Target && <code>{branchName(run.repo.Target)}</code>}
-        <Status state={run.state} run={run} />{settings}
+        {settings}
       </div>
-      <h1 tabIndex={-1}>{runTitle(run)}</h1>
-      {(runTitle(run) !== run.input.prompt || !!run.input.attachments?.length) && <details key={run.id} className="run-brief">
-        <summary>Full brief</summary><Markdown>{run.input.prompt}</Markdown>
+      {(runTitle(run) !== run.input.prompt || !!run.input.attachments?.length) && <Disclosure key={run.id} className="run-brief" title="Full brief"><Markdown>{run.input.prompt}</Markdown>
         {!!run.input.attachments?.length && <ul aria-label="Brief attachments">{run.input.attachments.map(file => <li key={file.path}>{file.name}</li>)}</ul>}
-      </details>}
+      </Disclosure>}
     </header>
     <div className="run-body">
     <nav className="run-tabs" aria-label="Run views">
-      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}>Milestones</Button>
-      <Button variant="outline" aria-pressed={view === "activity"} onClick={() => setTab("activity")}>Activity Log</Button>
-      <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}>Metrics</Button>
-      <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}>Experiment</Button>
-      <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}>Coordinator chat</Button>
+      <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}><ListTree/>Milestones</Button>
+      <Button variant="outline" aria-pressed={view === "activity"} onClick={() => openActivity(null)}><Activity/>Activity Log</Button>
+      <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}><ChartNoAxesCombined/>Metrics</Button>
+      <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
+      <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}><MessageSquare/>Coordinator chat</Button>
     </nav>
-    <Conversation {...{ run, act, busy, api, chatRequest }} expanded={view === "chat"} onExpand={expandChat} onDock={() => setTab(lastView.current)} />
+    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} expanded={view === "chat"} onExpand={expandChat} onDock={() => setTab(lastView.current)} />
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {landed && (view !== "experiment" || run.selection?.state !== "landed") && <div className="notice landed-receipt" role="status">
@@ -213,31 +222,30 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings }) {
       <code aria-label="Landed commit">{run.detail}</code>
     </div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
-    {run.state === "checks" && <section className="answer decision" aria-labelledby="review-checks-title">
+    {run.state === "checks" && <Card asChild><section className="answer decision" aria-labelledby="review-checks-title">
       <h2 id="review-checks-title">Review acceptance checks</h2>
       <p>Approve these checks to start work. Expand a check to see its command.</p>
       <RecipeEditor recipe={run.proposed_recipe} busy={busy} label="Acceptance recipe" submitLabel="Approve checks"
         onApprove={(recipe) => act({ kind: "approve", recipe })} />
-    </section>}
+    </section></Card>}
     {questions.length > 0 && <div className="notice">
       <span>{questions.length === 1 ? shortSummary(questions[0].text) : `${questions.length} open questions for this run.`}</span>{" "}
       <Button variant="outline" className="text-button" onClick={openInbox}>Open Needs you</Button>
     </div>}
     </div>
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
-    {view === "activity" && <ActivityLog {...{run,api}} />}
+    {view === "activity" && <ActivityLog initialTurn={activityTurn} {...{run,api}} />}
     {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {experimentOpened && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
-      <Milestones {...{run,api,act,busy,explain}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
+      <Milestones selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain,openActivity}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
       {(activeCandidates.length > 0 || superseded.length > 0) && <section aria-label="Implementations">
         {activeCandidates.length > 1 && <header className="work-section-heading"><h2>Implementations</h2>
           <Button variant="outline" className="text-button" onClick={showExperiment}>Compare in Experiment</Button></header>}
         {activeCandidates.map(renderCandidate)}
-        {superseded.length > 0 && <details className="superseded-work">
-          <summary>Superseded implementations ({superseded.length})</summary>
+        {superseded.length > 0 && <Disclosure className="superseded-work" title={<>Superseded implementations ({superseded.length})</>}>
           {superseded.map(renderCandidate)}
-        </details>}
+        </Disclosure>}
       </section>}
     </div>
     </div>
@@ -421,16 +429,16 @@ function App() {
   const navProps = (id) => ({ "aria-current": selection === id ? "page" : undefined, onClick: () => navigate(id) });
   return <div className="app">
     <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); main.current.focus(); }}>Skip to content</a>
+    <WorkbenchHeader project={current?.repo?.Root} connected={!!setup && !connectionError} ready={!!setup} create={()=>navigate("")}/>
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark"><Icon name="brand" /></span>Pantheon Local</div>
       {setup && <>
         <nav className="workspace-nav" aria-label="Workspace">
-          <Button variant="outline" {...navProps("")}><Icon name="plus" />New run</Button>
+          {runs.length>0 && <Button variant="ghost" aria-current={current?"page":undefined} onClick={()=>navigate(current?.id || runs[0].id)}><Play/>Runs</Button>}
           <Button variant="outline" {...navProps("setup")}><Icon name="agents" />Agent setup</Button>
           <Button variant="outline" {...navProps("inbox")}><Icon name="inbox" />Needs you{outstanding > 0 && <span className="nav-count"><span className="visually-hidden"> · </span>{outstanding}</span>}</Button>
         </nav>
         {runs.length > 0 && <div className="run-history">
-          <div className="nav-heading" aria-hidden="true">Runs</div>
+          <div className="nav-heading" aria-hidden="true">Recent runs</div>
           <nav className="run-nav" aria-label="Runs">{runs.map((run) =>
             <div className="run-nav-row" key={run.id}><Button variant="outline" {...navProps(run.id)}><span className="run-name">{runTitle(run)}</span><Status state={run.state} run={run} /></Button>{settingsButton(run, "Settings for " + runTitle(run))}</div>)}</nav>
         </div>}
@@ -460,6 +468,7 @@ function App() {
         selection === "setup" ? <AgentSetup {...{ report, checking }} error={checkError} refresh={refreshAgents} saveModel={updateModel} onContinue={useAgent} /> :
         !setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
     </main>
+    {current && <RunFooter run={current}/>}
     {settingsRun && <RunSettings key={settingsRun.id} run={settingsRun} {...{ send, busy, error }}
       onClose={() => { setSettingsId(null); setError(""); }}
       remove={() => perform(async () => {

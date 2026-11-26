@@ -34,7 +34,7 @@ In an interactive terminal, `swarm` and `swarm open` open the browser and show a
 
 ## What runs where
 
-Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Milestones** offers table, map, and Kanban views. Use **Add task** or **Coordinator chat** to propose more work. **Activity Log** lets you search turns and inspect their output. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
+Use **Open working folder** on the run page to open the milestone checkouts inside your selected project. **Milestones** offers table, map, and Kanban views. Select a row to open its details, follow a dependency to its milestone, or sort by completion time. Use **Add task** or **Coordinator chat** to propose more work. **Activity Log** lets you search turns and inspect their output. **Metrics** shows elapsed time, tokens and estimated costs by agent and model. Each agent uses its own tools, permissions and provider account. Hosted providers receive the context their CLIs send. Use trusted projects and scripts. [Architecture and adapter contract](docs/architecture.md)
 
 ## Contribute
 
