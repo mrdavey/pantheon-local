@@ -5,6 +5,20 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
     let build = |tasks: Vec<Value>, files: &[&str]| -> Result<Value> {
         Ok(json!({"tasks":tasks,"recipe":{"checks":[check(files)?]}}))
     };
+    if prompt.contains("Recover two failed milestones automatically") {
+        return build(
+            vec![
+                milestone("retry-work", "Retry the checkout", Value::Null),
+                milestone("bad-base", "Verify the checkout", Value::Null),
+                milestone(
+                    "final-check",
+                    "Check the result",
+                    json!({"depends":["bad-base"]}),
+                ),
+            ],
+            &["retry.txt", "fixed", "final.txt", "verified"],
+        );
+    }
     if prompt.contains("integrated candidate") {
         return Ok(
             json!({"task":"api","instruction":"Repair the invalid api.txt result using the eval evidence."}),

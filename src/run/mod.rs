@@ -13,6 +13,7 @@ pub mod release;
 use scheduler::budget;
 mod candidate;
 mod commands;
+mod recovery;
 mod scheduler;
 #[cfg(test)]
 mod tests;
@@ -109,15 +110,15 @@ fn waiting(r: &Value) -> bool {
         .any(|q| q["state"] == "open" && yes(&q["blocking"]) && a(&q["tasks"]).is_empty())
 }
 fn children_pending(r: &Value, id: &str) -> bool {
-    active(r)
-        .iter()
-        .any(|t| t["parent"] == id && !matches!(s(t, "state"), "committed" | "abandoned"))
+    active(r).iter().any(|t| {
+        t["parent"] == id && !matches!(s(t, "state"), "committed" | "abandoned" | "superseded")
+    })
 }
 fn committed(r: &Value) -> bool {
     !active(r).is_empty()
         && active(r)
             .iter()
-            .all(|t| matches!(s(t, "state"), "committed" | "abandoned"))
+            .all(|t| matches!(s(t, "state"), "committed" | "abandoned" | "superseded"))
 }
 pub fn record_answer(r: &mut Value, q: usize, text: &str) {
     let ids = strings(&r["inbox"][q]["tasks"]);
@@ -127,6 +128,9 @@ pub fn record_answer(r: &mut Value, q: usize, text: &str) {
     for id in ids {
         if let Some(i) = find(&r["tasks"], &id) {
             let t = &mut r["tasks"][i];
+            if t["state"] == "blocked" {
+                t["reported_failure"] = Value::Null;
+            }
             match s(t, "state") {
                 "question" => {
                     t["state"] = json!("pending");
@@ -159,7 +163,7 @@ pub fn validate_tasks(added: &[Value], existing: &[Value], workers: &Value) -> R
         );
         ensure!(
             routing::class_valid(s(t, "class")),
-            "invalid benchmark category"
+            "invalid benchmark category; choose implementation, debugging, testing, automation, documentation or design, or omit class"
         );
         let eligible = a(&t["eligible_workers"]);
         ensure!(
@@ -306,6 +310,7 @@ impl Engine {
         self.root(r).join("turns").join(id)
     }
     fn save(&self, r: &mut Value, kind: &str) -> Result<()> {
+        recovery::report_failures(r);
         self.store.save(r, kind, &[])
     }
     pub fn assign(&self, r: &Value, tasks: &mut [Value]) {
@@ -527,6 +532,9 @@ impl Engine {
         let prompt = s(&job["request"], "prompt");
         if !prompt.is_empty() && role != "pricing" {
             let mut context = context(r, worker);
+            if matches!(role, "repair" | "plan") && r["run_recovery_context"].is_object() {
+                context["prior_failure_and_recovery"] = r["run_recovery_context"].clone();
+            }
             if !a(&r["input"]["attachments"]).is_empty() {
                 context["brief_attachments"] =
                     crate::attachments::context(&self.root(r), &r["input"]["attachments"])?;
@@ -578,7 +586,27 @@ impl Engine {
             "plan" | "repair" | "observe" | "chat" | "pricing" => Some(&r["input"]["coordinator"]),
             _ => None,
         };
-        let turn = json!({"id":id,"started":chrono::Utc::now().timestamp_millis(),"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
+        let mut turn = json!({"id":id,"started":chrono::Utc::now().timestamp_millis(),"agent":agent,"task":task,"role":role,"generation":r["generation"],"round":r["round"],"policy":r["policy"],"state":"running","messages":msg_count});
+        if role == "observe" {
+            let mut ids = std::collections::BTreeSet::new();
+            for event in a(&r["observations"]).iter().take(30) {
+                let reference = s(event, "ref");
+                if find(&r["tasks"], reference).is_some() {
+                    ids.insert(reference);
+                } else if let Some(i) = find(&r["candidates"], reference) {
+                    ids.extend(
+                        a(&r["candidates"][i]["tasks"])
+                            .iter()
+                            .filter_map(Value::as_str),
+                    );
+                }
+            }
+            turn["milestones"] = json!(ids);
+        } else if role == "repair"
+            && let Some(i) = find(&r["candidates"], s(r, "repair_id"))
+        {
+            turn["milestones"] = r["candidates"][i]["tasks"].clone();
+        }
         before_save(r);
         push(&mut r["turns"], turn);
         self.save(r, "dispatched")?;

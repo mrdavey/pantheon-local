@@ -300,3 +300,46 @@ fn token_budget_pauses_before_workers_and_only_passing_alternative_lands() -> Re
     assert_eq!(fs::read_to_string(project.join("result.txt"))?, "correct");
     Ok(())
 }
+
+#[test]
+fn coordinator_recovers_blocked_workers_without_operator_input() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let project = repo(&tmp.path().join("recovery"))?;
+    let svc = Service::new(tmp.path())?;
+    let url = start(
+        &svc,
+        &project,
+        "Recover two failed milestones automatically",
+        json!({"delivery":"review"}),
+    )?;
+    let run = svc.wait_state(&url, "checks")?;
+    svc.post(
+        &url,
+        &json!({"kind":"approve","recipe":run["proposed_recipe"]}),
+    )?;
+    let run = svc.wait_state(&url, "review")?;
+    let task = |id: &str| item(&run["tasks"], "id", &json!(id));
+    assert_eq!(task("retry-work")?["automatic_retries"], 1);
+    assert_eq!(task("bad-base")?["state"], "superseded");
+    assert_eq!(
+        task("bad-base")?["failed_receipt"]["commit"],
+        task("bad-base")?["base"]
+    );
+    assert!(
+        task("bad-base")?["previous_failure"]
+            .as_str()
+            .unwrap()
+            .contains("descendant of its assigned base")
+    );
+    assert_eq!(task("bad-base")?["superseded_by"], "replacement");
+    assert_eq!(task("final-check")?["depends"], json!(["replacement"]));
+    for id in ["retry-work", "replacement", "final-check"] {
+        assert_eq!(task(id)?["state"], "committed");
+    }
+    let page = svc.get(&format!("{url}/activity?milestone=retry-work"))?;
+    let activity = rows(&page["items"]);
+    assert_eq!(activity.iter().filter(|r| r["role"] == "worker").count(), 2);
+    assert!(activity.iter().any(|r| r["role"] == "observe"));
+    assert!(activity.iter().any(|r| r["role"] == "eval"));
+    Ok(())
+}

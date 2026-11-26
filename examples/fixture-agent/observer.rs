@@ -12,6 +12,12 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         let id = text(event, "id")?;
         let reference = &event["ref"];
         match text(event,"kind")?{
+            "worker-blocked" if reference=="retry-work" && event["text"]=="cache missing" =>
+                actions.push(json!({"id":"fix-cache","kind":"retry_milestone","ref":reference,"text":"Rebuild the cache"})),
+            "worker-blocked" if reference=="bad-base" => {
+                actions.push(json!({"id":"create-replacement","kind":"delegate","tasks":[task("replacement","Verify the correct base","writer",Value::Null)]}));
+                actions.push(json!({"id":"replace","kind":"supersede_milestone","ref":reference,"replacement":"replacement","text":"Use the clean verification checkout"}));
+            }
             "worker-question" if reference=="team-format"=>{
                 let answer=decision(ctx,"Which date format?").context("missing date decision")?;
                 actions.extend([json!({"id":"answer-format","kind":"reply_to_worker","ref":"team-format","text":answer}),

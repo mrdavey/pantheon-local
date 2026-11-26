@@ -38,9 +38,9 @@ function Choice({ label, value, options, onChange }) {
 function name(row) {
   return shortSummary(row.detail, 110) || activityRoles[row.role] || row.role;
 }
-export function ActivityLog({ run, api, explain, route }) {
+export function ActivityLog({ run, api, explain, route, milestone }) {
   const query = {
-    q:route.q || "", role:route.role || "", agent:route.agent || "", state:route.state || "",
+    ...(milestone ? { milestone } : {q:route.q || "", role:route.role || "", agent:route.agent || "", state:route.state || ""}),
     sort:route.sort === "oldest" ? "oldest" : "newest",
     page:Math.max(1, parseInt(route.logPage, 10) || 1), size:[10,20,50].includes(Number(route.size)) ? Number(route.size) : 20,
   };
@@ -88,7 +88,7 @@ export function ActivityLog({ run, api, explain, route }) {
           </span>
         )}
       </header>
-      <div className="filter-controls">
+      {!milestone && <><div className="filter-controls">
         <Input
           type="search"
           aria-label="Search activity"
@@ -124,7 +124,7 @@ export function ActivityLog({ run, api, explain, route }) {
           onChange={(v) => filter("sort", v)}
         />
       </div>
-      <FilterChips filters={chips} onRemove={key => filter(key, "")} />
+      <FilterChips filters={chips} onRemove={key => filter(key, "")} /></>}
       {error && (
         <p role="alert">
           {error}{" "}
@@ -136,7 +136,7 @@ export function ActivityLog({ run, api, explain, route }) {
       {!result && !error && <Loading>Loading activity…</Loading>}
       {result &&
         (result.items.length ? (
-          <Table aria-label="Run activity">
+          <Table aria-label={milestone ? "Milestone activity" : "Run activity"}>
             <TableHeader>
               <TableRow>
                 {["Activity", "Agent", "Status", "Started"].map((k) => (
@@ -167,10 +167,10 @@ export function ActivityLog({ run, api, explain, route }) {
         ) : (
           <p className="activity-empty">
             <ListFilter aria-hidden="true" />
-            {turns.length ? "No matching activity." : "Activity appears when the first turn starts."}
+            {milestone ? "No activity for this milestone yet." : turns.length ? "No matching activity." : "Activity appears when the first turn starts."}
           </p>
         ))}
-      {result && (
+      {result && (!milestone || result.pages > 1) && (
         <nav className="activity-pages" aria-label="Activity pages">
           <Choice
             label="Turns per page"

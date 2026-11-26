@@ -461,9 +461,10 @@ summary:focus-visible {
 [data-slot="collapsible-content"] {
   min-width: 0;
 }
-.log-event .disclosure-trigger {
-  flex-wrap: wrap;
-}
+.log-event .disclosure-trigger { min-width:0; flex-wrap:wrap; }
+.log-event .disclosure-trigger strong { min-width:0; max-width:calc(100% - 1.5rem); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.work-detail-dialog .activity-log { min-width:0; overflow-wrap:anywhere; }
+.work-detail-dialog .activity-log table { font-size:.85rem; }
 .log-event .disclosure-trigger time,
 .log-event .disclosure-trigger small {
   font-size: 0.8rem;

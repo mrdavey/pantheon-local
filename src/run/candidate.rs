@@ -13,7 +13,7 @@ fn selections(tasks: &[Value]) -> Result<Vec<Vec<String>>> {
     let mut groups: Vec<(&str, Vec<String>)> = vec![];
     let mut children: HashMap<&str, Vec<String>> = HashMap::new();
     for t in tasks {
-        if t["state"] == "abandoned" || !s(t, "conflict").is_empty() {
+        if matches!(s(t, "state"), "superseded" | "abandoned") || !s(t, "conflict").is_empty() {
             continue;
         }
         let id = s(t, "id").to_owned();
@@ -469,6 +469,7 @@ impl Engine {
                 r["landing"] = json!("");
                 r["held"] = json!(true);
                 r["detail"] = json!(e.to_string());
+                observe(r, "landing-failed", id, &e.to_string());
                 self.save(r, "landing-wait")?
             }
             return Err(e);

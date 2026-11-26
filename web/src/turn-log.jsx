@@ -101,7 +101,7 @@ export function TurnLog({ api, path, running }) {
         if (!rows.length) return null;
         const important = rows.some(row => /^(Agent|Text|Message|Result|Error|Standard error|Output)$/i.test(row.title) || (row.title === "Exit code" && row.body !== "0"));
         return <article key={record.id} className="log-event">
-          <Disclosure defaultOpen={important} title={<><strong>{rows[0].title}</strong><LogTime at={record.at} now={now}/></>}>
+          <Disclosure defaultOpen={important} title={<><strong title={rows[0].title}>{rows[0].title}</strong><LogTime at={record.at} now={now}/></>}>
           {rows.map(({title,body,kind},i) => <React.Fragment key={i}>
             {i>0 && <h5>{title}</h5>}<LogBody body={body} kind={kind}/>
           </React.Fragment>)}

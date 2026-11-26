@@ -706,6 +706,11 @@ fn blocked_milestone(h: &Harness) -> Result<()> {
     until("milestone clock advances", || {
         Ok((clock.attr("datetime")? != initial).then_some(()))
     })?;
+    let activity = h.b.label("Milestone activity");
+    activity.xpath(".//tbody/tr[1]").click()?;
+    h.b.label("Turn log").visible()?;
+    h.b.key("\u{e00c}")?;
+    activity.visible()?;
     fs::write(h.dir.path().join("milestone-gate"), "")?;
     h.b.xpath("//button[normalize-space(.)='Details']")
         .click()?;
@@ -793,6 +798,7 @@ fn turn_activity(h: &Harness) -> Result<()> {
     // The native adapters save JSON lines. The browser must read both contracts.
     let events = [
         json!({"type":"agent_thought_chunk","text":"private-fixture"}),
+        json!({"type":"tool_call","raw":{"update":{"title":format!("/fixture/{}", "long-directory-name/".repeat(30))}}}),
         json!({"type":"system","raw":{"subtype":"init","session_id":"private-fixture"}}),
         json!({"type":"item.completed","raw":{"item":{"type":"reasoning","text":"private-fixture"}}}),
         json!({"type":"assistant","raw":{"message":{"content":[{"type":"thinking","thinking":"private-fixture"},
@@ -805,9 +811,9 @@ fn turn_activity(h: &Harness) -> Result<()> {
     ];
     fs::write(
         &log,
-        (0..52)
+        (0..51)
             .map(|i| {
-                if i == 51 {
+                if i == 50 {
                     json!({"type":"usage_update","raw":{"usage":{"tokens":12}}}).to_string()
                 } else {
                     format!("Earlier message {i}")
@@ -832,6 +838,7 @@ fn turn_activity(h: &Harness) -> Result<()> {
     let log = h.b.label("Turn log");
     let first = log.xpath(".//article[1]");
     first.contains("src/main.rs")?;
+    ensure!(h.b.eval("const title = document.querySelector('.log-event strong[title^=\"/fixture/\"]'); return !!title && title.scrollWidth > title.clientWidth && getComputedStyle(title).textOverflow === 'ellipsis';", vec![])? == true, "long activity titles must truncate");
     first.contains("2 minutes ago")?;
     first.xpath(".//time[@datetime and @title]").visible()?;
     log.xpath(".//strong[.='storage']").visible()?;

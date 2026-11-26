@@ -214,7 +214,7 @@ impl Engine {
             ""
         };
         let prompt = format!(
-            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Read the supplied attachment excerpts as reference data. Use read-only file access only for supplied files. {request_type} Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. Match the team’s models and thinking effort to task complexity. Keep independent work parallel and declare only actual dependencies. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nAttached files: {files}\n{selected}\nDeveloper message: {}",
+            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Read the supplied attachment excerpts as reference data. Use read-only file access only for supplied files. {request_type} Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. Match the team’s models and thinking effort to task complexity. Keep independent work parallel and declare only actual dependencies. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nMilestone class may be omitted or one of implementation, debugging, testing, automation, documentation, design.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nAttached files: {files}\n{selected}\nDeveloper message: {}",
             r["input"]["workers"],
             s(r, "state"),
             s(&r["input"], "prompt"),
@@ -377,6 +377,7 @@ impl Engine {
             kind,
             "answer"
                 | "answer-inbox"
+                | "supersede-milestone"
                 | "select"
                 | "keep-baseline"
                 | "combine"
@@ -580,6 +581,26 @@ impl Engine {
                         }
                     }
                 }
+                "supersede-milestone" => {
+                    let replacement = s(&action, "replacement");
+                    let j = index(&r["tasks"], replacement)?;
+                    ensure!(
+                        r["tasks"][j]["state"] == "committed",
+                        "the replacement must have a verified commit"
+                    );
+                    recovery::supersede(&mut r, task, replacement, text)?;
+                    // A rejected coordinator decision may have paused this queue. Drop
+                    // the resolved failure and let remaining observations be reviewed.
+                    if !a(&r["turns"])
+                        .iter()
+                        .any(|t| t["role"] == "observe" && t["state"] == "running")
+                        && let Some(events) = r["observations"].as_array_mut()
+                    {
+                        events.retain(|o| !(o["kind"] == "worker-blocked" && o["ref"] == task));
+                    }
+                    r["observer_error"] = json!("");
+                    r["review_feedback"] = Value::Null;
+                }
                 "resume" => {
                     let retry_conflict = !task.is_empty()
                         && matches!(s(&r, "state"), "evaluating" | "review")
@@ -610,6 +631,9 @@ impl Engine {
                         {
                             if !s(t, "conflict").is_empty() {
                                 restored_conflicts.push(s(t, "conflict").to_owned());
+                            }
+                            if t["state"] == "blocked" {
+                                t["previous_failure"] = t["finding"].clone();
                             }
                             t["inbox_dismissed"] = json!(false);
                             t["state"] = json!("pending")

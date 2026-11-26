@@ -41,7 +41,7 @@ pub(super) fn ready_workers(run: &Value) -> Vec<usize> {
     held.extend(
         active(run)
             .iter()
-            .filter(|task| !matches!(s(task, "state"), "committed" | "abandoned"))
+            .filter(|task| !matches!(s(task, "state"), "committed" | "abandoned" | "superseded"))
             .filter_map(|task| task["parent"].as_str()),
     );
     let running_children = active(run)
@@ -99,7 +99,7 @@ impl Engine {
                 if r["revision"] == snapshot["revision"] {
                     r = snapshot;
                 }
-                let message = e.to_string();
+                let message = format!("{e:#}");
                 match s(&r, "state") {
                     "stopped" => {
                         if r["detail"] != message {
@@ -148,24 +148,34 @@ impl Engine {
         Ok(())
     }
     fn step(&self, r: &mut Value) -> Result<()> {
+        if recovery::report_failures(r) {
+            return self.save(r, "failures-reported");
+        }
         let landing = s(r, "landing");
         if !landing.is_empty() {
             let c = r["candidates"][index(&r["candidates"], landing)?].clone();
-            let head = match project::target_head(s(&r["repo"], "Root"), s(&r["repo"], "Target")) {
-                Ok(head) => head,
-                Err(error) => return self.landing_wait(r, error),
-            };
-            r["landing"] = json!("");
-            if c["commit"] == head {
-                candidate::mark_landed(r, &c);
-                return self.save(r, "landing-recovered");
+            match project::target_head(s(&r["repo"], "Root"), s(&r["repo"], "Target")) {
+                Ok(head) => {
+                    r["landing"] = json!("");
+                    if c["commit"] == head {
+                        candidate::mark_landed(r, &c);
+                        return self.save(r, "landing-recovered");
+                    }
+                    r["held"] = json!(true);
+                    if r["state"] == "blocked" {
+                        r["state"] = json!("review");
+                    }
+                    r["detail"] = json!("Review the target branch before landing.");
+                    observe(
+                        r,
+                        "landing-failed",
+                        s(&c, "id"),
+                        "The target branch does not contain the selected commit. Review the target before landing.",
+                    );
+                    return self.save(r, "landing-needs-review");
+                }
+                Err(error) => self.landing_wait(r, error)?,
             }
-            r["held"] = json!(true);
-            if r["state"] == "blocked" {
-                r["state"] = json!("review");
-            }
-            r["detail"] = json!("Review the target branch before landing.");
-            return self.save(r, "landing-needs-review");
         }
         let (mut workers, mut control, mut chat) = (false, false, false);
         for i in 0..a(&r["turns"]).len() {
@@ -221,6 +231,9 @@ impl Engine {
             }
             if role == "pricing" {
                 crate::pricing::finish(r, &res);
+                if !s(&res, "error").is_empty() {
+                    observe(r, "pricing-failed", task, s(&res, "error"));
+                }
                 self.save(r, "pricing-received")?;
                 if !matches!(s(r, "state"), "stopped" | "landed") {
                     // A different model may have reported usage during this lookup.
@@ -254,7 +267,6 @@ impl Engine {
                                                 "eligible_workers",
                                                 "goal",
                                                 "paths",
-                                                "depends",
                                                 "consult",
                                             ]
                                             .iter()
@@ -272,7 +284,12 @@ impl Engine {
                                 self.store.save(&mut next, "coordinator-observed", &cases)
                             });
                         if let Err(e) = result {
-                            r["observer_error"] = json!(e.to_string());
+                            if r["review_feedback"].is_null() {
+                                r["review_feedback"] = json!(e.to_string());
+                                r["observer_session"] = Value::Null;
+                            } else {
+                                r["observer_error"] = json!(e.to_string());
+                            }
                             return self.save(r, "observer-error");
                         }
                         *r = next;
@@ -281,7 +298,32 @@ impl Engine {
                     "worker" => self.accept_worker(r, &turn, &res)?,
                     "eval" => self.eval_result(r, &turn, &res)?,
                     "chat" => self.finish_chat(r, task, &res),
-                    _ => self.accept_control(r, role, &res)?,
+                    _ => {
+                        let mut next = r.clone();
+                        if let Err(error) = self.accept_control(&mut next, role, &res) {
+                            r["state"] = json!("blocked");
+                            r["detail"] = json!(format!("{role} failed: {error:#}"));
+                        } else {
+                            let offset = if role == "plan" {
+                                num(&next["task_start"]) as usize
+                            } else {
+                                a(&r["tasks"]).len()
+                            };
+                            if next["state"] != "question" {
+                                let ids = a(&next["tasks"])
+                                    .iter()
+                                    .skip(offset)
+                                    .map(|t| t["id"].clone())
+                                    .collect::<Vec<_>>();
+                                for id in ids {
+                                    if !a(&next["turns"][i]["milestones"]).contains(&id) {
+                                        push(&mut next["turns"][i]["milestones"], id);
+                                    }
+                                }
+                            }
+                            *r = next;
+                        }
+                    }
                 }
             } else if role == "worker"
                 && let Some(j) = find(&r["tasks"], task)
@@ -346,6 +388,11 @@ impl Engine {
             let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"observer","dir":self.root(r).join("coordinator"),"prompt":text,"session":s(r,"observer_session")});
             return self.agent_turn(r, "observe", &id, req);
         }
+        // While target readback is unavailable, receive turns and let the coordinator
+        // review the failure, but do not initiate another landing or release.
+        if !s(r, "landing").is_empty() {
+            return Ok(());
+        }
         if !a(&r["releases"]).is_empty() {
             let mut staged = r.clone();
             let root = self.root(&staged);
@@ -390,7 +437,15 @@ impl Engine {
                     self.promote_worker_questions(r)?;
                 }
                 for i in ready_workers(r) {
-                    self.worker(r, i)?;
+                    if let Err(error) = self.worker(r, i) {
+                        if r["tasks"][i]["state"] != "pending" {
+                            return Err(error);
+                        }
+                        r["tasks"][i]["state"] = json!("blocked");
+                        r["tasks"][i]["finding"] =
+                            json!(format!("Could not start the worker: {error:#}"));
+                        self.save(r, "worker-start-failed")?;
+                    }
                 }
                 Ok(())
             }
@@ -490,6 +545,7 @@ impl Engine {
         let message = error.to_string();
         if r["detail"] != message {
             r["detail"] = json!(message);
+            observe(r, "landing-failed", "", &message);
             self.save(r, "landing-wait")?;
         }
         Ok(())

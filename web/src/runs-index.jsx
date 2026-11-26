@@ -35,7 +35,7 @@ export function RunsIndex({ runs, navigate, route }) {
       status,
       state: statusLabel(status),
       milestones: tasks.filter((t) => t.state === "committed").length,
-      total: tasks.length,
+      total: tasks.filter(t => !["abandoned", "superseded"].includes(t.state)).length,
       tokens: run.tokens,
       started: Date.parse(run.started) || null,
     };

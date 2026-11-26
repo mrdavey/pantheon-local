@@ -1,6 +1,7 @@
 import { changeRoute } from "./navigation";
 import { Disclosure } from "./disclosure";
-import React, { useEffect, useState } from "react";
+import { ActivityLog } from "./activity-log";
+import React, { useEffect, useState, useId } from "react";
 import { Columns3, List, Network, Plus } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { MilestoneTable } from "./milestone-table";
@@ -16,10 +17,34 @@ import { canRetryMilestone, retryTokens, shortSummary } from "./run-summary";
 import { Proposal, RoutingEvidence } from "./conversation";
 import { AssignmentMap } from "./assignment-map";
 
-export function MilestoneDetails({ run, task, api, act, busy, explain, openMilestone, onClose }) {
+export function MilestoneDetails({ run, task, api, act, busy, explain, openMilestone, onClose, route }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const detailsOpen = expandedId === task.id;
+  const detailsId = useId();
   return (
-    <Dialog title={shortSummary(task.goal, 96) || task.id} onExplain={() => explain("milestone", task.id)} onClose={onClose} pageKey={task.id} placement="right" className="work-detail-dialog">
+    <Dialog title={shortSummary(task.goal, 96) || task.id} onExplain={() => explain("milestone", task.id)} onClose={onClose} pageKey={task.id} placement="right"
+      titleAction={<Button variant="ghost" size="sm" aria-expanded={detailsOpen} aria-controls={detailsId}
+        onClick={() => setExpandedId(detailsOpen ? null : task.id)}>Details</Button>} className="work-detail-dialog">
+      <div id={detailsId} hidden={!detailsOpen}>
+        <Markdown>{task.goal}</Markdown>
+        {!!task.notes?.length && (
+          <>
+            <h3>Notes</h3>
+            {task.notes.map((n, i) => (
+              <Markdown key={i}>{n}</Markdown>
+            ))}
+          </>
+        )}
+        {task.commit && (
+          <p>
+            Commit <code>{task.commit}</code>
+          </p>
+        )}
+      </div>
       <AssignmentFacts key={task.id} {...{ run, task, api, act, busy, openMilestone }} />
+      <section aria-label="Milestone activity"><h3>Activity log</h3>
+        <ActivityLog run={run} api={api} route={route} milestone={task.id} explain={(kind,id) => {onClose(); explain(kind,id);}}/>
+      </section>
     </Dialog>
   );
 }
@@ -113,6 +138,7 @@ function AssignmentFacts({ run, task, api, act, busy, openMilestone }) {
           </p>
         )}
       </div>
+      <MilestoneLinks label="Superseded by" ids={task.superseded_by ? [task.superseded_by] : []} tasks={run.tasks} open={openMilestone} />
       <MilestoneLinks ids={task.depends} tasks={run.tasks} open={openMilestone} />
       <MilestoneLinks
         label="Delegated by"
@@ -121,22 +147,7 @@ function AssignmentFacts({ run, task, api, act, busy, openMilestone }) {
         open={openMilestone}
       />
       {(task.finding || task.notes?.length > 0) && <section><h3>Latest update</h3><Markdown>{task.finding || task.notes.at(-1)}</Markdown></section>}
-      <Disclosure className="assignment-description" title="Details">
-        <Markdown>{task.goal}</Markdown>
-        {!!task.notes?.length && (
-          <>
-            <h3>Notes</h3>
-            {task.notes.map((n, i) => (
-              <Markdown key={i}>{n}</Markdown>
-            ))}
-          </>
-        )}
-        {task.commit && (
-          <p>
-            Commit <code>{task.commit}</code>
-          </p>
-        )}
-      </Disclosure>
+
       {task.route && <RoutingEvidence route={task.route} />}
       <div className="actions">
         {canRetryMilestone(run, task) && (
@@ -230,7 +241,7 @@ const lanes = [
   ["Queued", ["pending"]],
   ["In progress", ["running"]],
   ["Needs attention", ["blocked", "question", "interrupted"]],
-  ["Done", ["committed", "abandoned"]],
+  ["Done", ["committed", "abandoned", "superseded"]],
 ];
 export function Milestones({ route, run, api, act, busy, explain, question, selected, setSelected }) {
   const view = views.some(([id]) => id === route.layout) ? route.layout : "table";
@@ -253,7 +264,7 @@ export function Milestones({ route, run, api, act, busy, explain, question, sele
     return (
       task && (
         <MilestoneDetails
-          {...{ task, run, api, act, busy }}
+          {...{ task, run, api, act, busy, route }}
           openMilestone={setSelected}
           explain={(kind, id) => {
             beforeExplain?.();
@@ -286,7 +297,7 @@ export function Milestones({ route, run, api, act, busy, explain, question, sele
         )}
         {tasks.length > 0 && (
           <small>
-            {tasks.filter((t) => t.state === "committed").length} of {tasks.length} complete
+            {tasks.filter((t) => t.state === "committed").length} of {tasks.filter(t => !["abandoned", "superseded"].includes(t.state)).length} complete
           </small>
         )}
         <Button className="add-task"

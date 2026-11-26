@@ -4,7 +4,7 @@ import { Button } from "./components/ui/button";
 import { MessageCircleQuestion, X } from "lucide-react";
 import "./dialog.css";
 
-export function Dialog({ title, onClose, children, className = "", placement = "center", pageKey, onExplain }) {
+export function Dialog({ title, onClose, children, className = "", placement = "center", pageKey, titleAction, onExplain }) {
   const opener = useRef(document.activeElement);
   const content = useRef(null);
   const previousPage = useRef(pageKey);
@@ -36,7 +36,7 @@ export function Dialog({ title, onClose, children, className = "", placement = "
           opener.current.focus({ preventScroll: true });
         }
       }}>
-      <header className="dialog-heading"><DialogTitle ref={heading} tabIndex={-1}>{title}</DialogTitle>
+      <header className="dialog-heading"><DialogTitle ref={heading} tabIndex={-1}>{title}</DialogTitle>{titleAction}
         <div className="dialog-actions">{onExplain && <Button variant="ghost" size="sm" onClick={() => {onClose(); onExplain();}}><MessageCircleQuestion aria-hidden="true"/>Explain this</Button>}
         <Button variant="ghost" size="icon" type="button" aria-label="Close dialog" onClick={onClose}><X /></Button></div>
       </header>

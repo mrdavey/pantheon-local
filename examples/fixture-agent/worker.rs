@@ -32,6 +32,17 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             "worker missing approved checks"
         );
     }
+    if id == "bad-base" {
+        return Ok(
+            json!({"status":"committed","commit":git(&["rev-parse","HEAD"])?,"message":"Verified, with no new commit"}),
+        );
+    }
+    if id == "retry-work"
+        && !(prompt.contains("Previous attempt failed: cache missing")
+            && prompt.contains("Rebuild the cache"))
+    {
+        return Ok(json!({"status":"blocked","message":"cache missing"}));
+    }
     if id == "recover-export" {
         if let Some(gate) = env::var_os("SWARM_TEST_MILESTONE_GATE") {
             let start = std::time::Instant::now();
@@ -113,6 +124,9 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         }
         _ => {
             let pair = match id {
+                "retry-work" => ("retry.txt", "fixed"),
+                "replacement" => ("replacement.txt", "verified"),
+                "final-check" => ("final.txt", "verified"),
                 "foundation" => ("FOUNDATION.md", "The API and UI share an interface."),
                 "api" => ("api.txt", "wrong"),
                 "ui" => ("ui.txt", "usable"),

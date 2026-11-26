@@ -183,7 +183,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
   const lastView = useRef(null);
   const selectedTask = view === "work" ? route.milestone : null;
-  const setSelectedTask = (milestone, extra = {}) => changeRoute({tab:"milestones", milestone, ...extra});
+  const setSelectedTask = (milestone, extra = {}) => changeRoute({tab:"milestones", milestone, turn:null, logPage:null, ...extra});
   const openMilestone = milestone => setTab("work", {milestone});
   const openActivity = (role = "") => setTab("activity", {role});
   const expandChat = () => { if (view !== "chat") lastView.current = route; setTab("chat"); };

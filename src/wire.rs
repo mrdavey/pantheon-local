@@ -17,7 +17,7 @@ request!(Start{
     subagents:bool, subagent_limit:u32, compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,
     attachments:Vec<crate::attachments::Upload>,coordinator:String,workers:Vec<String>,initial_files:Vec<String>,skip_init:bool,target:String,token_target:i64,recipe:Recipe
 });
-request!(Command{attachments:Vec<crate::attachments::Upload>,id:String,expected_revision:i64,donors:Vec<String>,kind:String,task:String,text:String,candidate:String,turn:String,tokens:i64,recipe:Recipe});
+request!(Command{attachments:Vec<crate::attachments::Upload>,id:String,expected_revision:i64,donors:Vec<String>,kind:String,task:String,replacement:String,text:String,candidate:String,turn:String,tokens:i64,recipe:Recipe});
 request!(Model {
     profile: String,
     model: String,
@@ -88,7 +88,7 @@ request!(ObservationCase {
 });
 request!(Question{id:String,text:String,source:String,tasks:Vec<String>,choices:Vec<String>,
     blocking:bool,answer:String,state:String,revision:i64});
-request!(Action{id:String,kind:String,r#ref:String,text:String,case:ObservationCase,
+request!(Action{id:String,kind:String,r#ref:String,replacement:String,text:String,case:ObservationCase,
     question:Question,recipe:Recipe,tasks:Vec<Task>});
 request!(Observer{actions:Vec<Action>});
 

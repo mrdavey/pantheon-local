@@ -43,6 +43,16 @@ enum Action {
     Approve(Change),
     Stop(Change),
     Resume(Change),
+    /// Link a blocked milestone to its committed replacement.
+    SupersedeMilestone {
+        run: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        replacement: String,
+        #[arg(long)]
+        text: String,
+    },
     Change(Change),
     Land(Change),
     Feedback(Change),
@@ -280,6 +290,7 @@ fn normalize_args<I: IntoIterator<Item = std::ffi::OsString>>(raw: I) -> Vec<std
         "task",
         "text",
         "candidate",
+        "replacement",
     ];
     let mut args: Vec<_> = raw.into_iter().collect();
     let mut options = true;
@@ -400,6 +411,15 @@ pub fn execute() -> Result<()> {
             )
         }
         Action::Supervise { .. } => unreachable!(),
+        Action::SupersedeMilestone {
+            run,
+            task,
+            replacement,
+            text,
+        } => (
+            format!("runs/{run}"),
+            Some(json!({"kind":kind,"task":task,"replacement":replacement,"text":text})),
+        ),
         Action::Answer(c)
         | Action::Coordinator(c)
         | Action::Chat(c)

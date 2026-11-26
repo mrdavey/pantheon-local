@@ -8,6 +8,25 @@ fn fixture() -> Result<(tempfile::TempDir, Engine)> {
     Ok((dir, e))
 }
 #[test]
+fn operator_can_resolve_a_blocked_review_with_a_committed_replacement() -> Result<()> {
+    let (_dir, e) = fixture()?;
+    let mut r = json!({"id":"run","state":"working","project":"test","tasks":[{"id":"failed","state":"blocked","finding":"bad base"},{"id":"replacement","state":"pending"},{"id":"downstream","state":"pending","depends":["failed"]}]});
+    e.save(&mut r, "seed")?;
+    let action = json!({"kind":"supersede-milestone","task":"failed","replacement":"replacement","text":"Verified equivalent work","id":"accept"});
+    assert!(e.command("run", action.clone()).is_err());
+    r["tasks"][1]["state"] = json!("committed");
+    r["tasks"][1]["commit"] = json!("accepted-commit");
+    r["observer_error"] = json!("previous decision failed");
+    e.save(&mut r, "committed")?;
+    let saved = e.command("run", action.clone())?;
+    assert_eq!(saved["tasks"][0]["superseded_by"], "replacement");
+    assert_eq!(saved["tasks"][2]["depends"], json!(["replacement"]));
+    assert!(a(&saved["observations"]).is_empty());
+    assert_eq!(saved["observer_error"], "");
+    assert_eq!(saved, e.command("run", action)?);
+    Ok(())
+}
+#[test]
 fn worker_context_only_shares_approved_checks_and_current_peers() {
     let mut r = json!({"answer":"private quotes","recipe_approved":true,"input":{"recipe":{"checks":[["check-contract"]],"rubric":"readable","rule":{"objective":"latency"},"cases":[{"holdback":true,"driver":"/secret","expected":"hidden"}]}},"tasks":[{"id":"self","variant":"first","state":"running"},{"id":"peer","variant":"first","state":"pending"},{"id":"other","variant":"second","state":"running"},{"id":"finished","variant":"first","state":"committed"}]});
     let c = context(&r, Some(&r["tasks"][0]));

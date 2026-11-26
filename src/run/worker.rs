@@ -258,6 +258,19 @@ impl Engine {
                 s(&t, "consult")
             );
         }
+        if !s(&t, "previous_failure").is_empty() {
+            prompt += &format!(
+                "\nThis is a retry. Previous attempt failed: {}\nAssigned base: {}. Inspect the existing checkout and verify the fix against that base before reporting completion.",
+                s(&t, "previous_failure"),
+                s(&t, "base")
+            );
+        }
+        if t["failed_receipt"].is_object() {
+            prompt += &format!(
+                "\nPrevious rejected worker receipt: {}",
+                t["failed_receipt"]
+            );
+        }
         let req = json!({"role":"worker","profile":r["profiles"][s(&t,"worker")],"dir":cwd,"prompt":prompt,"session":s(&t,"session")});
         self.agent_turn_with(r, "worker", &id, req, |r| {
             t["state"] = json!("running");
@@ -352,6 +365,7 @@ impl Engine {
         let id = s(turn, "task");
         let i = index(&r["tasks"], id)?;
         r["tasks"][i]["session"] = json!(s(res, "session"));
+        r["tasks"][i]["failed_receipt"] = Value::Null;
         let result = (|| -> Result<()> {
             if !s(res, "error").is_empty() {
                 let t = &r["tasks"][i];
@@ -435,7 +449,10 @@ impl Engine {
                             && !message.is_empty()
                             && j >= num(&r["task_start"]) as usize
                             && same_variant
-                            && !matches!(s(&r["tasks"][j], "state"), "committed" | "abandoned"),
+                            && !matches!(
+                                s(&r["tasks"][j], "state"),
+                                "committed" | "abandoned" | "superseded"
+                            ),
                         "invalid finding recipient"
                     );
                     push(
@@ -450,14 +467,23 @@ impl Engine {
                         &format!("For {}: {message}", s(&outcome, "recipient")),
                     );
                 }
-                "blocked" => r["tasks"][i]["state"] = json!("blocked"),
+                "blocked" => {
+                    ensure!(
+                        !message.trim().is_empty(),
+                        "Worker reported a blocker without describing its cause"
+                    );
+                    r["tasks"][i]["state"] = json!("blocked");
+                }
                 _ => bail!("unknown worker outcome"),
             };
             Ok(())
         })();
         if let Err(e) = result {
             r["tasks"][i]["state"] = json!("blocked");
-            r["tasks"][i]["finding"] = json!(e.to_string())
+            r["tasks"][i]["finding"] = json!(format!("{e:#}"));
+            if let Ok(outcome) = adapter::decode_typed_outcome("worker", s(res, "text")) {
+                r["tasks"][i]["failed_receipt"] = json!({"status":outcome["status"],"commit":outcome["commit"],"message":outcome["message"]});
+            }
         }
         Ok(())
     }
