@@ -1240,7 +1240,24 @@ fn runs_navigation(h: &Harness) -> Result<()> {
     h.svc.post(&team_path, &json!({"kind":"stop"}))?;
     h.svc.wait_state(&team_path, "stopped")?;
     h.goto()?;
-    h.run_button("Quote export").click()?;
+    let newest = h.run_button("Build the team export");
+    newest.click()?;
+    ensure!(newest.attr("aria-current")? == "page");
+    ensure!(
+        h.b.eval(
+            r#"
+        const runs = Array.from(document.querySelectorAll('.run-nav button'));
+        if (runs.length !== 2 || runs[0].getAttribute('aria-current') !== 'page') return false;
+        return ['.run-name', '.state'].every(selector => {
+            const inset = button => button.querySelector(selector).getBoundingClientRect().left
+                - button.getBoundingClientRect().left;
+            return Math.abs(inset(runs[0]) - inset(runs[1])) < 1;
+        });
+    "#,
+            vec![]
+        )? == true,
+        "Recent run names and statuses should have the same left inset"
+    );
     h.click("Runs")?;
     h.b.label("All runs").visible()?;
     h.b.xpath("//nav[contains(@class,'run-nav')]//button[contains(@class,'run-settings-button')]")
@@ -1689,13 +1706,23 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
             .trim()
             == "Coordinator chat"
     );
-    h.button("Minimize chat").absent()?;
-    ensure!(h.button("Coordinator chat").attr("aria-expanded")? == "true");
+    let launcher = h.button("Coordinator chat");
+    let minimize = h.button("Minimize chat");
+    ensure!(launcher.attr("aria-expanded")? == "true");
     b.label("Message").fill("Read the attachment")?;
+    minimize.focus()?;
+    b.key("\u{e007}")?;
+    b.role("dialog", "Coordinator chat").absent()?;
+    ensure!(launcher.attr("aria-expanded")? == "false");
+    launcher.focused()?;
+    launcher.click()?;
+    b.label("Message").value("Read the attachment")?;
     h.click("Full screen coordinator chat")?;
     b.xpath("//div[@class='conversation-page']//span[@class='composer-profile']")
         .contains("first · Harness default · Default effort")?;
     b.role("region", "Coordinator chat").visible()?;
+    b.xpath("//header[@class='chat-header']").absent()?;
+    h.button("Return to dock").absent()?;
     b.label("Message").value("Read the attachment")?;
     h.click("Attachment options")?;
     h.button("Attach files").visible()?;
@@ -1716,8 +1743,9 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
             "chat-tab-desktop.png"
         }))?;
     }
-    h.click("Return to dock")?;
-    h.click("Coordinator chat")?;
+    b.eval("history.back()", vec![])?;
+    b.role("dialog", "Coordinator chat").visible()?;
+    minimize.click()?;
     h.click("Milestones")?;
     h.click("Add task")?;
     b.label("What do you want to add?")

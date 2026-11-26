@@ -564,7 +564,6 @@ summary:focus-visible {
 .run-metrics {gap:1.1rem;}
 .run-metrics > header, .activity-log > header {justify-content:flex-end;}
 .conversation-page .chat-panel {height:clamp(22rem,68dvh,60rem);}
-.conversation-page .chat-header {justify-content:flex-end;padding:0;}
 .coordinator-status[data-slot=button] {display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;min-height:2.2rem;border:0;border-radius:0;color:var(--clay);background:var(--clay-wash);text-align:left;}
 .coordinator-status svg {width:1rem;}
 .view-selector .add-task {margin-inline-start:auto;background:var(--clay);color:var(--on-clay);}

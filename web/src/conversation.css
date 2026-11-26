@@ -31,6 +31,7 @@ button.chat-launcher:hover:not(:disabled) { background: var(--muted); border-col
   border-bottom: 1px solid var(--line);
 }
 .chat-header h2 { margin: 0; font-size: 1rem; }
+.chat-window-actions { display: flex; gap: .2rem; flex: none; }
 .chat-author { font-size: .8rem; color: var(--muted); }
 .chat-header button { display: grid; place-items: center; width: 44px; padding: 0; border-color: transparent; }
 .chat-history { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1rem; }

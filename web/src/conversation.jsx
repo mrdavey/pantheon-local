@@ -1,5 +1,5 @@
 import { profileLabel, runModel } from "./setup";
-import { ArrowUp, ChevronRight, Maximize2, MessageSquare, PanelBottom } from "lucide-react";
+import { ArrowUp, ChevronRight, Maximize2, MessageSquare, Minus } from "lucide-react";
 import { Disclosure } from "./disclosure";
 import { Button } from "./components/ui/button";
 import { MilestoneLinks } from "./milestone-links";
@@ -90,7 +90,6 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   const agent = profileLabel(coordinator, profile);
   const coordinatorDetails = <span className="composer-profile"><strong>{agent}</strong> · {model} · {effort}</span>;
   const panelId = useId();
-  const titleId = useId();
   const [dockOpen, setOpen] = useState(true);
   const open = expanded || dockOpen;
   const [files,setFiles] = useState([]);
@@ -212,16 +211,17 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   }
 
   return <div className={expanded ? "conversation-page" : "coordinator-chat"}>
-    <div id={panelId} hidden={!open}>{open && <section role={expanded ? "region" : "dialog"} aria-labelledby={titleId} className="chat-panel"
+    <div id={panelId} hidden={!open}>{open && <section role={expanded ? "region" : "dialog"} aria-label="Coordinator chat" className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
       }}>
-      <header className="chat-header">
-        <h2 id={titleId} className={expanded ? "visually-hidden" : undefined}>Coordinator chat</h2>
-        {expanded
-          ? <Button variant="ghost" size="icon" type="button" title="Return to dock" aria-label="Return to dock" onClick={close}><PanelBottom /></Button>
-          : <Button variant="ghost" size="icon" type="button" title="Full screen" aria-label="Full screen coordinator chat" onClick={() => { activated.current = true; onExpand(); }}><Maximize2 /></Button>}
-      </header>
+      {!expanded && <header className="chat-header">
+        <h2>Coordinator chat</h2>
+        <div className="chat-window-actions">
+          <Button variant="ghost" size="icon" type="button" title="Full screen" aria-label="Full screen coordinator chat" onClick={() => { activated.current = true; onExpand(); }}><Maximize2 /></Button>
+          <Button variant="ghost" size="icon" type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><Minus /></Button>
+        </div>
+      </header>}
       <Button variant="ghost" className="coordinator-status" aria-label={"View coordinator activity: " + coordinatorStatus(run)} onClick={() => {setOpen(false); onCoordinatorActivity();}}>{coordinatorStatus(run)} <ChevronRight aria-hidden="true"/></Button>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
         onScroll={trackPosition}>
