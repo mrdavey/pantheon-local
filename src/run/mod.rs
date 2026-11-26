@@ -345,6 +345,12 @@ impl Engine {
     }
     fn pin_recipe(&self, r: &Value, mut recipe: Value) -> Result<Value> {
         eval::validate(&recipe)?;
+        if r["input"]["verification_of"].is_object() {
+            ensure!(
+                !a(&recipe["checks"]).is_empty() || !a(&recipe["cases"]).is_empty(),
+                "correctness runs require an executable acceptance check"
+            );
+        }
         if let Some(cases) = recipe["cases"].as_array_mut() {
             for c in cases {
                 let rev = num(&c["revision"]);
@@ -361,6 +367,61 @@ impl Engine {
         }
         eval::pin(&recipe, &self.root(r).join("evaluators"))
     }
+    pub fn verify_implementation(&self, run_id: &str, candidate_id: &str) -> Result<Value> {
+        let source = experiment::public(self.store.get(run_id)?);
+        ensure!(
+            strings(&source["landed_implementation_ids"])
+                .iter()
+                .any(|id| id == candidate_id),
+            "choose a landed implementation to verify"
+        );
+        let candidate = &source["candidates"][index(&source["candidates"], candidate_id)?];
+        let original = &source["input"];
+        let objective = original["verification_of"]["objective"]
+            .as_str()
+            .unwrap_or(s(original, "prompt"));
+        let project = project::subdir(
+            Path::new(s(&source["repo"], "Root")),
+            s(&source["repo"], "Subdir"),
+        )?;
+        let branch = s(&source["repo"], "Target");
+        ensure!(
+            !branch.is_empty(),
+            "this implementation has no recorded landing branch"
+        );
+        let goals = strings(&candidate["tasks"])
+            .iter()
+            .filter_map(|id| find(&source["tasks"], id))
+            .map(|i| s(&source["tasks"][i], "goal"))
+            .filter(|goal| !goal.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let brief = format!(
+            "Find and fix bugs in the landed implementation.\n\nOriginal objective: {objective}\n\nLanded milestones:\n{goals}\n\nReview the current project against that objective. Divide independent checks across the team. Exercise the real entry points, integration paths, edge cases and existing test suite. Reproduce observed defects, fix their causes, and add regression tests where needed. Run the relevant tests and build on the integrated result. Report fixes, checks and outcomes, and anything you could not verify. If the implementation already works, record the evidence without manufacturing changes."
+        );
+        // Use the resolved profile IDs and snapshot, including separate instances of the same harness.
+        let mut input = json!({
+            "prompt":brief, "path":project, "target":branch, "skip_init":true, "base_from_target":true,
+            "verification_of":{"run":run_id,"candidate":candidate_id,"commit":candidate["commit"],"objective":objective},
+            "recipe":{"checks":[]},
+            "delivery":if source["held"] == true || !matches!(s(original, "delivery"), "auto" | "deploy") { "review" } else { "auto" }
+        });
+        for key in [
+            "coordinator",
+            "workers",
+            "min_workers",
+            "routing",
+            "token_target",
+            "subagents",
+            "subagent_limit",
+        ] {
+            if let Some(value) = original.get(key) {
+                input[key] = value.clone();
+            }
+        }
+        self.start(input, source["profiles"].clone())
+    }
+
     pub fn start(&self, mut input: Value, mut profiles: Value) -> Result<Value> {
         pool::configure(&mut input, &mut profiles)?;
         if input["worker_pool"].is_array() {
@@ -415,10 +476,15 @@ impl Engine {
         });
         // Verify and pin delivery authority before touching the project or its index.
         release::authorize(&mut r, &self.dir)?;
+        let from_target = yes(&input["base_from_target"]);
+        ensure!(
+            !from_target || !s(&input, "target").is_empty(),
+            "choose the branch to start from"
+        );
         let mut repo = project::open(
             s(&input, "path"),
             &strings(&input["initial_files"]),
-            !yes(&input["skip_init"]),
+            !from_target && !yes(&input["skip_init"]),
         )?;
         if !s(&input, "target").is_empty() {
             repo.target = format!(
@@ -426,10 +492,20 @@ impl Engine {
                 s(&input, "target").trim_start_matches("refs/heads/")
             );
             let head = project::target_head(&repo.root, &repo.target)?;
-            ensure!(
-                project::is_ancestor(&repo.root, &head, &repo.head),
-                "target must be an ancestor of the chosen base"
-            )
+            if from_target {
+                if let Some(landed) = input["verification_of"]["commit"].as_str() {
+                    ensure!(
+                        project::is_ancestor(&repo.root, landed, &head),
+                        "the target branch no longer contains this landed implementation"
+                    );
+                }
+                repo.head = head;
+            } else {
+                ensure!(
+                    project::is_ancestor(&repo.root, &head, &repo.head),
+                    "target must be an ancestor of the chosen base"
+                );
+            }
         }
         r["repo"] = json!(repo);
         r["project"] = json!(self.store.project_id(&repo.common)?);

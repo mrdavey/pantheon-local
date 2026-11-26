@@ -43,16 +43,35 @@ fn reads_local_model_defaults_without_pinning_them_or_returning_private_config()
         ),
         ("CLAUDE_CODE_EFFORT_LEVEL".into(), "high".into()),
     ]);
+    let fixture = common::example("fixture-agent")?;
     let svc = common::Service::with_profiles(
         dir.path(),
         env,
         &json!({"profiles":{
-            "codex":{"kind":"codex"}, "claude":{"kind":"claude"}, "hermes":{"kind":"hermes","hermes_profile":"default"},
-            "sticky":{"kind":"hermes"},"agy":{"kind":"antigravity"}, "custom":{"kind":"custom","executable":"true"}
+            "codex":{"kind":"codex","executable":fixture}, "cached":{"kind":"codex","executable":"/nonexistent/codex"}, "claude":{"kind":"claude"}, "hermes":{"kind":"hermes","hermes_profile":"default"},
+            "sticky":{"kind":"hermes"},"agy":{"kind":"antigravity","executable":fixture}, "custom":{"kind":"custom","executable":"true"}
         }}),
     )?;
     fs::write(svc.state.join("benchmarks.json"),json!({"rows":[{"model":"Demo 1.5","effort":"medium","agent":"Codex CLI",
         "suite":"Test bench","source":"https://example.invalid/demo","date":chrono::Utc::now().date_naive(),"class":"terminal","score":95}]}).to_string())?;
+    assert_eq!(
+        svc.get("/setup/models?profile=codex")?,
+        json!(["catalog-only", "demo-1.5"])
+    );
+    assert_eq!(
+        svc.get("/setup/models?profile=cached")?,
+        json!(["demo-1.5"])
+    );
+    assert_eq!(
+        svc.get("/setup/models?profile=agy")?,
+        json!(["fixture-fast"])
+    );
+    assert!(
+        svc.get("/setup/models?profile=claude")?
+            .as_array()
+            .unwrap()
+            .contains(&json!("claude-sonnet-test"))
+    );
     let setup = svc.get("/setup")?;
     assert!(!setup.to_string().contains("private-test-sentinel"));
     let models = &setup["profiles"];

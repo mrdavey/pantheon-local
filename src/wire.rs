@@ -23,6 +23,7 @@ request!(RunModel {
     effort: String
 });
 request!(Start{
+    base_from_target:bool,
     coordinator_settings:RunModel,
     worker_pool:Vec<WorkerSlot>, min_workers:u32,
     subagents:bool, subagent_limit:u32, compare:bool, delivery:String,destination:String,routing:String,original_prompt:String,path:String,prompt:String,

@@ -16,25 +16,28 @@ import "./brief.css";
 
 import { changeRoute, useRoute } from "./navigation";
 
+import { runProjectPath } from "./run-summary";
+import { branchName } from "./review";
+
 function defaultWorkers(profiles) {
   if (!profiles.length) return [];
   return Array.from({length:3}, (_, key) => ({key, profile:profiles[key % profiles.length]}));
 }
 
-function AddAgent({names, profiles, onAdd, onClose}) {
+function AddAgent({api, names, profiles, onAdd, onClose}) {
   const [name, setName] = useState(names[0]);
   const selected = names.includes(name) ? name : names[0];
   return <Dialog title="Add agent" onClose={onClose}>
     <Label>Harness<NativeSelect value={selected} onChange={event => setName(event.target.value)}>
       {names.map(id => <NativeSelectOption key={id} value={id}>{profileLabel(id, profiles[id])}</NativeSelectOption>)}
     </NativeSelect></Label>
-    {selected && <ModelSettingsForm key={selected} name={selected} profile={profiles[selected]} agentOnly
+    {selected && <ModelSettingsForm api={api} key={selected} name={selected} profile={profiles[selected]} agentOnly
       submitLabel="Add to pool" onClose={onClose} save={({model,effort}) => onAdd({profile:selected,model,effort})} />}
   </Dialog>;
 }
 
-export function Brief({ setup, report, checking, checkError, cwd, api, agentChoice, onSetup, onCreate, perform, busy }) {
-  const [path, setPath] = useState(cwd);
+export function Brief({ setup, report, checking, checkError, cwd, followup, api, agentChoice, onSetup, onCreate, perform, busy }) {
+  const [path, setPath] = useState(() => followup ? runProjectPath(followup) : cwd);
   const [prompt, setPrompt] = useState("");
   const [suggestion, setSuggestion] = useState("");
   const [original, setOriginal] = useState("");
@@ -51,7 +54,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
   const [tokens, setTokens] = useState("");
   const [routing, setRouting] = useState("manual");
   const [initialFiles, setInitialFiles] = useState([]);
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState(() => branchName(followup?.repo?.Target) || "");
   const [compare, setCompare] = useState(false);
   const [delivery, setDelivery] = useState("auto");
   const [destination, setDestination] = useState("");
@@ -131,7 +134,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
         attachments: await encodeAttachments(files), path, prompt, original_prompt: original, coordinator: selectedCoordinator, coordinator_settings: coordinatorModels[selectedCoordinator], worker_pool: selectedWorkers.map(({key,...worker}) => worker),
         routing: selectedWorkers.length > 1 ? routing : "manual", token_target: Number(tokens),
         subagents: allowChildren, subagent_limit: allowChildren && !unlimited ? Number(limit) : null,
-        initial_files: initialFiles, target, compare, delivery, destination: delivery === "deploy" ? destination : "", recipe: { checks: [] },
+        initial_files: initialFiles, target, ...(followup && target ? {base_from_target:true} : {}), compare, delivery, destination: delivery === "deploy" ? destination : "", recipe: { checks: [] },
       });
       onCreate(run);
     }, "Starting run…");
@@ -172,6 +175,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
           }, "Choosing a folder…")}>Browse…</Button>
         </div>
       </div>
+      {followup && <Label>Target branch<Input value={target} onChange={event => setTarget(event.target.value)} placeholder="Current branch" /></Label>}
       <div className="run-preferences">
         {names.length ? <Button variant="outline" type="button" className="team-control" onClick={() => setModal("team")} aria-label="Team">
           <strong>Team</strong><span>{agentCount} {agentCount === 1 ? "agent" : "agents"} · {label(selectedCoordinator)} coordinates</span>
@@ -211,9 +215,9 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
           {!validLimit && <p role="alert">Enter a positive whole number.</p>}</>}
       </fieldset>
       <div className="dialog-footer"><Button variant="outline" type="button" disabled={!validLimit || !selectedWorkers.length} onClick={() => setModal("")}>Done</Button></div>
-      {modal === "add-agent" && <AddAgent names={names} profiles={setup.profiles} onClose={() => setModal("team")}
+      {modal === "add-agent" && <AddAgent api={api} names={names} profiles={setup.profiles} onClose={() => setModal("team")}
         onAdd={slot => setWorkers([...selectedWorkers,{...slot,key:crypto.randomUUID()}])}/>}
-      {modal === "model" && <ModelSettings key={editingSlot?.key ?? "coordinator"} name={modelName}
+      {modal === "model" && <ModelSettings api={api} key={editingSlot?.key ?? "coordinator"} name={modelName}
         runLabel={editingSlot ? `worker ${selectedWorkers.indexOf(editingSlot)+1} · ${label(modelName)}` : `coordinator · ${label(modelName)}`}
         profile={editingSlot ? {...setup.profiles[modelName],...editingSlot} : profile}
         save={({model,effort}) => editingSlot ? updateWorker(editingSlot.key,{model,effort}) :
@@ -240,7 +244,7 @@ export function Brief({ setup, report, checking, checkError, cwd, api, agentChoi
         </div>}
         <Label>Advisor<NativeSelect aria-label="Advisor" value={names.includes(advisor) ? advisor : ""} onChange={(event) => setAdvisor(event.target.value)}><NativeSelectOption value="">Use coordinator</NativeSelectOption>{names.map((name) => <NativeSelectOption key={name} value={name}>{label(name)}</NativeSelectOption>)}</NativeSelect></Label>
         <Label>Token target<Input type="number" min="0" step="1" value={tokens} onChange={(event) => setTokens(event.target.value)} placeholder="Optional" /></Label>
-        <Label>Target branch<Input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Current branch" /></Label>
+        {!followup && <Label>Target branch<Input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Current branch" /></Label>}
         <div className="file-field"><span>Initial import files</span>
           <Button variant="outline" type="button" disabled={!path.trim() || picking} onClick={pickImports}>{picking ? "Choosing files…" : initialFiles.length ? "Add more files…" : "Choose files…"}</Button>
           <FileList names={initialFiles} remove={i => setInitialFiles(current => current.filter((_, index) => i !== index))} />

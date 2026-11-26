@@ -119,7 +119,7 @@ function Evidence({ path, kind, name, refreshable }) {
   </>;
 }
 
-function Candidate({ route, run, candidate, act, busy, name, landed, explain, openMilestone }) {
+function Candidate({ route, run, candidate, act, busy, name, landed, explain, openMilestone, verifyImplementation }) {
   const evalTurn = (run.turns || []).findLast((turn) => turn.role === "eval" && (turn.task === candidate.id || turn.id === candidate.evidence));
   const panel = route.tab === "implementations" && route.candidate === candidate.id ? route.detail : "";
   const show = detail => changeRoute({candidate:detail ? candidate.id : null, detail, file:null});
@@ -157,6 +157,10 @@ function Candidate({ route, run, candidate, act, busy, name, landed, explain, op
           if (await act({ kind: "change", candidate: candidate.id, text })) show(null);
         }} /></Dialog>}
     </>}
+    {landed && <div className="actions">
+      <Button variant="default" className="primary" onClick={() => changeRoute({page:"new", from:run.id, implementation:candidate.id}, {reset:true})}>Start new run</Button>
+      <Button variant="outline" disabled={busy} onClick={() => verifyImplementation(run, candidate)}>Find and fix bugs</Button>
+    </div>}
     <div className="actions result-tools">
       {candidate.commit && <Button variant="outline" disabled={busy} onClick={() => show("diff")}>View diff</Button>}
       {evalTurn && <Button variant="outline" disabled={busy} onClick={() => show("checks")}>View checks</Button>}
@@ -180,7 +184,7 @@ function defaultTab(run) {
   return run.selection && (run.input.compare || ["auto", "deploy"].includes(run.input.delivery)) ? "experiment" : "milestones";
 }
 
-function RunView({ run, send, perform, busy, openRun, openInbox, settings, route }) {
+function RunView({ run, send, perform, busy, openRun, openInbox, settings, route, verifyImplementation }) {
   const tabs = {milestones:"work",chat:"chat",activity:"activity",metrics:"metrics",experiment:"experiment"};
   const implementations = successful(run);
   if (implementations.length) tabs.implementations = "implementations";
@@ -243,7 +247,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     </div>
     {view === "implementations" && <section aria-label="Successful implementations">
       {implementations.map(candidate => <Candidate key={candidate.id} name={implementationLabel(candidate)} landed={run.landed_implementation_ids?.includes(candidate.id)}
-        {...{route,candidate,run,act,busy,explain,openMilestone}} />)}
+        {...{route,candidate,run,act,busy,explain,openMilestone,verifyImplementation}} />)}
     </section>}
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
     {view === "activity" && <ActivityLog route={route} {...{run,api,explain}} />}
@@ -418,6 +422,13 @@ function App() {
   }, [setup, runs.length, selection, route.page]);
   const outstanding = runs.reduce((total, r) => total + (r.inbox || []).filter((q) => q.state === "open" && !q.inbox_dismissed).length + blockedTasks(r).filter(task => !task.inbox_dismissed).length, 0);
   const current = runs.find((run) => run.id === selection);
+  const followup = route.page === "new" && route.from ? runs.find(run =>
+    run.id === route.from && run.landed_implementation_ids?.includes(route.implementation)) : null;
+  const verifyImplementation = (run, candidate) => perform(async () => {
+    const next = await api("/runs/" + run.id + "/implementations/" + candidate.id + "/verify", {});
+    apply(next);
+    navigate(next.id);
+  }, "Starting correctness checks…");
   const useAgent = (name, config) => {
     setSetup(config);
     setAgentChoice({ name });
@@ -489,17 +500,19 @@ function App() {
         {error && <Alert className="notice error" variant="destructive"><span>{error}</span><Button variant="outline" onClick={() => setError("")} aria-label="Dismiss error">×</Button></Alert>}
         {pending && <Loading top>{pending}</Loading>}
       </div>}
-      {setup && <div hidden={selection !== ""}>
-        <Brief key={draftVersion} setup={setup} {...{ api, report, checking, checkError }} cwd={sessionStorage.getItem(cwdKey) || setup.cwd || ""} agentChoice={agentChoice} onSetup={() => navigate("setup")} {...{ onCreate, perform, busy }} />
+      {setup && selection === "" && route.from && !followup && <section><h1>Implementation unavailable</h1>
+        <Button onClick={() => navigate("runs")}>Back to runs</Button></section>}
+      {setup && !(selection === "" && route.from && !followup) && <div hidden={selection !== ""}>
+        <Brief key={followup ? followup.id + "/" + route.implementation : draftVersion} followup={followup} setup={setup} {...{ api, report, checking, checkError }} cwd={sessionStorage.getItem(cwdKey) || setup.cwd || ""} agentChoice={agentChoice} onSetup={() => navigate("setup")} {...{ onCreate, perform, busy }} />
       </div>}
       {selection === "runs" && setup && <RunsIndex {...{runs,navigate,route}}/>}
       {setup && route.page === "run" && !current && <section><h1>Run unavailable</h1><Button onClick={()=>navigate(runs.length ? "runs" : "")}>Back to runs</Button></section>}
-      {current ? <RunView route={route} key={current.id} run={current} settings={settingsButton(current)} openRun={navigate} openInbox={() => {
+      {current ? <RunView route={route} key={current.id} run={current} verifyImplementation={verifyImplementation} settings={settingsButton(current)} openRun={navigate} openInbox={() => {
         navigate("inbox");
         if (current.inbox?.some(q => q.state === "open" && q.inbox_dismissed)) changeRoute({history:"open"}, {replace:true});
       }} {...{ send, perform, busy }} /> :
         selection === "inbox" ? <Inbox runs={runs} act={send} open={navigate} busy={busy} /> :
-        selection === "setup" ? <AgentSetup {...{ report, checking }} error={checkError} refresh={refreshAgents} saveModel={updateModel} onContinue={useAgent} /> :
+        selection === "setup" ? <AgentSetup api={api} {...{ report, checking }} error={checkError} refresh={refreshAgents} saveModel={updateModel} onContinue={useAgent} /> :
         !setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
     </main>
     {current && <RunFooter run={current}/>}

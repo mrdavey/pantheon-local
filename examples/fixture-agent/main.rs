@@ -115,6 +115,17 @@ fn main() -> Result<()> {
         writeln!(output, "{}", args.get(1).context("missing browser URL")?)?;
         return Ok(());
     }
+    if args[1..] == ["debug", "models"] {
+        println!(
+            "{}",
+            json!({"models":[{"slug":"catalog-only","visibility":"list"},{"slug":"hidden","visibility":"hide"}]})
+        );
+        return Ok(());
+    }
+    if args[1..] == ["models"] {
+        println!("fixture-fast\tFixture Fast");
+        return Ok(());
+    }
     if name == "fake-codex" {
         if env::var_os("SWARM_TEST_SIGNED_IN").is_some_and(|p| Path::new(&p).is_file()) {
             println!("Logged in using ChatGPT");

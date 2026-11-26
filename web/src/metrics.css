@@ -134,7 +134,7 @@
     grid-template-rows: 1fr auto;
   }
 }
-.usage-totals { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.usage-totals { grid-template-columns: repeat(auto-fit, minmax(8rem,1fr)); }
 .usage-shares { display: flex; flex-wrap: wrap; align-items: center; gap: 2rem; padding: 1rem; }
 .share-disc { width: min(13rem, 100%); aspect-ratio: 1; border-radius: 50%; }
 .usage-shares figcaption { display: grid; gap: .65rem; }

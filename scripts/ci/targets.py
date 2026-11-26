@@ -24,7 +24,7 @@ FIXTURES = {
     "test:ci": set(),
     "test:e2e": {AGENT},
     "test:experiments": {AGENT, RELEASE, GRADER},
-    "test:model_settings": set(),
+    "test:model_settings": {AGENT},
     "test:service": {AGENT},
     "test:supervision": {AGENT},
     "test:workbench": {AGENT, RELEASE, GRADER},

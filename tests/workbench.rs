@@ -29,6 +29,10 @@ impl Harness {
         let desktop_profile = hermes_home.join("profiles/desktop-work");
         fs::create_dir_all(&desktop_profile)?;
         fs::write(desktop_profile.join("config.yaml"), "")?;
+        fs::write(
+            desktop_profile.join("provider_models_cache.json"),
+            r#"{"local":{"models":["local/model-one","local/model-two","other/fast"]}}"#,
+        )?;
         let profiles = json!({"profiles":{"hermes":{"kind":"hermes","executable":fixture["executable"],"hermes_profile":"default"},"first":fixture,"second":worker("Efficient model"),"writer":worker("Frontier model"),"writer-two":worker("Frontier model"),"codex":{"kind":"codex","executable":native},"claude":{"kind":"claude","executable":dir.path().join("missing-claude")}}});
         let env = BTreeMap::from([
             ("HERMES_HOME".into(), hermes_home),
@@ -234,7 +238,16 @@ fn desktop_profile_roles(h: &Harness) -> Result<()> {
     h.b.text("3. Hermes · desktop-work").visible()?;
     h.click("Add agent")?;
     h.b.label("Harness").select("hermes-desktop-work")?;
-    h.b.label("Model ID").fill("local-model-two")?;
+    let model = h.b.role("combobox", "Model ID");
+    model.fill("MoDeL-t")?;
+    h.b.role("option", "local/model-two").visible()?;
+    h.b.role("option", "other/fast").absent()?;
+    h.b.key("\u{e015}")?;
+    h.b.key("\u{e007}")?;
+    model.value("local/model-two")?;
+    model.fill("local-model-two")?;
+    h.b.key("\u{e00c}")?;
+    h.b.role("dialog", "Add agent").visible()?;
     h.b.label("Thinking effort").select("high")?;
     h.click("Add to pool")?;
     h.click("Settings for worker 4")?;
@@ -397,10 +410,13 @@ fn export(h: &Harness) -> Result<()> {
     for _ in 0..3 {
         h.click("Remove worker 1")?;
     }
-    for worker in ["writer", "second"] {
+    for (index, worker) in ["writer", "second"].into_iter().enumerate() {
         h.click("Add agent")?;
-        b.label("Harness").select(worker)?;
+        let harness = b.role("combobox", "Harness");
+        harness.select(worker)?;
+        harness.value(worker)?;
         h.click("Add to pool")?;
+        b.text(&format!("{}. {worker}", index + 1)).visible()?;
     }
     h.click("Done")?;
     h.click("Advanced settings")?;
@@ -577,6 +593,69 @@ fn export(h: &Harness) -> Result<()> {
     let run = h.svc.get("/runs")?;
     ensure!(run[0]["detail"] == git(&project, &["rev-parse", "HEAD"])?);
     ensure!(fs::read_to_string(project.join("export.txt"))?.contains("open quotes"));
+    let landed_head = git(&project, &["rev-parse", "HEAD"])?;
+    git(&project, &["switch", "-c", "unrelated"])?;
+    git(
+        &project,
+        &["commit", "--allow-empty", "-m", "Unrelated local work"],
+    )?;
+    let source_url = b.url()?;
+    h.click("Start new run")?;
+    b.reload()?;
+    b.label("What do you want to build?").value("")?;
+    b.label("Project folder")
+        .value(run[0]["working_folder"].as_str().unwrap())?;
+    b.label("Target branch").value("main")?;
+    h.no_overflow()?;
+    b.label("What do you want to build?")
+        .fill("Expand the export")?;
+    h.click("Start run")?;
+    let next = until("feature follow-up", || {
+        Ok(h.svc
+            .get("/runs")?
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["input"]["prompt"] == "Expand the export")
+            .cloned())
+    })?;
+    ensure!(next["repo"]["Head"] == landed_head && next["repo"]["Target"] == "refs/heads/main");
+    // Exercise a real fix on desktop and a no-edit verification on mobile.
+    if !h.mobile {
+        git(&project, &["switch", "main"])?;
+        fs::write(project.join("export.txt"), "broken export")?;
+        git(&project, &["commit", "-am", "Regress the export"])?;
+        git(&project, &["switch", "unrelated"])?;
+    }
+    let verification_base = git(&project, &["rev-parse", "main"])?;
+    b.goto(&source_url)?;
+    h.click("Find and fix bugs")?;
+    let verify = until("correctness run", || {
+        Ok(h.svc
+            .get("/runs")?
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["input"]["verification_of"].is_object())
+            .cloned())
+    })?;
+    ensure!(
+        verify["repo"]["Head"] == verification_base
+            && verify["input"]["workers"] == run[0]["input"]["workers"]
+            && verify["profiles"] == run[0]["profiles"]
+    );
+    let path = common::run_path(&verify)?;
+    h.svc.wait_state(&path, "checks")?;
+    h.svc.post(&path, &json!({"kind":"approve"}))?;
+    let checked = h.svc.wait_state(&path, "review")?;
+    ensure!(checked["candidates"][0]["state"] == "passed");
+    ensure!((checked["candidates"][0]["commit"] == verification_base) == h.mobile);
+    h.svc.post(
+        &path,
+        &json!({"kind":"land","candidate":checked["candidates"][0]["id"]}),
+    )?;
+    ensure!(git(&project, &["show", "main:export.txt"])? == "open quotes");
+    ensure!(git(&project, &["branch", "--show-current"])? == "unrelated");
     Ok(())
 }
 fn valid_commit(b: &Browser) -> Result<()> {
@@ -1696,6 +1775,8 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.button("Retry metrics").visible()?;
     h.click("Retry metrics")?;
     let tokens = b.xpath("//dt[.='Tokens used']/following-sibling::dd");
+    let active_agents = b.xpath("//dt[.='Agents working']/following-sibling::dd");
+    active_agents.contains("0")?;
     tokens.contains("5")?;
     b.role("combobox", "Chart view").select("pie")?;
     b.label("Usage share by agent and model").visible()?;
@@ -1711,6 +1792,7 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.svc
         .post(&path, &json!({"kind":"chat","text":"Stream this answer"}))?;
     tokens.contains("7")?;
+    active_agents.contains("1")?;
     b.role("combobox", "Model").select("Fixture Chat")?;
     tokens.contains("2")?;
     b.role("combobox", "Agent").select("first")?;
@@ -1729,6 +1811,7 @@ fn run_metrics(h: &Harness) -> Result<()> {
     b.role("combobox", "Model").select("")?;
     b.role("combobox", "Role").select("")?;
     tokens.contains("10")?;
+    active_agents.contains("0")?;
     b.xpath("//dt[.='Estimated cost (USD)']/following-sibling::dd")
         .contains("$0.002")?;
     b.text("Cost unavailable for 1 turn").visible()?;

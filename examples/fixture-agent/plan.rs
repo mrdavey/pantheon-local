@@ -5,6 +5,20 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
     let build = |tasks: Vec<Value>, files: &[&str]| -> Result<Value> {
         Ok(json!({"tasks":tasks,"recipe":{"checks":[check(files)?]}}))
     };
+    if prompt.contains("Find and fix bugs in the landed implementation.") {
+        return build(
+            vec![
+                milestone("verify-export", "Verify the export behavior", Value::Null),
+                task(
+                    "verify-guide",
+                    "Verify the export guide",
+                    "second",
+                    Value::Null,
+                ),
+            ],
+            &["export.txt", "open quotes"],
+        );
+    }
     if prompt.contains("Recover two failed milestones automatically") {
         return build(
             vec![

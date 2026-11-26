@@ -46,7 +46,8 @@ In **Metrics**, choose an agent, model, role or time range. Time ranges end at t
 
 ## Continue working on a project
 
-- **New feature or project expansion.** Choose **Runs → + New run** and select the same project folder. Start from the branch containing the previous landed implementation. Commit any manual edits you want included. The new goal gets its own brief, milestones, and metrics.
+- **New feature or project expansion.** On a landed entry in **Implementations**, choose **Start new run**. The blank brief opens with the original project folder and landing branch selected. You can edit both before starting. Commit any manual edits you want included. The new goal gets its own brief, milestones, and metrics.
+- **Check the landed code.** Choose **Find and fix bugs** on the landed entry. The original coordinator and worker profiles start a separate run at the latest commit on that branch. They use the original objective to reproduce problems, fix them, and run acceptance checks. When checks pass without edits, their results appear in the milestone details.
 - **Refine the previous result.** Choose **Experiment → Start another round** to try a new goal in the same run. If several implementations were built and one has landed, **Improve this version** lets you combine it with parts of the alternatives.
 - **Missing work in the current goal.** Choose **Milestones → Add task** to review and add the coordinator’s proposed milestones to this run.
 

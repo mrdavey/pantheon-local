@@ -82,6 +82,17 @@ fn inspect(
     combined: bool,
     state: Option<&Path>,
 ) -> Result<(bool, String)> {
+    inspect_limited(p, args, timeout, combined, state, 64 * 1024)
+}
+
+fn inspect_limited(
+    p: &Value,
+    args: &[&str],
+    timeout: u64,
+    combined: bool,
+    state: Option<&Path>,
+    limit: u64,
+) -> Result<(bool, String)> {
     let mut capture = tempfile::tempfile()?;
     let mut cmd = Command::new(binary(p).as_ref());
     cmd.args(args)
@@ -110,7 +121,7 @@ fn inspect(
     let _ = nix::sys::signal::killpg(pgid, nix::sys::signal::Signal::SIGKILL);
     capture.rewind()?;
     let mut out = Vec::new();
-    capture.take(64 * 1024).read_to_end(&mut out)?;
+    capture.take(limit).read_to_end(&mut out)?;
     Ok((
         status.success(),
         String::from_utf8_lossy(&out).trim().into(),

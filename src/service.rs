@@ -429,6 +429,17 @@ impl Local {
                 )
             }
             ("GET", ["setup"]) => setup(&self.dir),
+            ("GET", ["setup", "models"]) => {
+                let name = url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(k, _)| k == "profile")
+                    .context("choose an agent profile")?
+                    .1;
+                let cfg = setup(&self.dir)?;
+                let profile = cfg["profiles"]
+                    .get(name.as_ref())
+                    .context("agent profile not found")?;
+                Ok(json!(adapter::models::catalog(profile, &self.dir)))
+            }
             ("GET", ["setup", "status"]) => {
                 let mut cfg = setup(&self.dir)?;
                 if let Some(update) = crate::update::check(&self.dir) {
@@ -540,6 +551,10 @@ impl Local {
                 if let Err(err) = write_local(&self.dir.join("roles.json"), &prefs) {
                     eprintln!("saving role preferences: {err}")
                 }
+                Ok(experiment::public(run))
+            }
+            ("POST", ["runs", id, "implementations", candidate, "verify"]) => {
+                let run = self.mutate(|engine| engine.verify_implementation(id, candidate))?;
                 Ok(experiment::public(run))
             }
             ("POST", ["runs", id, "delete"]) => {

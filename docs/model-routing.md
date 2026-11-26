@@ -10,7 +10,7 @@ A worker can ask the coordinator or send a finding to a peer. If your brief requ
 
 The coordinator sees each selected worker’s model and thinking effort. It can restrict a milestone’s benchmark comparison to suitable workers, split independent work across the team, and revise unstarted assignments as findings arrive. It can send guidance to a running worker or add follow-up work within the brief.
 
-Under **New run → Team**, choose **Settings** beside any worker to edit its profile for future runs. Each run keeps the settings it started with. Codex and Claude Code receive model and effort overrides at launch. Hermes and Antigravity use the options their ACP session advertises. An unavailable override produces an error naming the setting.
+Under **New run → Team**, choose **Settings** beside a worker to edit its model and thinking effort for that agent in the new run. Each run keeps the settings it started with. Codex and Claude Code receive model and effort overrides at launch. Hermes and Antigravity use the options their ACP session advertises. An unavailable override produces an error naming the setting.
 
 Turn off **Allow subagents** to keep assignments with the primary team. With **Unlimited subagents**, Pantheon adds no cap and workers may use native delegation within their harness limits. For a shared cap, clear **Unlimited subagents** and enter the maximum concurrent child milestones. Workers can request child assignments from the coordinator. The coordinator also looks for independent child milestones that can shorten delivery or improve verification. The parent integrates and checks the combined result. Ready primary milestones can still run while child slots are full. Codex and Claude native delegation tools are disabled for capped or disabled runs. ACP and custom adapters receive the policy in the prompt and must honor it. The CLI equivalents are `--no-subagents` and `--subagent-limit N`.
 
@@ -27,6 +27,8 @@ From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, th
 The coordinator assigns workers by default. In **Agent setup → Settings**, Pantheon reads your local Codex, Claude Code, Hermes or Antigravity preferences and prefills the model, agent and reasoning fields it can identify. Antigravity reports a model label. Codex can also supply a display name and default effort from its local model catalog. Account-selected defaults may be unknown.
 
 A match names the local or cached benchmark suite. You can override any benchmark field or set the runtime **Model ID** for Codex and Claude Code. **Use detected settings** and save to follow the native defaults again. Hermes and Antigravity accept exact model IDs and reasoning options offered by their ACP session. Clear overrides to follow the native profile.
+
+In **Team → Add agent**, type in **Model ID** to filter suggestions, use the arrow keys and Enter to select one, or enter a custom ID. Codex supplies its catalog through `codex debug models` with a local cache fallback. Antigravity supplies IDs through `agy models`. Hermes uses the selected profile’s provider model cache. Claude Code suggestions use configured model IDs and aliases. Custom adapters control their own model selection.
 
 Select at least two worker profiles, then choose **Advanced settings → Worker routing** before starting the run. On a milestone, **Why this model?** shows its benchmark evidence. **Why this worker?** explains a fallback.
 
@@ -46,7 +48,7 @@ Supported classes are `implementation`, `debugging`, `testing`, `automation`, `d
 
 ## Monitor run usage
 
-Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. Filter by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
+Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. **Agents working** counts distinct agents with an active turn across the run, including coordinator turns. Usage can be filtered by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
 
 Costs use harness receipts where available. For supported Codex models, Pantheon estimates standard short-context API cost from input, cached input, and output tokens at published rates dated November 25, 2026. Subscription charges, tool fees, cache-write premiums, and service-tier adjustments are outside this estimate. Unreported costs and tokens are shown as unavailable. Older runs use saved turn receipts and their timestamps. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)
 

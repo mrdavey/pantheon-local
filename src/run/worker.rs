@@ -235,6 +235,9 @@ impl Engine {
                 ("notes", notes),
             ],
         );
+        if r["input"]["verification_of"].is_object() {
+            prompt += "\nFor a verification milestone that needs no edits, return status \"verified\" with the checked HEAD in commit and the exact checks and observed outcomes in message. Changes and merge repairs require the normal commit handoff.";
+        }
         if !delegated.is_empty() {
             prompt += &format!(
                 "\nReview and integrate delegated results: {}",
@@ -280,11 +283,47 @@ impl Engine {
         })
     }
     pub(super) fn save_commit(&self, r: &mut Value, i: usize, reported: &str) -> Result<()> {
+        self.complete_worker(r, i, reported, false)
+    }
+
+    fn complete_worker(
+        &self,
+        r: &mut Value,
+        i: usize,
+        reported: &str,
+        verified: bool,
+    ) -> Result<()> {
         let t = &r["tasks"][i];
         let dir = s(t, "workspace");
         let base = s(t, "base");
         let conflict = s(t, "conflict");
-        let sha = if conflict.is_empty() {
+        let sha = if verified {
+            ensure!(
+                r["input"]["verification_of"].is_object()
+                    && conflict.is_empty()
+                    && a(&t["donors"]).is_empty(),
+                "only ordinary correctness checks can finish without changes"
+            );
+            ensure!(
+                !s(t, "finding").trim().is_empty(),
+                "report the checks and observed results"
+            );
+            let sha = project::head(dir)?;
+            ensure!(
+                sha == base && project::status(dir)?.is_empty(),
+                "verification without changes requires a clean checkout at its assigned base"
+            );
+            for child in a(&r["tasks"])
+                .iter()
+                .filter(|child| child["parent"] == t["id"] && child["state"] == "committed")
+            {
+                ensure!(
+                    project::is_ancestor(dir, s(child, "commit"), &sha),
+                    "integrate delegated changes before finishing"
+                );
+            }
+            sha
+        } else if conflict.is_empty() {
             project::reported_milestone(dir, base)?
         } else {
             let c = &r["candidates"][index(&r["candidates"], conflict)?];
@@ -408,7 +447,7 @@ impl Engine {
                 "The worker must ask its coordinator before completing this milestone."
             );
             match s(&outcome, "status") {
-                "committed" | "ready" => {
+                "committed" | "ready" | "verified" => {
                     if children_pending(r, id)
                         || held(r, id)
                         || (num(&r["tasks"][i]["delivered"]) as usize)
@@ -432,7 +471,12 @@ impl Engine {
                         )?;
                         self.save_commit(r, i, &sha)?
                     } else {
-                        self.save_commit(r, i, s(&outcome, "commit"))?
+                        self.complete_worker(
+                            r,
+                            i,
+                            s(&outcome, "commit"),
+                            outcome["status"] == "verified",
+                        )?
                     }
                 }
                 "question" => {

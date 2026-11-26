@@ -32,6 +32,24 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             "worker missing approved checks"
         );
     }
+    if matches!(id, "verify-export" | "verify-guide") {
+        let path = if id == "verify-export" {
+            "export.txt"
+        } else {
+            "docs/guide.md"
+        };
+        let content = fs::read_to_string(path)?;
+        if id == "verify-export" && content != "open quotes" {
+            fs::write(path, "open quotes")?;
+            return Ok(
+                json!({"status":"ready","files":[path],"message":"Reproduced the wrong export and checked the corrected text."}),
+            );
+        }
+        ensure!(!content.is_empty());
+        return Ok(
+            json!({"status":"verified","commit":git(&["rev-parse","HEAD"])?,"message":format!("Read {path} and confirmed its contents: {content}")}),
+        );
+    }
     if id == "bad-base" {
         return Ok(
             json!({"status":"committed","commit":git(&["rev-parse","HEAD"])?,"message":"Verified, with no new commit"}),

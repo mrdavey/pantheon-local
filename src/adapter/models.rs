@@ -1,4 +1,4 @@
-//! Read local model preferences without starting agents or contacting providers.
+//! Read local model preferences and query model catalogs on demand.
 use serde_json::{Map, Value, json};
 use std::{
     collections::HashMap,
@@ -276,4 +276,104 @@ pub fn discover(profiles: &mut Map<String, Value>, state: &Path) {
         crate::routing::suggest(p, &mut detected, &catalog);
         p["detected"] = detected;
     }
+}
+
+/// Fetch only model IDs. Native catalogs may also contain prompts and account metadata.
+pub fn catalog(profile: &Value, state: &Path) -> Vec<String> {
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let mut ids = std::collections::BTreeSet::new();
+    let mut add = |value: &str| {
+        if let Some(id) = clean(value).filter(|id| !id.chars().any(char::is_whitespace)) {
+            ids.insert(id.to_owned());
+        }
+    };
+    match profile["kind"].as_str() {
+        Some("codex") => {
+            let models = super::inspect_limited(
+                profile,
+                &["debug", "models"],
+                10,
+                false,
+                Some(state),
+                8 * 1024 * 1024,
+            )
+            .ok()
+            .filter(|(ok, _)| *ok)
+            .and_then(|(_, out)| serde_json::from_str::<Value>(&out).ok())
+            .filter(|reply| reply["models"].is_array())
+            .unwrap_or_else(|| {
+                read(&directory("CODEX_HOME", home.join(".codex")).join("models_cache.json"))
+            });
+            for entry in models["models"].as_array().into_iter().flatten() {
+                if entry["visibility"] != "hide"
+                    && let Some(id) = setting(&entry["slug"])
+                {
+                    add(id);
+                }
+            }
+        }
+        Some("antigravity") => {
+            if let Ok((true, out)) = super::inspect(profile, &["models"], 10, false, Some(state)) {
+                for line in out.lines() {
+                    if let Some((id, _)) = line.split_once('\t') {
+                        add(id);
+                    }
+                }
+            }
+        }
+        Some("hermes") => {
+            if let Some(root) = profile_dir(&super::hermes::root(&home), profile) {
+                let cfg = read(&root.join("config.yaml"));
+                let cache = read(&root.join("provider_models_cache.json"));
+                let provider = setting(&cfg["model"]["provider"]);
+                for (key, entry) in cache.as_object().into_iter().flatten() {
+                    if provider.is_none_or(|p| p == "auto" || p == key) {
+                        for model in entry["models"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(setting)
+                        {
+                            add(model);
+                        }
+                    }
+                }
+            }
+        }
+        Some("claude") => {
+            let cfg =
+                read(&directory("CLAUDE_CONFIG_DIR", home.join(".claude")).join("settings.json"));
+            if let Some(allowed) = cfg["availableModels"].as_array() {
+                for model in allowed.iter().filter_map(setting) {
+                    add(model);
+                }
+            } else {
+                for alias in ["sonnet", "haiku", "opus"] {
+                    add(alias);
+                    let key = format!("ANTHROPIC_DEFAULT_{}_MODEL", alias.to_ascii_uppercase());
+                    if let Some(model) = env::var(&key)
+                        .ok()
+                        .or_else(|| setting(&cfg["env"][&key]).map(str::to_owned))
+                    {
+                        add(&model);
+                    }
+                }
+                for model in cfg["modelSettings"]
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|m| m.keys())
+                {
+                    add(model);
+                }
+            }
+        }
+        _ => return vec![],
+    }
+    for id in [&profile["model"], &profile["detected"]["model"]]
+        .into_iter()
+        .filter_map(setting)
+    {
+        add(id);
+    }
+    ids.into_iter().collect()
 }

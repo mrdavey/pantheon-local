@@ -10,6 +10,7 @@ import { Label } from "./components/ui/label";
 import React, { useState } from "react";
 import { Dialog } from "./dialog.jsx";
 import "./setup.css";
+import { ModelPicker } from "./model-picker";
 
 const agents = {
   codex: {
@@ -73,7 +74,7 @@ export function ModelSettings({ name, profile, runLabel, ...actions }) {
   </Dialog>;
 }
 
-export function ModelSettingsForm({ name, profile, save, onClose, agentOnly, submitLabel }) {
+export function ModelSettingsForm({ api, name, profile, save, onClose, agentOnly, submitLabel }) {
   const [draft, setDraft] = useState({});
   const [status, setStatus] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -124,7 +125,8 @@ export function ModelSettingsForm({ name, profile, save, onClose, agentOnly, sub
         {modelName && <small>{manualModel ? "Pantheon model override" : detected.source}</small>}
         {!modelChanged && (value("effort") || detected.effort) && <span title={value("effort") ? "Pantheon override" : detected.effort_source}>{value("effort") || detected.effort} reasoning</span>}
       </div>
-      {passesModel ? <Label>Model ID<Input {...editable("model")} placeholder="Use the CLI default" /></Label>
+      {passesModel ? <ModelPicker key={name} {...{api, name}} value={value("model")} disabled={saving}
+        onChange={model => { setStatus(null); setDraft(current => ({...current,model})); }} />
         : <Label>Model ID<Input readOnly value={detected.model || ""} placeholder="Not reported by this agent" /></Label>}
       {detected.alias && !modelChanged && <p>Claude Code resolves this alias when a session starts.</p>}
       {passesModel && <Label>Thinking effort<NativeSelect {...editable("effort")}>
@@ -170,7 +172,7 @@ function SetupCommand({ command }) {
   </div>;
 }
 
-export function AgentSetup({ report, checking, error, refresh, saveModel, onContinue }) {
+export function AgentSetup({ api, report, checking, error, refresh, saveModel, onContinue }) {
   const route = useRoute();
   const modal = route.profile ? {name:route.profile} : route.panel;
   const setModal = next => changeRoute({panel:next?.name ? "profile" : next, profile:next?.name});
@@ -222,6 +224,6 @@ export function AgentSetup({ report, checking, error, refresh, saveModel, onCont
       {notices}
       <div className="dialog-footer">{refreshButton}<Button variant="outline" type="button" className="primary" onClick={() => setModal(null)}>Done</Button></div>
     </Dialog>}
-    {modal?.name && profiles[modal.name] && <ModelSettings name={modal.name} profile={profiles[modal.name]} save={saveModel} onClose={() => setModal(null)} />}
+    {modal?.name && profiles[modal.name] && <ModelSettings api={api} name={modal.name} profile={profiles[modal.name]} save={saveModel} onClose={() => setModal(null)} />}
   </section>;
 }

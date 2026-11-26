@@ -24,3 +24,9 @@
 .model-identity h3 { margin: 0; }
 .model-identity span { font-size: .82rem; color: var(--muted); }
 .model-provenance { margin: 0 0 .75rem; }
+
+.model-picker-field { display: flex; align-items: center; gap: .25rem; }
+.model-picker-field input { flex: 1; }
+.model-picker [role="listbox"]:not([hidden]):not(:empty) { display: grid; max-height: 12rem; overflow: auto; margin-top: .25rem; padding: .25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+.model-picker [role="option"] { justify-content: flex-start; text-align: start; white-space: normal; }
+.model-picker [role="option"][aria-selected="true"] { background: var(--wash); }

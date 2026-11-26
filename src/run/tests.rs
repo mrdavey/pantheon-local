@@ -911,3 +911,31 @@ fn implementation_index_only_includes_qualifying_builds_and_historical_landings(
         json!(["ok", "landed"])
     );
 }
+
+#[test]
+fn verification_requires_a_landing_and_a_clean_matching_worker_checkout() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let project = tempfile::tempdir()?;
+    let root = committed_project(project.path())?;
+    let base = project::head(root)?;
+    let mut r = json!({"id":"verify","tasks":[{"id":"task","workspace":root,"base":base,"state":"running"}],
+        "candidates":[{"id":"passed","state":"passed","commit":base}]});
+    engine.save(&mut r, "started")?;
+    assert!(
+        engine
+            .verify_implementation("verify", "passed")
+            .unwrap_err()
+            .to_string()
+            .contains("landed")
+    );
+    let turn = json!({"task":"task"});
+    let receipt = json!({"text":json!({"status":"verified","commit":base,"message":"Checked the behavior"}).to_string()});
+    engine.accept_worker(&mut r, &turn, &receipt)?;
+    assert_eq!(r["tasks"][0]["state"], "blocked");
+    assert!(s(&r["tasks"][0], "finding").contains("correctness checks"));
+    r["input"]["verification_of"] = json!({"run":"source"});
+    fs::write(project.path().join("uncommitted.txt"), "pending")?;
+    engine.accept_worker(&mut r, &turn, &receipt)?;
+    assert!(s(&r["tasks"][0], "finding").contains("clean checkout"));
+    Ok(())
+}

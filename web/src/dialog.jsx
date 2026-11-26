@@ -17,6 +17,7 @@ export function Dialog({ title, onClose, children, className = "", placement = "
   useLayoutEffect(() => {
     function escape(event) {
       if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      if (event.target.matches?.('input[role="combobox"][aria-expanded="true"]')) return;
       const dialogs = document.querySelectorAll('[data-slot="dialog-content"][data-state="open"]');
       if (dialogs[dialogs.length - 1] !== content.current) return;
       event.preventDefault();
@@ -28,6 +29,9 @@ export function Dialog({ title, onClose, children, className = "", placement = "
   }, [onClose]);
   return <Root open onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent placement={placement} ref={content} showCloseButton={false} aria-describedby={undefined} className={`workbench-dialog ${className}`}
+      onEscapeKeyDown={event => {
+        if (event.target.matches?.('input[role="combobox"][aria-expanded="true"]')) event.preventDefault();
+      }}
       onCloseAutoFocus={event => {
         event.preventDefault();
         // Radix restores focus asynchronously. Keep a newer user-selected field active.
