@@ -40,6 +40,10 @@ On the map, choose a colored worker filter to dim other workers’ assignments. 
 
 Choose **Add task**, describe the work, then select **Create milestone(s)**. The loading bar and Pantheon icon at the top of the workbench stay visible while the coordinator prepares the proposal. Review the proposed milestones, then choose **Add to run**. Any extra checks join the run’s suite. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
 
+Open **Agents** to see the coordinator, workers, and their delegated assignments. Select an agent or assignment to open its latest output. Use **Turn** to inspect earlier attempts. **Output** shows messages, commands, errors and any reasoning the harness publishes. **Raw log** shows the captured log records. A reasoning-token count appears when the harness reports one.
+
+Native subagents appear under the turn that started them when the harness identifies them. A child can have a result with **Transcript unavailable** when the harness only reports the result. The run keeps its recorded logs after landing or stopping, including across service restarts. Deleting the run removes these saved logs.
+
 Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s full-screen button opens the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer shows the coordinator’s agent, model, and thinking effort. In the tab, choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
 
 In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.

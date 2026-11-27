@@ -11,6 +11,18 @@ A custom executable is the shortest way to connect another coding agent. Registe
 3. Stream public progress events and emit one final result. Report provider errors and handle cancellation of the process group. Include token and cost fields only when the provider supplies reliable measurements. Document which model settings and delegation controls the harness supports.
 4. Open **Agent setup**, choose **Check again**, and exercise the roles you support in a disposable project. Cover normal completion, missing credentials, failure, cancellation, and resume with deterministic fixtures. Keep optional native account tests separate.
 
+To report native subagents in **Agents**, give each child a stable ID within the turn. Announce its parent before sending its output. Use `parent_agent` for a nested child and omit it for a direct child. Send another `subagent` event to update state or provide a result in `text`. Include the same `agent` ID on that child's ordinary output, usage and reasoning-summary events.
+
+```json
+{"event":{"type":"subagent","agent":"review","title":"Review export","state":"running"}}
+{"event":{"type":"stdout","agent":"review","text":"Checked the CSV header."}}
+{"event":{"type":"reasoning_summary","agent":"review","text":"Compare the header with the export contract."}}
+{"event":{"type":"usage","agent":"review","reasoning_tokens":32}}
+{"event":{"type":"subagent","agent":"review","state":"received","text":"Header matches the contract."}}
+```
+
+Use `reasoning_tokens` only when the harness reports a cumulative count for the current turn. A child may report a result without streaming its transcript.
+
 For a built-in adapter, wire the harness into [profile validation and process dispatch](../src/adapter.rs), [model discovery](../src/adapter/models.rs), the compatibility checks, and [Agent setup](../web/src/setup.jsx). Add its installation and account instructions, supported platforms, and an [example profile](../examples/profiles.json). Update the CI target dependencies when the integration introduces new build or test inputs. Run the [contributor checks](../CONTRIBUTING.md).
 
 ## Request an integration

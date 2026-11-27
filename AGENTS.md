@@ -31,7 +31,7 @@ The interactive terminal launcher lives in `src/launch.rs` and `src/launch/`. Pr
 
 Worker checkouts for new runs live in a Git-ignored folder inside the selected project. Keep existing runs compatible with their saved workspace paths. Pricing lookups use the configured coordinator and the same supervised turn lifecycle as other agent work.
 
-Keep the milestone table, map and Kanban board on the same assignment details component. Route Add task and chat proposals through the coordinator conversation and the same acceptance command. Fetch activity pages and milestone receipts on demand.
+Keep the milestone table, map and Kanban board on the same assignment details component. Route Add task and chat proposals through the coordinator conversation and the same acceptance command. Fetch activity pages and milestone receipts on demand. Keep Agents output on the shared paged turn log. Save native child metadata and output with the originating turn.
 
 Run-scoped worker settings belong in the run’s profile snapshot. Keep milestone clones isolated from the selected project checkout, and read implementation previews from the candidate commit.
 

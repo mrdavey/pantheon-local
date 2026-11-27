@@ -13,6 +13,7 @@ const labels = {
   failed: "Failed", conflict: "Merge conflict", inconclusive: "Inconclusive", cancelled: "Canceled",
   superseded: "Superseded", abandoned: "Abandoned", stale: "Stale", queued: "Queued", received: "Finished",
   "milestone-blocked": "Milestone blocked", "awaiting-review": "Awaiting coordinator",
+  idle: "Idle", unknown: "Unknown",
   "needs-attention": "Needs attention", reviewed: "Reviewed", recorded: "Recorded",
 };
 

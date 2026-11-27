@@ -32,6 +32,9 @@ impl<F: Fn(Value)> Client<'_, F> {
         let mut buf = Vec::new();
         while line(&mut self.reader, &mut buf)? {
             let Ok(event) = serde_json::from_slice::<Value>(&buf) else {
+                (self.emit)(
+                    json!({"type":"stdout","text":String::from_utf8_lossy(&buf).trim_end_matches('\n')}),
+                );
                 continue;
             };
             if let Some(method) = event["method"].as_str() {
@@ -76,7 +79,10 @@ impl<F: Fn(Value)> Client<'_, F> {
                             );
                         }
                     }
-                    if kind == "agent_message_chunk" {
+                    let parent_update = event["params"]["sessionId"]
+                        .as_str()
+                        .is_none_or(|id| id == self.session);
+                    if parent_update && kind == "agent_message_chunk" {
                         if let Some(id) = update["messageId"].as_str()
                             && id != self.message_id
                         {
@@ -86,7 +92,8 @@ impl<F: Fn(Value)> Client<'_, F> {
                             self.message_id = id.to_owned();
                         }
                         self.text.push_str(text);
-                    } else if kind == "tool_call"
+                    } else if parent_update
+                        && kind == "tool_call"
                         && self.message_id.is_empty()
                         && !self.text.is_empty()
                     {
@@ -280,7 +287,7 @@ pub(super) fn exchange(
         cost_before_prompt: field(r, "session").is_empty().then_some(0.0),
         current_model: None,
     };
-    let init=c.call("initialize",json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"local-swarm","version":env!("CARGO_PKG_VERSION")}}))?;
+    let init=c.call("initialize",json!({"protocolVersion":1,"clientCapabilities":{"subagents":{}},"clientInfo":{"name":"local-swarm","version":env!("CARGO_PKG_VERSION")}}))?;
     let mut params = json!({"cwd":r["dir"],"mcpServers":[]});
     let session_info = if c.session.is_empty() {
         let session = c.call("session/new", params)?;
@@ -403,6 +410,12 @@ fn usage_receipt(usage: &Value, prior: Option<&Value>, resumed: bool) -> Option<
     };
     let total = delta("totalTokens")?;
     let mut event = json!({"type":"usage","tokens":total});
+    if let Some(reasoning) = ["reasoningTokens", "thinkingTokens", "reasoningOutputTokens"]
+        .into_iter()
+        .find_map(delta)
+    {
+        event["reasoning_tokens"] = reasoning.into();
+    }
     if let (Some(input), Some(output)) = (delta("inputTokens"), delta("outputTokens"))
         && let Some(all_input) = total.checked_sub(output)
     {

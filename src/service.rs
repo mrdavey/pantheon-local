@@ -670,6 +670,7 @@ impl Local {
                     ("GET", ["milestones", task, "timing"]) => {
                         crate::metrics::milestone_timing(&run, &root, task)
                     }
+                    ("GET", ["agents"]) => crate::agent_log::roster(&run, &root),
                     ("GET", ["activity"]) => crate::activity::page(&run, &root, query),
                     ("GET", ["milestones", task, "usage"]) => {
                         crate::metrics::milestone_usage(&run, &root, task)
@@ -699,6 +700,8 @@ impl Local {
                         let turn = find(&run, "turns", tid)?;
                         let mut before = None;
                         let mut known = None;
+                        let mut view = crate::turn_log::View::Activity;
+                        let mut child = None;
                         for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
                             match key.as_ref() {
                                 "before" => {
@@ -708,14 +711,22 @@ impl Local {
                                 "known" => {
                                     known = Some(value.parse::<u64>().context("invalid log size")?)
                                 }
+                                "view" if value == "output" => view = crate::turn_log::View::Output,
+                                "view" if value == "raw" => view = crate::turn_log::View::Raw,
+                                "child" => child = Some(value),
                                 _ => (),
                             }
                         }
-                        crate::turn_log::page(
-                            &root.join("turns").join(tid),
+                        let mut dir = root.join("turns").join(tid);
+                        if let Some(child) = child {
+                            dir = crate::agent_log::child_dir(&dir, &child)?;
+                        }
+                        crate::turn_log::read_page(
+                            &dir,
                             before,
                             known,
                             turn["state"] == "running",
+                            view,
                         )
                     }
                     ("GET", ["turns", tid, "reply"]) => {

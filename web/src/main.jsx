@@ -10,10 +10,11 @@ import {
 } from "./status.jsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { WorkbenchHeader, RunFooter } from "./workbench-shell";
-import { PackageCheck, ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PackageCheck, ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Users, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { changeRoute, useRoute, destination } from "./navigation";
 import { RunsIndex } from "./runs-index";
 import { ActivityLog } from "./activity-log";
+import { RunAgents } from "./run-agents";
 import { Milestones } from "./milestones";
 import { Metrics } from "./metrics";
 import { ImplementationFiles } from "./implementation-files";
@@ -188,7 +189,7 @@ function defaultTab(run) {
 }
 
 function RunView({ run, send, perform, busy, openRun, openInbox, settings, route, verifyImplementation }) {
-  const tabs = {milestones:"work",chat:"chat",activity:"activity",metrics:"metrics",experiment:"experiment"};
+  const tabs = {milestones:"work",agents:"agents",chat:"chat",activity:"activity",metrics:"metrics",experiment:"experiment"};
   const implementations = successful(run);
   if (implementations.length) tabs.implementations = "implementations";
   const fallback = tabs[defaultTab(run)];
@@ -228,12 +229,13 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     <nav className="run-tabs" aria-label="Run views">
       {implementations.length > 0 && <Button variant="outline" aria-pressed={view === "implementations"} onClick={() => setTab("implementations")}><PackageCheck/>Implementations</Button>}
       <Button variant="outline" aria-pressed={view === "work"} onClick={() => setTab("work")}><ListTree/>Milestones</Button>
+      <Button variant="outline" aria-pressed={view === "agents"} onClick={() => setTab("agents")}><Users/>Agents</Button>
       <Button variant="outline" aria-label="Coordinator chat tab" aria-pressed={view === "chat"} onClick={expandChat}><MessageSquare/>Coordinator chat</Button>
       <Button variant="outline" aria-pressed={view === "activity"} onClick={() => openActivity()}><Activity/>Activity Log</Button>
       <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}><ChartNoAxesCombined/>Metrics</Button>
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
     </nav>
-    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
+    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} inspectAgents={view === "agents"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
@@ -247,6 +249,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
         {...{route,candidate,run,act,busy,explain,openMilestone,verifyImplementation}} />)}
     </section>}
     {view === "metrics" && <Metrics key={run.id} run={run} api={api} />}
+    {view === "agents" && <RunAgents key={run.id} {...{run, route, api, openMilestone}} />}
     {view === "activity" && <ActivityLog route={route} {...{run,api,explain}} />}
     {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {(experimentOpened || view === "experiment") && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}

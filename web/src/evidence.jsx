@@ -45,24 +45,38 @@ function claudeBlock(block) {
   return entry(label(block.type || "Message"), block.text ?? block.thinking ?? block, block.text || block.thinking ? "message" : "fields");
 }
 
-function agentEvents(event) {
+function agentEvents(event, agentOutput = false) {
   const { raw, type, text } = event;
   const update = raw?.update;
-  if (type === "agent_thought_chunk" || type === "system" || raw?.item?.type === "reasoning") return [];
+  if (type === "system") return [];
+  if (type === "reasoning_summary" || raw?.item?.type === "reasoning") {
+    return agentOutput ? [entry("Reasoning summary", text || raw?.item?.text)] : [];
+  }
+  if (type === "agent_thought_chunk") return agentOutput ? [entry("Reasoning", text)] : [];
+  if (type === "subagent_result") {
+    if (!agentOutput || event.content == null) return [];
+    return [entry("Result", event.content, typeof event.content === "string" ? "message" : "fields")];
+  }
+  if (agentOutput && type === "command_output") {
+    return raw?.chunk ? [entry("Output", raw.chunk, "terminal")] : [];
+  }
   if (type === "agent_message_chunk") {
     return [{ ...entry("Agent", text || ""), chunk: type, id: update?.messageId }];
   }
   if (type === "stdout" || type === "stderr") return [entry(type === "stderr" ? "Standard error" : "Output", text || "", "terminal")];
-  const item = raw?.item;
-  if (item?.type === "command_execution") {
+  const item = type === "command_execution" && Array.isArray(raw?.command) ? { ...raw, type } : raw?.item;
+  if (["command_execution", "commandExecution"].includes(item?.type)) {
     const rows = [entry("Command", item.command, "command")];
-    if (item.aggregated_output) rows.push(entry("Output", item.aggregated_output, "terminal"));
-    if (item.exit_code != null) rows.push(entry("Exit code", String(item.exit_code), "plain"));
+    const output = item.aggregated_output ?? item.aggregatedOutput;
+    const exitCode = item.exit_code ?? item.exitCode;
+    if (output) rows.push(entry("Output", output, "terminal"));
+    if (exitCode != null) rows.push(entry("Exit code", String(exitCode), "plain"));
     return rows;
   }
   if (item?.text) return [entry(item.type === "agent_message" ? "Agent" : label(item.type), item.text)];
   if (Array.isArray(raw?.message?.content)) return raw.message.content
-    .filter((block) => !["thinking", "redacted_thinking"].includes(block?.type)).map(claudeBlock);
+    .filter(block => block?.type !== "redacted_thinking" && (block?.type !== "thinking" || (agentOutput && block.thinking)))
+    .map(block => block?.type === "thinking" ? entry("Reasoning", block.thinking) : claudeBlock(block));
   if (type === "tool_call" || type === "tool_call_update") {
     const rows = [entry(update?.title || "Tool", update?.status || update?.kind || "Called", "plain")];
     if (update?.rawInput?.command) rows.push(entry("Command", update.rawInput.command, "command"));
@@ -121,8 +135,8 @@ export function LogBody({body,kind}) {
         kind === "plain" ? <p>{body}</p> : <MessageBody text={body} />)}</>;
 }
 
-export function messageRows(record) {
-  return record.event ? agentEvents(record.event) : logEntries(record.line || "");
+export function messageRows(record, agentOutput) {
+  return record.event ? agentEvents(record.event, agentOutput) : logEntries(record.line || "");
 }
 export function TurnOutput({ source, name = "Turn log" }) {
   const rows = useMemo(() => logEntries(source || ""), [source]);

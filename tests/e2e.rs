@@ -272,6 +272,56 @@ fn coordinator_delegates_within_parent_scope() -> Result<()> {
     Ok(())
 }
 #[test]
+fn finished_run_keeps_agents_and_transcripts_after_restart() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let project = repo(&tmp.path().join("repo"))?;
+    let mut svc = Service::new(tmp.path())?;
+    let url = start(
+        &svc,
+        &project,
+        "Delegate the report. Native agent log fixture",
+        json!({"workers":["writer"],"delivery":"auto","recipe":{"checks":[[example("fixture-agent")?,"check","docs/report.txt","reviewed both sections"]]}}),
+    )?;
+    let landed = svc.wait_state(&url, "landed")?;
+    let turn = rows(&landed["turns"])
+        .iter()
+        .find(|turn| turn["task"] == "report")
+        .and_then(|turn| turn["id"].as_str())
+        .context("first report turn")?;
+    let endpoint = format!("{url}/turns/{turn}/log");
+    let agents = svc.get(&format!("{url}/agents"))?;
+    assert_eq!(rows(&agents).len(), 3);
+    let review = item(&agents, "id", &json!("review"))?;
+    assert_eq!(review["parent"], "research");
+    assert_eq!(review["state"], "received");
+    assert_eq!(review["transcript"], true);
+    assert_eq!(
+        item(&agents, "id", &json!("summary-only"))?["transcript"],
+        false
+    );
+
+    let saved = svc.get(&format!("{endpoint}?child=review&view=raw"))?;
+    assert_eq!(saved["reasoning_tokens"], 37);
+    assert!(saved.to_string().contains("Native review stderr"));
+    assert!(!saved.to_string().contains("Native research stdout"));
+    let parent = svc.get(&format!("{endpoint}?view=output"))?;
+    assert_eq!(parent["reasoning_tokens"], 13);
+    assert!(!parent.to_string().contains("Native review stderr"));
+    assert!(
+        svc.get(&format!("{endpoint}?child=..%2f..%2f&view=raw"))
+            .is_err()
+    );
+
+    svc.restart(false)?;
+    assert_eq!(svc.get(&format!("{url}/agents"))?, agents);
+    assert_eq!(
+        svc.get(&format!("{endpoint}?child=review&view=raw"))?,
+        saved
+    );
+    Ok(())
+}
+
+#[test]
 fn token_budget_pauses_before_workers_and_only_passing_alternative_lands() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let project = repo(&tmp.path().join("repo"))?;

@@ -9,6 +9,7 @@ import "./turn-log.css";
 const absoluteTime = new Intl.DateTimeFormat(undefined, {
   year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit",
 });
+const tokenFormat = new Intl.NumberFormat();
 const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
 export function LogTime({ at, now }) {
   const date = new Date(at);
@@ -21,7 +22,7 @@ export function LogTime({ at, now }) {
   </time>;
 }
 
-export function TurnLog({ api, path, running }) {
+export function TurnLog({ api, path, running, view, child, unavailable = false }) {
   const [trail, setTrail] = useState([null]);
   const [page, setPage] = useState(null);
   const [error, setError] = useState("");
@@ -41,6 +42,8 @@ export function TurnLog({ api, path, running }) {
     let timer, known;
     async function read() {
       const query = new URLSearchParams();
+      if (view) query.set("view", view);
+      if (child) query.set("child", child);
       if (before != null) query.set("before", before);
       if (known != null) query.set("known", known);
       try {
@@ -49,6 +52,9 @@ export function TurnLog({ api, path, running }) {
         if (!data.unchanged) {
           known = data.entries.some(row => row.line != null && row.at == null) && running ? undefined : data.end;
           setPage({ ...data, before });
+        } else {
+          setPage(current => current && current.reasoning_tokens !== data.reasoning_tokens ?
+            { ...current, reasoning_tokens: data.reasoning_tokens } : current);
         }
         setNow(Date.now());
         setError("");
@@ -60,7 +66,7 @@ export function TurnLog({ api, path, running }) {
     setError("");
     read();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [api, path, before, following, retry, running]);
+  }, [api, path, before, following, retry, running, view, child]);
 
   function navigate(next) {
     setTrail(next);
@@ -90,14 +96,20 @@ export function TurnLog({ api, path, running }) {
         {following ? <Pause/> : <Play/>}{following ? "Pause updates" : "Go live"}
       </Button>}
     </nav>
-    <div className="log-page-label" role="status">Page {trail.length} · Newest first{following ? " · Live" : ""}</div>
+    <div className="log-page-label" role="status">
+      <span>Page {trail.length} · Newest first{following ? " · Live" : ""}</span>
+      {current?.reasoning_tokens != null && <span>{tokenFormat.format(current.reasoning_tokens)} reasoning tokens</span>}
+    </div>
     {error && <p role="alert">{error} <Button variant="outline" onClick={() => setRetry(n => n + 1)}>Try again</Button></p>}
     {!current && !error && <Loading>Loading log…</Loading>}
     <div className="log-messages" ref={viewport} tabIndex={0} role="region" aria-label="Log messages"
       onScroll={e => { if (following && e.currentTarget.scrollTop > 80) freeze(); }}>
-      {current && !current.entries.length && <p>This turn has no log output yet.</p>}
+      {current && !current.entries.length && !unavailable && <p>This turn has no log output yet.</p>}
       {current?.entries.map(record => {
-        const rows = messageRows(record);
+        if (view === "raw") return <article className="log-event raw-log-line" key={record.id}>
+          <LogTime at={record.at} now={now} /><pre>{record.line}</pre>
+        </article>;
+        const rows = messageRows(record, view === "output");
         if (!rows.length) return null;
         const important = rows.some(row => /^(Agent|Text|Message|Result|Error|Standard error|Output)$/i.test(row.title) || (row.title === "Exit code" && row.body !== "0"));
         return <article key={record.id} className="log-event">

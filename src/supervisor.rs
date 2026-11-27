@@ -153,40 +153,82 @@ fn execute(dir: &Path) -> Result<Value> {
             .then(|| crate::chat_stream::Writer::create(dir))
             .transpose()?;
         let mut metrics = crate::metrics::Recorder::new(&spec["request"]);
+        let request = &spec["request"];
         let logger = Mutex::new((
             BufWriter::new(&mut log),
             None::<io::Error>,
             chat,
             &mut metrics,
+            crate::agent_log::Recorder::new(dir, request),
         ));
-        let mut result = crate::adapter::run(&spec["request"], None, |mut event| {
-            if let Ok(mut guard) = logger.lock() {
-                let (writer, error, chat, metrics) = &mut *guard;
-                if let Err(e) = metrics.event(dir, &event) {
-                    eprintln!("record usage: {e}");
-                }
-                if error.is_none() {
-                    *error = (|| -> io::Result<()> {
-                        if let Some(chat) = chat {
-                            chat.event(&event)?;
+        let mut result = thread::scope(|scope| {
+            let (stop, wait) = std::sync::mpsc::channel::<()>();
+            if request["profile"]["kind"] == "codex" && request["role"] == "worker" {
+                let logger = &logger;
+                scope.spawn(move || {
+                    while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                        wait.recv_timeout(Duration::from_millis(400))
+                    {
+                        let Ok(mut guard) = logger.lock() else { break };
+                        if let Err(e) = guard.4.poll_codex(false) {
+                            eprintln!("capture subagent output: {e}");
+                            break;
                         }
-                        if let Some(obj) = event.as_object_mut() {
-                            obj.insert(
-                                "logged_at".into(),
-                                chrono::Utc::now().timestamp_millis().into(),
-                            );
-                        }
-                        serde_json::to_writer(&mut *writer, &event)?;
-                        writer.write_all(b"\n")?;
-                        writer.flush()
-                    })()
-                    .err();
-                }
+                    }
+                });
             }
+            let result = crate::adapter::run(request, None, |mut event| {
+                if let Ok(mut guard) = logger.lock() {
+                    let (writer, error, chat, metrics, agents) = &mut *guard;
+                    if let Some(obj) = event.as_object_mut() {
+                        obj.insert(
+                            "logged_at".into(),
+                            chrono::Utc::now().timestamp_millis().into(),
+                        );
+                    }
+                    let child = agents.event(&mut event).unwrap_or_else(|e| {
+                        eprintln!("record agent output: {e}");
+                        false
+                    });
+                    if !child && let Err(e) = metrics.event(dir, &event) {
+                        eprintln!("record usage: {e}");
+                    }
+                    if error.is_none() {
+                        *error = (|| -> io::Result<()> {
+                            if !child && let Some(chat) = chat {
+                                chat.event(&event)?;
+                            }
+                            serde_json::to_writer(&mut *writer, &event)?;
+                            writer.write_all(b"\n")?;
+                            writer.flush()
+                        })()
+                        .err();
+                    }
+                }
+            });
+            drop(stop);
+            result
         });
-        let (mut writer, error, _, metrics) = logger
+        let (mut writer, error, _, metrics, mut agents) = logger
             .into_inner()
             .map_err(|_| anyhow::anyhow!("event writer failed"))?;
+        if let Err(e) = agents.finish() {
+            eprintln!("finalize agent output: {e}");
+        }
+        if error.is_none()
+            && (request["profile"]["kind"] == "custom" || result["error"].is_string())
+            && let Some(text) = result["error"].as_str().or(result["text"].as_str())
+        {
+            let kind = if result["error"].is_string() {
+                "error"
+            } else {
+                "result"
+            };
+            let event =
+                json!({"type":kind,"text":text,"logged_at":chrono::Utc::now().timestamp_millis()});
+            serde_json::to_writer(&mut writer, &event)?;
+            writer.write_all(b"\n")?;
+        }
         writer.flush()?;
         if let Some(e) = error {
             return Err(e.into());

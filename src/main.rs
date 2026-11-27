@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 mod activity;
 mod adapter;
+mod agent_log;
 mod attachments;
 mod chat_stream;
 mod cli;

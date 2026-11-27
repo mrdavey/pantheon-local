@@ -80,6 +80,26 @@ pub(super) fn exchange(
                 "item/completed" if params["item"]["type"] == "agentMessage" => {
                     answer = field(&params["item"], "text").into();
                 }
+                "item/completed" if params["item"]["type"] == "reasoning" => {
+                    let summary = params["item"]["summary"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if !summary.is_empty() {
+                        emit(json!({"type":"reasoning_summary","text":summary,"session":session}));
+                    }
+                }
+                "item/started" | "item/completed"
+                    if matches!(
+                        params["item"]["type"].as_str(),
+                        Some("commandExecution" | "fileChange" | "mcpToolCall" | "webSearch")
+                    ) =>
+                {
+                    emit(json!({"type":method,"session":session,"raw":params}));
+                }
                 "thread/tokenUsage/updated" => {
                     let usage = &params["tokenUsage"];
                     let last = &usage["last"];
@@ -91,6 +111,7 @@ pub(super) fn exchange(
                         "inputTokens",
                         "cachedInputTokens",
                         "outputTokens",
+                        "reasoningOutputTokens",
                     ];
                     let before = baseline.get_or_insert_with(|| {
                         keys.map(|key| total[key].as_u64()?.checked_sub(last[key].as_u64()?))
@@ -104,7 +125,7 @@ pub(super) fn exchange(
                     tokens = delta(0);
                     emit(
                         json!({"type":"usage","model":model,"tokens":tokens,"input_tokens":delta(1),
-                        "cached_input_tokens":delta(2),"output_tokens":delta(3)}),
+                        "cached_input_tokens":delta(2),"output_tokens":delta(3),"reasoning_output_tokens":delta(4)}),
                     );
                 }
                 "turn/completed" if turn.is_empty() || params["turn"]["id"] == turn => {

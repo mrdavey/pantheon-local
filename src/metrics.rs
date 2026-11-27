@@ -400,6 +400,13 @@ pub fn turn_usage(usage: &Value, baseline: Option<&Value>) -> Value {
             delta[key] = value.into();
         }
     }
+    if let Some(reasoning) = usage["reasoning_output_tokens"]
+        .as_u64()
+        .zip(prior["reasoning_output_tokens"].as_u64())
+        .and_then(|(now, before)| now.checked_sub(before))
+    {
+        delta["reasoning_output_tokens"] = reasoning.into();
+    }
     delta
 }
 

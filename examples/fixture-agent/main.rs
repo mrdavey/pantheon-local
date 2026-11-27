@@ -114,6 +114,32 @@ fn wait_for_chat_gate() -> Result<()> {
     Ok(())
 }
 
+fn stream_agent_fixture() -> Result<()> {
+    for event in [
+        json!({"type":"subagent","agent":"research","title":"Research delegate","state":"running"}),
+        json!({"type":"subagent","agent":"review","parent_agent":"research","title":"Review delegate","state":"running"}),
+        json!({"type":"subagent","agent":"summary-only","title":"Result-only delegate","state":"received","text":"Only the result was exposed."}),
+        json!({"type":"stdout","agent":"research","text":"Native research stdout."}),
+        json!({"type":"reasoning_summary","agent":"review","text":"Compare against the report criteria."}),
+        json!({"type":"usage","agent":"review","reasoning_tokens":37}),
+        json!({"type":"stderr","agent":"review","text":"Native review stderr."}),
+        json!({"type":"usage","reasoning_tokens":13}),
+    ] {
+        println!("{}", json!({"event":event}));
+    }
+    io::stdout().flush()?;
+    if env::var_os("SWARM_TEST_CHAT_GATE").is_some() {
+        wait_for_chat_gate()?;
+    }
+    for name in ["research", "review"] {
+        println!(
+            "{}",
+            json!({"event":{"type":"subagent","agent":name,"state":"received"}})
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let name = Path::new(&args[0])
@@ -208,6 +234,13 @@ fn main() -> Result<()> {
             "{}",
             json!({"event":{"type":"usage","model":"Fixture Tariff","input_tokens":4,"cached_input_tokens":1,"output_tokens":1,"tokens":5}})
         );
+    }
+    if role == "worker"
+        && prompt.contains("Native agent log fixture")
+        && prompt.contains("Milestone (report):")
+        && r["session"].as_str().unwrap_or("").is_empty()
+    {
+        stream_agent_fixture()?;
     }
     let response = match role {
         "pricing" => {

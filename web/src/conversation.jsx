@@ -85,15 +85,17 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, inspectAgents, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
   const coordinator = run.input.coordinator;
   const profile = run.profiles?.[coordinator];
   const { model, effort } = runModel(profile);
   const agent = profileLabel(coordinator, profile);
   const coordinatorDetails = <span className="composer-profile"><strong>{agent}</strong> · {model} · {effort}</span>;
   const panelId = useId();
-  const [dockOpen, setOpen] = useState(true);
-  const open = expanded || dockOpen;
+  const [dockOpen, setDockOpen] = useState(true);
+  const [agentsDockOpen, setAgentsDockOpen] = useState(false);
+  const open = expanded || (inspectAgents ? agentsDockOpen : dockOpen);
+  const setOpen = inspectAgents ? setAgentsDockOpen : setDockOpen;
   const [files,setFiles] = useState([]);
   const [fileError,setFileError] = useState("");
   const activated = useRef(false);

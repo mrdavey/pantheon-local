@@ -158,7 +158,7 @@ struct Message {
     row: Value,
     chunks: Vec<String>,
     chunk_bytes: usize,
-    key: Option<(String, String)>,
+    key: Option<(String, String, String)>,
 }
 impl Message {
     fn finish(mut self) -> Value {
@@ -170,17 +170,37 @@ impl Message {
     }
 }
 pub fn page(dir: &Path, before: Option<u64>, known: Option<u64>, running: bool) -> Result<Value> {
+    read_page(dir, before, known, running, View::Activity)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum View {
+    Activity,
+    Output,
+    Raw,
+}
+
+pub fn read_page(
+    dir: &Path,
+    before: Option<u64>,
+    known: Option<u64>,
+    running: bool,
+    view: View,
+) -> Result<Value> {
+    let reasoning = (view != View::Activity)
+        .then(|| crate::agent_log::reasoning_tokens(dir))
+        .flatten();
     let file = match File::open(dir.join("events.log")) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Ok(json!({"end":0,"older":null,"entries":[]}));
+            return Ok(json!({"end":0,"older":null,"entries":[],"reasoning_tokens":reasoning}));
         }
         Err(e) => return Err(e.into()),
     };
     let size = file.metadata()?.len();
     let end = before.unwrap_or(size).min(size);
     if known == Some(end) {
-        return Ok(json!({"end":end,"unchanged":true}));
+        return Ok(json!({"end":end,"unchanged":true,"reasoning_tokens":reasoning}));
     }
     let mut lines = Lines::new(&file, end);
     let times = File::open(dir.join("output.times")).ok();
@@ -206,6 +226,9 @@ pub fn page(dir: &Path, before: Option<u64>, known: Option<u64>, running: bool) 
                 bytes.pop();
             }
             match serde_json::from_slice::<Value>(&bytes) {
+                Ok(event) if view == View::Raw => {
+                    (event, Some(String::from_utf8_lossy(&bytes).into_owned()))
+                }
                 Ok(event) if event["type"].is_string() => (event, None),
                 _ => (
                     Value::Null,
@@ -213,19 +236,40 @@ pub fn page(dir: &Path, before: Option<u64>, known: Option<u64>, running: bool) 
                 ),
             }
         };
-        if hidden(&event) {
+        if match view {
+            View::Activity => hidden(&event),
+            View::Output => {
+                event["log_agent"].is_string()
+                    || matches!(
+                        event["type"].as_str(),
+                        Some(
+                            "system"
+                                | "stream_event"
+                                | "usage"
+                                | "usage_update"
+                                | "subagent"
+                                | "subagent_update"
+                        )
+                    )
+            }
+            View::Raw => false,
+        } {
             continue;
         }
-        let chunk = (event["type"] == "agent_message_chunk").then(|| {
-            (
-                event["session"].as_str().unwrap_or("").to_owned(),
-                event["messageId"]
-                    .as_str()
-                    .or(event["raw"]["update"]["messageId"].as_str())
-                    .unwrap_or("")
-                    .into(),
-            )
-        });
+        let chunk = (view != View::Raw
+            && (event["type"] == "agent_message_chunk"
+                || (view == View::Output && event["type"] == "agent_thought_chunk")))
+            .then(|| {
+                (
+                    event["type"].as_str().unwrap_or("").to_owned(),
+                    event["session"].as_str().unwrap_or("").to_owned(),
+                    event["messageId"]
+                        .as_str()
+                        .or(event["raw"]["update"]["messageId"].as_str())
+                        .unwrap_or("")
+                        .into(),
+                )
+            });
         let text = event["text"].as_str().unwrap_or("");
         if chunk.is_some()
             && let Some(previous) = rows.last_mut()
@@ -246,19 +290,26 @@ pub fn page(dir: &Path, before: Option<u64>, known: Option<u64>, running: bool) 
         }
         page_bytes += (stop - start).min(MAX_ENTRY) as usize;
         let at = timestamp(&event).or_else(|| observed(times.as_ref(), stop - 1));
+        let chunk_bytes = text.len();
+        let chunks = if chunk.is_some() {
+            vec![text.into()]
+        } else {
+            vec![]
+        };
+        let event = if view == View::Raw {
+            Value::Null
+        } else {
+            event
+        };
         rows.push(Message {
             row: json!({"id":start,"at":at,"event":event,"line":line}),
-            chunks: if chunk.is_some() {
-                vec![text.into()]
-            } else {
-                vec![]
-            },
-            chunk_bytes: text.len(),
+            chunks,
+            chunk_bytes,
             key: chunk,
         });
     }
     Ok(
-        json!({"end":end,"older":older,"entries":rows.into_iter().map(Message::finish).collect::<Vec<_>>()}),
+        json!({"end":end,"older":older,"entries":rows.into_iter().map(Message::finish).collect::<Vec<_>>(),"reasoning_tokens":reasoning}),
     )
 }
 

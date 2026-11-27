@@ -2,14 +2,17 @@
 .log-controls,.log-controls > div,.paged-log article header { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
 .log-controls,.paged-log article header { justify-content:space-between; }
 .log-page-label,.paged-log time,.paged-log header small,.activity-start { font-size:.77rem; color:var(--muted); }
-.log-page-label { padding:.65rem 0; }
+.log-page-label { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.35rem .8rem; padding:.65rem 0; }
 .activity-start { display:block; }
 .log-messages { max-height:min(54dvh,38rem); min-height:4rem; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; border-block:1px solid var(--line); overflow-wrap:anywhere; }
 .paged-log .log-event { padding:.8rem .35rem; margin:0; border-bottom:1px solid var(--line); }
 .paged-log .log-event:last-child { border-bottom:0; }
+.paged-log .disclosure-trigger { height:auto; row-gap:.22rem; }
 .paged-log .log-event header { margin-bottom:.4rem; }
 .paged-log .log-event h4,.paged-log .log-event h5 { margin:0; font-weight:640; font-size:.85rem; color:var(--ink); }
 .paged-log .log-event h5 { margin-top:.45rem; }
 .paged-log .log-event pre { white-space:pre-wrap; max-height:24rem; overflow:auto; }
 .paged-log time span { white-space:nowrap; }
 @media(max-width:760px) { .log-controls button { min-height:2.75rem; } .log-messages { max-height:48dvh; } }
+
+.paged-log .raw-log-line pre { margin:.2rem 0 0; overflow-wrap:anywhere; }

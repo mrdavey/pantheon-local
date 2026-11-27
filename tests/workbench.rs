@@ -1110,6 +1110,121 @@ fn live_turn_log(h: &Harness) -> Result<()> {
     h.no_overflow()
 }
 scenario!(desktop_live_turn_log, mobile_live_turn_log, live_turn_log);
+fn run_agents(h: &Harness) -> Result<()> {
+    let folder = h.repo("inspect-agents")?;
+    let run = h.svc.post("/runs", &json!({
+        "path":folder,"prompt":"Delegate the report. Native agent log fixture",
+        "coordinator":"first","workers":["writer"],"delivery":"auto",
+        "recipe":{"checks":[[example("fixture-agent")?,"check","docs/report.txt","reviewed both sections"]]}
+    }))?;
+    let path = common::run_path(&run)?;
+    h.goto()?;
+    h.run_button("Delegate the report").click()?;
+    h.click("Agents")?;
+    let roster = h.b.role("navigation", "Agent roster");
+    roster.contains("Coordinator")?;
+    roster.contains("writer")?;
+    let review = roster.xpath(".//button[contains(.,'Review delegate')]");
+    if h.mobile {
+        review.visible()?;
+        h.b.eval("document.querySelector('.agent-row[data-agent-key$=\":review\"]').scrollIntoView({block:'center'})", vec![])?;
+        review.tap()?;
+    } else {
+        review.focus()?;
+        h.b.key("\u{e007}")?;
+        h.b.role("heading", "Review delegate").focused()?;
+    }
+    let log = h.b.label("Turn log");
+    log.contains("Native review stderr.")?;
+    log.contains("37 reasoning tokens")?;
+    log.contains("Live")?;
+    ensure!(!log.text_content()?.contains("Native research stdout."));
+    log.xpath(".//button[strong[.='Reasoning summary']]")
+        .click()?;
+    log.contains("Compare against the report criteria.")?;
+    ensure!(h.b.eval(r#"
+        const title = [...document.querySelectorAll(".paged-log button strong")]
+            .find(label => label.textContent === "Reasoning summary");
+        const button = title.closest("button");
+        return button.getBoundingClientRect().bottom >= button.querySelector("time").getBoundingClientRect().bottom;
+    "#, vec![])? == true, "the timestamp extends outside its log header");
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        h.b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "agents-mobile.png"
+        } else {
+            "agents-desktop.png"
+        }))?;
+    }
+    h.proxy.inject(Once::LogFailure);
+    h.click("Raw log")?;
+    h.b.role("alert", "").contains("Temporarily unavailable")?;
+    h.click("Try again")?;
+    log.contains(r#""reasoning_tokens":37"#)?;
+    log.contains(r#""type":"stderr""#)?;
+    let raw_url = h.b.url()?;
+    h.b.reload()?;
+    log.contains("Native review stderr.")?;
+    ensure!(h.b.url()? == raw_url);
+    h.click("Pause updates")?;
+    h.button("Go live").visible()?;
+    if h.mobile {
+        h.click("Back to agents")?;
+        review.focused()?;
+    } else {
+        h.click("Agents")?;
+    }
+    roster
+        .xpath(".//button[contains(.,'Result-only delegate')]")
+        .click()?;
+    h.b.text("Transcript unavailable.").visible()?;
+    log.contains("Only the result was exposed.")?;
+    h.svc
+        .post(&path, &json!({"kind":"coordinator","text":"second"}))?;
+    fs::write(h.dir.path().join("chat-gate"), "")?;
+    let landed = h.svc.wait_state(&path, "landed")?;
+    h.b.reload()?;
+    log.contains("Only the result was exposed.")?;
+    if h.mobile {
+        h.click("Back to agents")?;
+    }
+    roster
+        .xpath(".//button[contains(.,'Write the first section')]")
+        .click()?;
+    h.b.role("heading", "Write the first section.").visible()?;
+    log.contains("section-one")?;
+    if h.mobile {
+        h.click("Back to agents")?;
+    }
+    roster
+        .xpath(".//button[.//strong[.='Assemble the final report.']]")
+        .click()?;
+    h.b.role("combobox", "Turn").visible()?;
+    let picker = h.b.role("combobox", "Turn");
+    let first = common::rows(&landed["turns"])
+        .iter()
+        .find(|turn| turn["task"] == "report")
+        .and_then(|turn| turn["id"].as_str())
+        .context("first report attempt")?;
+    picker.select(first)?;
+    log.contains("13 reasoning tokens")?;
+    ensure!(!log.text_content()?.contains("Native research stdout."));
+    h.click("Raw log")?;
+    log.contains("Native research stdout.")?;
+    h.b.eval("history.back()", vec![])?;
+    until("output mode restored by Back", || {
+        Ok((h.button("Output").attr("aria-pressed")? == "true").then_some(()))
+    })?;
+    if h.mobile {
+        h.click("Back to agents")?;
+    }
+    roster.xpath(".//button[.//strong[.='first']]").click()?;
+    h.b.role("heading", "first").visible()?;
+    log.contains("Page 1")?;
+    h.no_overflow()
+}
+
+scenario!(desktop_run_agents, mobile_run_agents, run_agents);
+
 fn chat_history(h: &Harness) -> Result<()> {
     let b = &h.b;
     let run = h.svc.post(

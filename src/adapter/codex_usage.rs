@@ -1,7 +1,7 @@
 //! Codex exec publishes its final thread counters on stdout. Between tool calls,
 //! recent versions also persist model-call receipts in the active thread rollout.
 use super::*;
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use std::fs::File;
 
 pub(super) struct Rollout {
@@ -19,38 +19,6 @@ impl Rollout {
         }
     }
 
-    fn open(&self, root: &Path, session: &str) -> Option<File> {
-        let bytes = session.as_bytes();
-        if bytes.len() != 36
-            || bytes[14] != b'7'
-            || !bytes.iter().enumerate().all(|(i, c)| {
-                if matches!(i, 8 | 13 | 18 | 23) {
-                    *c == b'-'
-                } else {
-                    c.is_ascii_hexdigit()
-                }
-            })
-        {
-            return None;
-        }
-        let millis = i64::from_str_radix(&session[..13].replace('-', ""), 16).ok()?;
-        let created = DateTime::from_timestamp_millis(millis)?;
-        let suffix = format!("-{session}.jsonl");
-        let local = created.with_timezone(&Local).format("%Y/%m/%d").to_string();
-        let utc = created.format("%Y/%m/%d").to_string();
-        for day in [local, utc] {
-            let entries = fs::read_dir(root.join("sessions").join(day)).ok();
-            if let Some(path) = entries.into_iter().flatten().flatten().find(|e| {
-                let name = e.file_name();
-                name.to_str()
-                    .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix))
-            }) {
-                return File::open(path.path()).ok();
-            }
-        }
-        None
-    }
-
     pub fn poll(
         &mut self,
         root: &Path,
@@ -59,7 +27,7 @@ impl Rollout {
         emit: &impl Fn(Value),
     ) -> io::Result<()> {
         if self.file.is_none() {
-            self.file = self.open(root, session);
+            self.file = crate::agent_log::open_codex_rollout(root, session);
         }
         let Some(file) = &mut self.file else {
             return Ok(());
@@ -210,7 +178,7 @@ mod tests {
             *events.borrow(),
             vec![json!({"type":"usage","model":"fixture","input_tokens":400,"output_tokens":20})]
         );
-        assert!(tail.open(home.path(), "../another-session").is_none());
+        assert!(crate::agent_log::open_codex_rollout(home.path(), "../another-session").is_none());
         Ok(())
     }
 }
