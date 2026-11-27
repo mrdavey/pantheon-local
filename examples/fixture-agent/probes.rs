@@ -159,6 +159,41 @@ pub(super) fn run(name: &str, args: &[String]) -> Result<()> {
                 json!({"type":"result","is_error":true,"result":"sign in"})
             );
         }
+        "mock-antigravity-acp" => {
+            ensure!(args == ["acp"], "expected Antigravity ACP mode");
+            let init = next(&mut input)?;
+            ensure!(init["method"] == "initialize");
+            println!(
+                "{}",
+                json!({"id":init["id"],"result":{"agentCapabilities":{"loadSession":false}}})
+            );
+            let session = next(&mut input)?;
+            ensure!(
+                session["method"] == "session/resume"
+                    && session["params"]["sessionId"] == "agy-session"
+            );
+            println!(
+                "{}",
+                json!({"id":session["id"],"result":{"models":{"currentModelId":"gemini-fixture"}}})
+            );
+            let prompt = next(&mut input)?;
+            ensure!(prompt["method"] == "session/prompt");
+            for update in [
+                json!({"sessionUpdate":"usage_update","used":200000,"size":1000000}),
+                json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}),
+            ] {
+                println!(
+                    "{}",
+                    json!({"method":"session/update","params":{"sessionId":"agy-session","update":update}})
+                );
+            }
+            println!(
+                "{}",
+                json!({"id":prompt["id"],"result":{"stopReason":"end_turn","usage":{
+                    "totalTokens":170,"inputTokens":100,"outputTokens":20,"cachedReadTokens":50,"thoughtTokens":5
+                }}})
+            );
+        }
         "mock-acp" | "mock-desktop-acp" => {
             let fresh = name == "mock-desktop-acp";
             if fresh {

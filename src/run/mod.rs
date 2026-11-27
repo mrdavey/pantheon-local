@@ -657,10 +657,8 @@ impl Engine {
                 session
             ));
         }
-        if matches!(
-            request["profile"]["kind"].as_str(),
-            Some("hermes" | "antigravity")
-        ) && let Some(session) = request["session"].as_str().filter(|s| !s.is_empty())
+        if request["profile"]["kind"] == "hermes"
+            && let Some(session) = request["session"].as_str().filter(|s| !s.is_empty())
         {
             request["acp_baseline"] = a(&r["turns"])
                 .iter()

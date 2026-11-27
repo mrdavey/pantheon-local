@@ -72,6 +72,8 @@ The supervisor records timestamped, cumulative per-turn measurements in a privat
 
 Custom adapters can stream `{"event":{"type":"usage","model":"model-id","tokens":120,"cost_usd":0.001}}`. Counters are cumulative for the current turn. Include final totals in `result.tokens` and `result.cost_usd`. Omit unavailable fields. Claude results can identify several models in one turn. ACP context-window occupancy is excluded from consumption, and cumulative session costs require a known starting balance.
 
+Antigravity reports final usage per prompt, including on resume. Metrics reads token fields from the matching prompt in Antigravity's local transcript while it runs and reconciles them with the saved ACP receipt when it finishes. Older runs with saved ACP receipts get the corrected totals as well.
+
 The selected project directory (including a selected subdirectory in a larger repository) is the run’s working folder. Both project and working-folder actions open it. Milestone checkouts stay isolated under a self-ignoring directory recorded as `worker_folder`. Resumed runs reuse their existing milestone storage. Evaluation checkouts and integration state stay private.
 
 The authenticated `GET /api/runs/{run}/implementations/{candidate}/files?path=...` reads one directory or file at the candidate commit. Paths are relative to the selected project. The viewer never follows filesystem symlinks. It renders Markdown and supports previews up to 512 KiB per file.

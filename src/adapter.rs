@@ -1,4 +1,5 @@
 mod acp;
+pub(crate) use acp::antigravity_usage;
 mod codex_chat;
 mod codex_usage;
 pub mod hermes;
@@ -608,6 +609,33 @@ mod tests {
         assert_eq!(
             run(&request, None, |_| {}),
             json!({"text":"done","session":"abc"})
+        );
+        Ok(())
+    }
+    #[test]
+    fn antigravity_records_full_turn_usage_on_resume() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let program = native_fixture(temp.path(), "mock-antigravity-acp")?;
+        let request = json!({"profile":{"kind":"antigravity","executable":program},
+            "session":"agy-session","dir":temp.path(),"role":"chat",
+            "acp_baseline":{"totalTokens":1000}});
+        let metrics = std::sync::Mutex::new(crate::metrics::Recorder::new(&request));
+        let mut result = run(&request, None, |event| {
+            metrics.lock().unwrap().event(temp.path(), &event).unwrap();
+        });
+        assert_eq!(result["text"], "done");
+        assert_eq!(result["acp_usage"]["totalTokens"], 170);
+        assert_eq!(result["acp_model"], "gemini-fixture");
+        metrics
+            .into_inner()
+            .unwrap()
+            .finish(temp.path(), &mut result)?;
+        assert_eq!(result["tokens"], 170);
+        let usage: Value = serde_json::from_slice(&fs::read(temp.path().join("usage.json"))?)?;
+        assert_eq!(usage.as_array().unwrap().len(), 1);
+        assert_eq!(
+            usage[0]["models"]["gemini-fixture"]["breakdown"],
+            json!({"input":100,"output":20,"cached":50,"cache_write":0})
         );
         Ok(())
     }

@@ -1,4 +1,6 @@
 //! Cumulative, turn-local usage receipts. Keep telemetry separate from run revisions.
+mod antigravity;
+
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -641,6 +643,9 @@ fn filtered_report(run: &Value, root: &Path, from: usize, task: Option<&str>) ->
                 }
             }
         }
+        if profile["kind"] == "antigravity" {
+            history = antigravity::history(&dir, t, name, history);
+        }
         for sample in &mut history {
             for (name, reading) in &mut sample.models {
                 if reading.usd.is_none() {
@@ -659,6 +664,33 @@ fn filtered_report(run: &Value, root: &Path, from: usize, task: Option<&str>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn report_recovers_antigravity_turns_with_missing_or_incorrect_totals() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let run = json!({"input":{"coordinator":"agy"},"profiles":{"agy":{"kind":"antigravity","model":"gemini-fixture"}},
+            "turns":[{"id":"empty","role":"chat","state":"received","started":2000,"finished":5000},
+                {"id":"undercount","role":"chat","state":"received","started":6000,"finished":8000,
+                "acp_usage":{"totalTokens":170}}]});
+        let turns = tmp.path().join("turns");
+        fs::create_dir_all(turns.join("empty"))?;
+        fs::create_dir_all(turns.join("undercount"))?;
+        crate::supervisor::write_json(
+            &turns.join("empty/result.json"),
+            &json!({"acp_usage":{"totalTokens":223}}),
+        )?;
+        crate::supervisor::write_json(
+            &turns.join("undercount/usage.json"),
+            &json!([{"at":7000,"models":{"gemini-fixture":{"tokens":22,"usd":null}}}]),
+        )?;
+        let metrics = report(&run, tmp.path(), 0)?;
+        for (i, expected) in [223, 170].into_iter().enumerate() {
+            assert_eq!(
+                metrics["turns"][i]["samples"][0]["models"]["gemini-fixture"]["tokens"],
+                expected
+            );
+        }
+        Ok(())
+    }
     #[test]
     fn milestone_clock_spans_attempts_and_stops_on_completion() -> Result<()> {
         let private = tempfile::tempdir()?;

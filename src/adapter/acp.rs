@@ -340,20 +340,27 @@ pub(super) fn exchange(
         "session/prompt",
         json!({"sessionId":c.session,"prompt":content}),
     );
-    if let Ok(reply) = &result
-        && let Some(mut receipt) = usage_receipt(
-            &reply["usage"],
-            r.get("acp_baseline"),
-            !field(r, "session").is_empty(),
-        )
-    {
-        receipt["model"] = json!(c.current_model);
-        emit(receipt);
+    let antigravity = r["profile"]["kind"] == "antigravity";
+    let usage = result.as_ref().ok().map(|reply| &reply["usage"]);
+    if let Some(usage) = usage {
+        let normalized = if antigravity {
+            antigravity_usage(usage)
+        } else {
+            usage_receipt(
+                usage,
+                r.get("acp_baseline"),
+                !field(r, "session").is_empty(),
+            )
+        };
+        if let Some(mut receipt) = normalized {
+            receipt["model"] = json!(c.current_model);
+            emit(receipt);
+        }
     }
     if c.text.is_empty() && !c.previous_text.is_empty() {
         c.text = std::mem::take(&mut c.previous_text);
     }
-    match result {
+    let mut receipt = match &result {
         Ok(result) if result["stopReason"] == "end_turn" && !c.text.is_empty() => {
             if r["role"] == "worker" && super::decode_typed_outcome("worker", &c.text).is_err() {
                 if let Some(receipt) = worker_receipt(&c.text) {
@@ -366,21 +373,29 @@ pub(super) fn exchange(
                     }
                 }
             }
-            let mut receipt = json!({"session":c.session,"text":c.text});
-            if result["usage"].is_object() {
-                receipt["acp_usage"] = result["usage"].clone();
-            }
-            Ok(receipt)
+            json!({"session":c.session,"text":c.text})
         }
-        Ok(result) => Ok(
-            json!({"session":c.session,"error":format!("ACP turn stopped: {}",field(&result,"stopReason"))}),
-        ),
-        Err(e) => Ok(json!({"session":c.session,"error":e.to_string()})),
+        Ok(result) => {
+            json!({"session":c.session,"error":format!("ACP turn stopped: {}",field(result,"stopReason"))})
+        }
+        Err(e) => json!({"session":c.session,"error":e.to_string()}),
+    };
+    if let Some(usage) = usage.filter(|usage| usage.is_object()) {
+        receipt["acp_usage"] = usage.clone();
+        if antigravity && let Some(name) = c.current_model {
+            receipt["acp_model"] = json!(name);
+        }
     }
+    Ok(receipt)
 }
 
-// ACP reports session totals. A resumed session without a baseline has
-// no reliable per-turn amount. Optional billing categories must reconcile.
+// Antigravity returns prompt totals, including when session/resume is used.
+pub(crate) fn antigravity_usage(usage: &Value) -> Option<Value> {
+    usage_receipt(usage, None, false)
+}
+
+// Hermes returns session totals. A resumed session needs a baseline.
+// Keep the total even if the optional billing categories do not reconcile.
 fn usage_receipt(usage: &Value, prior: Option<&Value>, resumed: bool) -> Option<Value> {
     let delta = |key: &str| {
         let old = if resumed { prior?[key].as_u64()? } else { 0 };
@@ -388,12 +403,14 @@ fn usage_receipt(usage: &Value, prior: Option<&Value>, resumed: bool) -> Option<
     };
     let total = delta("totalTokens")?;
     let mut event = json!({"type":"usage","tokens":total});
-    if let (Some(input), Some(output)) = (delta("inputTokens"), delta("outputTokens")) {
+    if let (Some(input), Some(output)) = (delta("inputTokens"), delta("outputTokens"))
+        && let Some(all_input) = total.checked_sub(output)
+    {
         let cached = delta("cachedReadTokens").unwrap_or(0);
         let write = delta("cachedWriteTokens").unwrap_or(0);
-        let all_input = total.checked_sub(output)?;
-        if (input == all_input || input.checked_add(cached)?.checked_add(write)? == all_input)
-            && cached.checked_add(write)? <= all_input
+        if let Some(cached_input) = cached.checked_add(write)
+            && cached_input <= all_input
+            && (input == all_input || input.checked_add(cached_input) == Some(all_input))
         {
             event["input_tokens"] = json!(all_input);
             event["output_tokens"] = json!(output);
