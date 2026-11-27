@@ -2130,11 +2130,51 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
             "milestone-loading-desktop.png"
         }))?;
     }
+    let chat_tab = h.button("Coordinator chat tab");
+    until("pending milestone request in the URL", || {
+        let url = b.url()?;
+        Ok((url.contains("tab=milestones") && url.contains("proposalRequest=")).then_some(()))
+    })?;
+    b.reload()?;
+    b.label("What do you want to add?")
+        .value("Add a timing milestone after the gate")?;
+    h.loading_bar()
+        .contains("Coordinator is preparing milestones…")?;
+    create.enabled(false)?;
     fs::write(h.dir.path().join("chat-gate"), "")?;
-    b.role("dialog", "Add task")
-        .contains("Record export timing.")?;
+    let chat = b.role("region", "Coordinator chat");
+    let reply = chat.xpath(".//article[@tabindex='-1']");
+    reply.contains("We can record timings after the export is ready.")?;
+    reply.contains("Record export timing.")?;
+    reply.focused()?;
+    ensure!(chat_tab.attr("aria-pressed")? == "true");
+    b.role("dialog", "Add task").absent()?;
     h.loading_bar().absent()?;
+    let destination = b.url()?;
+    ensure!(destination.contains("tab=chat") && destination.contains("reply="));
+    b.eval("history.back()", vec![])?;
+    h.button("Add task").visible()?;
+    b.role("dialog", "Add task").absent()?;
+    b.eval("history.forward()", vec![])?;
+    reply.focused()?;
+    ensure!(b.url()? == destination);
+    b.reload()?;
+    reply.focused()?;
+    let snapshot = h.svc.get(&path)?;
+    ensure!(
+        common::rows(&snapshot["conversation"])
+            .iter()
+            .filter(|m| m["intent"] == "add")
+            .count()
+            == 1
+            && common::rows(&snapshot["tasks"])
+                .iter()
+                .all(|t| t["id"] != "timing"),
+        "opening the reply should leave one request pending developer acceptance"
+    );
     h.click("Add to run")?;
+    reply.contains("Milestones added")?;
+    h.click("Milestones")?;
     h.click("Kanban")?;
     b.xpath("//button[@data-slot='card' and @data-task='timing']")
         .click()?;
@@ -2179,6 +2219,21 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     ensure!(b.url()? == filtered);
     b.label("Search activity").fill("nonexistent search")?;
     b.text("No matching activity.").visible()?;
+    h.click("Milestones")?;
+    h.click("Add task")?;
+    b.label("What do you want to add?")
+        .fill("Try a proposal that fails")?;
+    h.click("Create milestone(s)")?;
+    let dialog = b.role("dialog", "Add task");
+    dialog.contains("The fixture coordinator is unavailable.")?;
+    h.loading_bar().absent()?;
+    ensure!(b.url()?.contains("tab=milestones"));
+    let text = b.label("What do you want to add?");
+    text.value("Try a proposal that fails")?;
+    text.fill("What would you need to plan another milestone?")?;
+    h.click("Create milestone(s)")?;
+    reply.contains("The export milestone owns the generated CSV.")?;
+    reply.xpath(".//button[.='Add to run']").absent()?;
     h.no_overflow()
 }
 scenario!(

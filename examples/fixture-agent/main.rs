@@ -281,6 +281,13 @@ fn main() -> Result<()> {
             "tasks":[task("timing","Record export timing.","writer",json!({"depends":["export"],"class":"testing"}))],
             "checks":[check(&["timing.txt","measured"])?]})
         }
+        "chat" if prompt.ends_with("Try a proposal that fails") => {
+            println!(
+                "{}",
+                json!({"result":{"error":"The fixture coordinator is unavailable."}})
+            );
+            return Ok(());
+        }
         "chat" => json!({"reply":"The export milestone owns the generated CSV."}),
         "coordinator" => plan::respond(prompt, &ctx)?,
         "worker" => worker::respond(prompt, &ctx)?,

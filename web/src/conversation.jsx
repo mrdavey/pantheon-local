@@ -16,14 +16,13 @@ import { Loading, coordinatorStatus, pendingConversation, waitingForCoordinator 
 const drafts = new Map();
 const readingPositions = new Map();
 
-export function Proposal({ message, run, act, busy, onDecision, openMilestone }) {
+function Proposal({ message, run, act, busy, openMilestone }) {
   const [failed, setFailed] = useState(false);
   const proposalId = useId();
   const canAdd = ["working", "review", "landed", "blocked", "checks"].includes(run.state) && (run.state !== "blocked" || run.recipe_approved) && !run.landing && !run.combination;
   async function decide(kind) {
     setFailed(false);
-    if (await act({ kind, task: message.id })) onDecision?.();
-    else setFailed(true);
+    if (!await act({ kind, task: message.id })) setFailed(true);
   }
 
   return <section className="chat-proposal">
@@ -85,7 +84,7 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest, expanded, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, replyId, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
   const coordinator = run.input.coordinator;
   const profile = run.profiles?.[coordinator];
   const { model, effort } = runModel(profile);
@@ -107,7 +106,9 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   const restoreFocus = useRef(false);
   const composer = useRef(null);
   const history = useRef(null);
+  const reply = useRef(null);
   const messages = run.conversation || [];
+  const focusedReply = expanded && messages.some(message => message.id === replyId) ? replyId : null;
   const lastReply = messages.filter(({ role }) => role === "coordinator").at(-1)?.id;
   const [seenReply, setSeenReply] = useState(lastReply);
   const unread = lastReply && lastReply !== seenReply;
@@ -155,6 +156,14 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
     const log = history.current;
     log.scrollTop = readingPositions.get(run.id) ?? log.scrollHeight;
   }, [open, expanded, run.id, messages.length, waiting, liveReply, chatRequest]);
+
+  useLayoutEffect(() => {
+    if (!focusedReply || !reply.current) return;
+    const log = history.current;
+    log.scrollTop += reply.current.getBoundingClientRect().top - log.getBoundingClientRect().top;
+    reply.current.focus({ preventScroll:true });
+    trackPosition();
+  }, [focusedReply]);
 
   function trackPosition() {
     const log = history.current;
@@ -229,7 +238,8 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
         onScroll={trackPosition}>
         {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
-        {messages.map((message) => <article className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={message.id}>
+        {messages.map((message) => <article className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={message.id}
+          ref={message.id === focusedReply ? reply : undefined} tabIndex={message.id === focusedReply ? -1 : undefined}>
           <strong className="chat-author">{message.role === "user" ? "You" : "Coordinator"}</strong>
           {message.context && <small className="chat-context">{referenceLabel(run, message.context)}</small>}
           <Markdown>{message.text}</Markdown>
