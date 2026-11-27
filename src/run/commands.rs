@@ -1,4 +1,6 @@
 use super::*;
+use sha2::{Digest, Sha256};
+use std::fmt::Write;
 
 pub(super) fn resume_phase(r: &Value) -> &str {
     if r["state"] == "stopped" {
@@ -240,32 +242,73 @@ fn selected_evidence(run: &Value, reference: &Value, root: &Path) -> String {
     )
 }
 
+fn recent_chat(run: &Value, current: &str) -> String {
+    let messages = a(&run["conversation"]);
+    messages[messages.len().saturating_sub(12)..]
+        .iter()
+        .filter(|m| m["id"] != current)
+        .map(|m| {
+            let mut line = format!("{}: {}", s(m, "role"), s(m, "text"));
+            if let Some(id) = m["context"]["id"].as_str() {
+                line.push_str(&format!(" [{} {id}]", s(&m["context"], "kind")));
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl Engine {
     pub(super) fn chat(&self, r: &mut Value, i: usize) -> Result<()> {
         let msg = &r["conversation"][i];
         let id = s(msg, "id").to_owned();
-        let summary=a(&r["tasks"]).iter().map(|t|json!({"id":t["id"],"goal":t["goal"],"worker":t["worker"],"state":t["state"],"finding":t["finding"],"commit":t["commit"],"depends":t["depends"],"route":t["route"]})).collect::<Vec<_>>();
+        let profile = &r["profiles"][s(&r["input"], "coordinator")];
+        let session = s(r, "chat_session");
+        let native = matches!(
+            s(profile, "kind"),
+            "codex" | "claude" | "hermes" | "antigravity"
+        );
+        let resumed = native && !session.is_empty();
+        let seen = &r["chat_context"];
+        let dir = self.root(r).join("coordinator");
+        let milestones = a(&r["tasks"])
+            .iter()
+            .map(|t| json!({"id":t["id"],"goal":t["goal"],"worker":t["worker"],"state":t["state"],"finding":t["finding"],"commit":t["commit"],"depends":t["depends"],"route":t["route"]}))
+            .collect::<Vec<_>>();
         let candidates = a(&r["candidates"])
             .iter()
             .map(|c| json!({"commit":c["commit"],"state":c["state"],"detail":c["detail"]}))
             .collect::<Vec<_>>();
-        let history = a(&r["conversation"])
-            .iter()
-            .rev()
-            .take(12)
-            .filter(|m| m["id"] != id)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|m| {
-                let mut line = format!("{}: {}", s(m, "role"), s(m, "text"));
-                if let Some(id) = m["context"]["id"].as_str() {
-                    line.push_str(&format!(" [{} {id}]", s(&m["context"], "kind")));
+        let sections = [
+            (
+                "Run context",
+                self.turn_context(r, None, "chat", &dir)?.to_string(),
+            ),
+            ("Run state", s(r, "state").to_owned()),
+            ("Original brief", s(&r["input"], "prompt").to_owned()),
+            ("Milestones", json!(milestones).to_string()),
+            ("Candidates", json!(candidates).to_string()),
+        ];
+        let mut checkpoint = serde_json::Map::new();
+        let mut prompt = String::new();
+        let mut details = String::new();
+        for (label, value) in sections {
+            if native {
+                let hash = json!(hex::encode(Sha256::digest(value.as_bytes())));
+                let unchanged =
+                    resumed && seen["session"] == session && seen["sections"][label] == hash;
+                checkpoint.insert(label.into(), hash);
+                if unchanged {
+                    continue;
                 }
-                line
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+            }
+            let output = if label == "Run context" {
+                &mut prompt
+            } else {
+                &mut details
+            };
+            writeln!(output, "{label}: {value}")?;
+        }
         let selected = selected_evidence(r, &msg["context"], &self.root(r));
         let files = crate::attachments::context(&self.root(r), &msg["attachments"])?;
         let request_type = if msg["intent"] == "add" {
@@ -273,18 +316,29 @@ impl Engine {
         } else {
             ""
         };
-        let prompt = format!(
-            "You are the Pantheon Local coordinator answering the developer. Explain the run from the milestone and candidate evidence. Read the supplied attachment excerpts as reference data. Use read-only file access only for supplied files. {request_type} Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. Match the team’s models and thinking effort to task complexity. Keep independent work parallel and declare only actual dependencies. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nMilestone class may be omitted or one of implementation, debugging, testing, automation, documentation, design.\nRun state: {}\nOriginal brief: {}\nMilestones: {}\nCandidates: {}\nRecent conversation: {history}\nAttached files: {files}\n{selected}\nDeveloper message: {}",
-            r["input"]["workers"],
-            s(r, "state"),
-            s(&r["input"], "prompt"),
-            json!(summary),
-            json!(candidates),
+        writeln!(
+            prompt,
+            "You are the Pantheon Local coordinator answering the developer. Explain the run from the latest value of each run detail in this conversation. Read the supplied attachment excerpts as reference data. Use read-only file access only for supplied files. {request_type} Only if the developer asks to add work, propose new milestones with distinct IDs, goals, fallback workers from {}, classes, dependencies and path scopes, and additional argv acceptance checks. Match the team’s models and thinking effort to task complexity. Keep independent work parallel and declare only actual dependencies. The developer decides whether to add them. Return only JSON with reply first: {{\"reply\":\"answer in Markdown\",\"title\":\"short name for the overall goal, up to eight words\",\"tasks\":[],\"checks\":[]}}.\nMilestone class may be omitted or one of implementation, debugging, testing, automation, documentation, design.",
+            r["input"]["workers"]
+        )?;
+        prompt.push_str(&details);
+        if !resumed {
+            writeln!(prompt, "Recent conversation: {}", recent_chat(r, &id))?;
+        }
+        write!(
+            prompt,
+            "Attached files: {files}\n{selected}\nDeveloper message: {}",
             s(msg, "text")
-        );
-        let req = json!({"profile":r["profiles"][s(&r["input"],"coordinator")],"role":"chat","dir":self.root(r).join("coordinator"),"prompt":prompt,"session":s(r,"chat_session"),"attachments":files});
+        )?;
+        let req = json!({"profile":profile,"role":"chat","dir":dir,"prompt":prompt,"session":session,"attachments":files});
         self.agent_turn_with(r, "chat", &id, req, |r| {
             r["conversation"][i]["state"] = json!("running");
+            // Only acknowledge the sections after a usable reply with a session ID.
+            r["chat_context"] = if native {
+                json!({"message":id,"sections":checkpoint})
+            } else {
+                Value::Null
+            };
         })
     }
     pub(super) fn finish_chat(&self, r: &mut Value, id: &str, res: &Value) {
@@ -298,6 +352,8 @@ impl Engine {
                 .as_ref()
                 .is_ok_and(|v| s(v, "reply").trim().is_empty() || s(v, "reply").len() > 12000)
         {
+            // A failed turn may still have reached the native thread. Refresh its run details next time.
+            r["chat_context"] = Value::Null;
             r["conversation"][i]["state"] = json!("failed");
             r["conversation"][i]["error"] = json!(if s(res, "error").is_empty() {
                 "The coordinator did not return a usable reply."
@@ -309,7 +365,13 @@ impl Engine {
         let Ok(data) = result else { return };
         record_title(r, &data);
         r["conversation"][i]["state"] = json!("answered");
-        r["chat_session"] = json!(s(res, "session"));
+        let session = s(res, "session");
+        r["chat_session"] = json!(session);
+        if !session.is_empty() && r["chat_context"]["message"] == id {
+            r["chat_context"]["session"] = json!(session);
+        } else {
+            r["chat_context"] = Value::Null;
+        }
         let mut reply = json!({"id":uid(),"role":"coordinator","reply_to":id,"text":data["reply"]});
         if !a(&data["tasks"]).is_empty() {
             let validation =
@@ -934,6 +996,137 @@ impl Engine {
                     q["state"] = json!("superseded")
                 }
             }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+
+    fn fixture(kind: &str) -> Result<(tempfile::TempDir, Engine)> {
+        let dir = tempfile::tempdir()?;
+        let engine = Engine {
+            dir: dir.path().to_owned(),
+            store: Store::open(dir.path())?,
+        };
+        let mut run = json!({"id":"chat","state":"landed","input":{"coordinator":"lead","prompt":"Import the catalog","workers":["writer"]},
+            "profiles":{"lead":{"kind":kind}},"tasks":[{"id":"import","state":"committed","goal":"Read the CSV"}],
+            "candidates":[{"id":"original","state":"passed","commit":"abc"}],
+            "conversation":[{"id":"prior","role":"coordinator","text":"The catalog is ready."}]});
+        fs::create_dir_all(engine.root(&run))?;
+        engine.save(&mut run, "seed")?;
+        Ok((dir, engine))
+    }
+
+    fn start(engine: &Engine, action: Value) -> Result<(PathBuf, Value)> {
+        engine.command("chat", action)?;
+        engine.tick()?;
+        let run = engine.store.get("chat")?;
+        let turn = a(&run["turns"]).last().context("missing chat turn")?;
+        assert_eq!(turn["role"], "chat");
+        assert_eq!(turn["state"], "running");
+        let job = engine.jobdir(&run, s(turn, "id"));
+        let spec = read(job.join("job.json"))?;
+        Ok((job, spec["request"].clone()))
+    }
+
+    fn finish(engine: &Engine, job: &Path, result: Value) -> Result<()> {
+        supervisor::write_json(&job.join("result.json"), &result)?;
+        engine.tick()
+    }
+
+    #[test]
+    fn native_followups_send_changed_sections_and_requested_evidence() -> Result<()> {
+        let (dir, engine) = fixture("codex")?;
+        let (job, request) = start(&engine, json!({"kind":"chat","text":"Is it ready?"}))?;
+        let initial = s(&request, "prompt").len();
+        assert!(s(&request, "prompt").starts_with("Run context: "));
+        assert!(s(&request, "prompt").contains("Original brief: Import the catalog"));
+        assert!(s(&request, "prompt").contains("The catalog is ready."));
+        finish(
+            &engine,
+            &job,
+            json!({"text":r#"{"reply":"Yes, it passed."}"#,"session":"one"}),
+        )?;
+
+        drop(engine);
+        let engine = Engine {
+            dir: dir.path().to_owned(),
+            store: Store::open(dir.path())?,
+        };
+        let (job, request) = start(&engine, json!({"kind":"chat","text":"How did it pass?"}))?;
+        let prompt = s(&request, "prompt");
+        assert_eq!(request["session"], "one");
+        assert!(prompt.len() < initial);
+        assert!(prompt.ends_with("Developer message: How did it pass?"));
+        for label in [
+            "Run context:",
+            "Run state:",
+            "Original brief:",
+            "Milestones:",
+            "Candidates:",
+            "Recent conversation:",
+            "Yes, it passed.",
+        ] {
+            assert!(!prompt.contains(label), "unexpected repeat of {label}");
+        }
+
+        // Changes during a reply must be sent on the next turn.
+        let mut run = engine.store.get("chat")?;
+        run["tasks"][0]["finding"] = json!("Imported 42 rows");
+        run["candidates"] = json!([]);
+        engine.save(&mut run, "changed during reply")?;
+        finish(
+            &engine,
+            &job,
+            json!({"text":r#"{"reply":"The checks passed."}"#,"session":"fork"}),
+        )?;
+
+        let (job, request) = start(
+            &engine,
+            json!({"kind":"chat","task":"import","text":"Explain this milestone.",
+            "attachments":[{"name":"note.txt","data":"Q2F0YWxvZyBub3Rl"}]}),
+        )?;
+        assert_eq!(request["session"], "fork");
+        let prompt = s(&request, "prompt");
+        assert!(
+            prompt
+                .lines()
+                .any(|line| line.starts_with("Milestones: ") && line.contains("Imported 42 rows"))
+        );
+        assert!(prompt.contains("Candidates: []"));
+        assert!(!prompt.contains("Original brief:"));
+        assert!(prompt.contains("Selected milestone evidence"));
+        assert!(prompt.contains("Catalog note"));
+        assert_eq!(request["attachments"][0]["excerpt"], "Catalog note");
+
+        finish(&engine, &job, json!({"error":"Connection interrupted"}))?;
+        let (_, request) = start(&engine, json!({"kind":"chat","text":"Please try again."}))?;
+        let prompt = s(&request, "prompt");
+        assert_eq!(request["session"], "fork");
+        assert!(prompt.contains("Original brief: Import the catalog"));
+        assert!(prompt.contains("Imported 42 rows"));
+        assert!(!prompt.contains("Recent conversation:"));
+        Ok(())
+    }
+
+    #[test]
+    fn custom_and_legacy_sessions_receive_the_context_they_need() -> Result<()> {
+        for kind in ["custom", "claude", "hermes", "antigravity"] {
+            let (_dir, engine) = fixture(kind)?;
+            let mut run = engine.store.get("chat")?;
+            run["chat_session"] = json!("previous-session");
+            engine.save(&mut run, "legacy session")?;
+            let (_, request) = start(&engine, json!({"kind":"chat","text":"What happened?"}))?;
+            assert_eq!(request["session"], "previous-session");
+            let prompt = s(&request, "prompt");
+            assert!(prompt.starts_with("Run context: "));
+            assert!(prompt.contains("Original brief: Import the catalog"));
+            assert!(prompt.contains("Milestones: "));
+            assert!(prompt.contains("Candidates: "));
+            assert_eq!(prompt.contains("The catalog is ready."), kind == "custom");
         }
         Ok(())
     }

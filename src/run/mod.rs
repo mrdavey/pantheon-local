@@ -601,6 +601,31 @@ impl Engine {
     pub fn dispatch(&self, r: &mut Value, role: &str, task: &str, job: Value) -> Result<()> {
         self.dispatch_with(r, role, task, job, |_| {})
     }
+    fn turn_context(
+        &self,
+        r: &Value,
+        worker: Option<&Value>,
+        role: &str,
+        dir: &Path,
+    ) -> Result<Value> {
+        let mut context = context(r, worker);
+        if matches!(role, "repair" | "plan") && r["run_recovery_context"].is_object() {
+            context["prior_failure_and_recovery"] = r["run_recovery_context"].clone();
+        }
+        if !a(&r["input"]["attachments"]).is_empty() {
+            context["brief_attachments"] =
+                crate::attachments::context(&self.root(r), &r["input"]["attachments"])?;
+        }
+        let shared = worker::shared_skills(
+            dir,
+            Path::new(&self.integration(r)),
+            std::env::var_os("HOME").as_deref().map(Path::new),
+        );
+        if !shared.is_empty() {
+            context["shared_skill_files"] = json!(shared);
+        }
+        Ok(context)
+    }
     pub fn dispatch_with(
         &self,
         r: &mut Value,
@@ -622,23 +647,9 @@ impl Engine {
             })
             .unwrap_or_default();
         let prompt = s(&job["request"], "prompt");
-        if !prompt.is_empty() && role != "pricing" {
-            let mut context = context(r, worker);
-            if matches!(role, "repair" | "plan") && r["run_recovery_context"].is_object() {
-                context["prior_failure_and_recovery"] = r["run_recovery_context"].clone();
-            }
-            if !a(&r["input"]["attachments"]).is_empty() {
-                context["brief_attachments"] =
-                    crate::attachments::context(&self.root(r), &r["input"]["attachments"])?;
-            }
-            let shared = worker::shared_skills(
-                Path::new(s(&job["request"], "dir")),
-                Path::new(&self.integration(r)),
-                std::env::var_os("HOME").as_deref().map(Path::new),
-            );
-            if !shared.is_empty() {
-                context["shared_skill_files"] = json!(shared);
-            }
+        if !prompt.is_empty() && !matches!(role, "chat" | "pricing") {
+            let context =
+                self.turn_context(r, worker, role, Path::new(s(&job["request"], "dir")))?;
             job["request"]["prompt"] = json!(format!("Run context: {context}\n{prompt}"));
         }
         if job["request"].is_object() {
