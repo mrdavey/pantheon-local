@@ -23,6 +23,8 @@ Bump the package version in `Cargo.toml` (and sync `Cargo.lock`) according to Se
 
 Keep workbench destinations in the URL using the shared navigation helper. Restore views on refresh and Back/Forward without repeating run commands. Keep terminal authentication fragments separate from route state.
 
+Show the shared loading bar and Pantheon icon at the top of the workbench for every loading state. Keep the indicator visible while any operation is pending, including coordinator replies and milestone proposals after a dialog closes or the user switches views. Respect reduced-motion preferences.
+
 Use the checked-in shadcn/ui primitives in `web/src/components/ui` and the shared loading and run status components. Keep workbench colors in the shared theme tokens and use the common disclosure and milestone details components across views. Put contextual explanations in the shared dialog header. Adapter contributions follow [the adapter guide](docs/agent-adapters.md). Build the React interface with `npm --prefix web ci` and `npm --prefix web run build`, then build the Rust CLI with `cargo build --locked`. Write tests and example checkers in Rust. Keep [CI selection](CONTRIBUTING.md#ci-selection) and the target dependencies in `scripts/ci/targets.py` current when adding build or test dependencies. Use the [contributor checks](CONTRIBUTING.md) for the daemon and real browser, and keep native account checks separate from fixtures. See [architecture](docs/architecture.md) for process, Git and adapter boundaries.
 
 The interactive terminal launcher lives in `src/launch.rs` and `src/launch/`. Preserve plain link output for pipes and `swarm serve`. Use the pseudo-terminal regression in `tests/service.rs` when changing rendering, input or shutdown.
