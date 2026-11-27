@@ -4,7 +4,10 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
-import { Status, Loading, LoadingProvider, runStatus, statusLabel } from "./status.jsx";
+import {
+  Status, Loading, LoadingProvider, conversationLoadingMessage, preparingMilestones,
+  runLoadingMessage, runStatus, statusLabel, waitingForCoordinator,
+} from "./status.jsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { WorkbenchHeader, RunFooter } from "./workbench-shell";
 import { PackageCheck, ListTree, Activity, ChartNoAxesCombined, FlaskConical, MessageSquare, Play, PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -383,7 +386,11 @@ function App() {
         revision = latest.revision;
       }
     }
-  }, body.kind === "land" ? "Landing candidate…" : "Saving…");
+  }, ({
+    land: "Landing candidate…",
+    "propose-milestones": preparingMilestones,
+    chat: waitingForCoordinator,
+  })[body.kind] || "Saving…");
   useEffect(() => {
     const controller = new AbortController();
     let timer;
@@ -423,6 +430,8 @@ function App() {
   }, [setup, runs.length, selection, route.page]);
   const outstanding = runs.reduce((total, r) => total + (r.inbox || []).filter((q) => q.state === "open" && !q.inbox_dismissed).length + blockedTasks(r).filter(task => !task.inbox_dismissed).length, 0);
   const current = runs.find((run) => run.id === selection);
+  const loadingRun = connectionError?.status !== 401 &&
+    ((current && runLoadingMessage(current)) || runs.map(conversationLoadingMessage).find(Boolean));
   const followup = route.page === "new" && route.from ? runs.find(run =>
     run.id === route.from && run.landed_implementation_ids?.includes(route.implementation)) : null;
   const verifyImplementation = (run, candidate) => perform(async () => {
@@ -453,6 +462,11 @@ function App() {
   const settingsButton = (run) => <Button variant="outline" type="button" className="run-settings-button" aria-label="Run settings" title="Run settings" onClick={() => { setError(""); changeRoute({settings:run.id, brief:null}); }}><Icon name="settings" /></Button>;
   const navProps = (id) => ({ "aria-current": selection === id ? "page" : undefined, onClick: () => navigate(id) });
   return <div className="app" data-collapsed={collapsed}>
+    {!setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
+    {setup && connectionError && connectionError.status !== 401 && <Loading top>Reconnecting to Pantheon Local…</Loading>}
+    {setup && checking && <Loading top>Checking local agents…</Loading>}
+    {loadingRun && <Loading top>{loadingRun}</Loading>}
+    {pending && <Loading top>{pending}</Loading>}
     <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); main.current.focus(); }}>Skip to content</a>
     <WorkbenchHeader project={current?.repo?.Root} connected={!!setup && !connectionError} ready={!!setup} />
     <aside className="sidebar">
@@ -497,9 +511,8 @@ function App() {
         <span>{connectionError.status === 401 ? connectionError.message : setup ? "Run updates paused. Reconnecting…" : `Couldn’t load Pantheon Local. ${connectionError.message}`}</span>
         {!setup && connectionError.status !== 401 && <Button variant="outline" onClick={() => { setConnectionError(null); setStartup((value) => value + 1); }}>Try again</Button>}
       </Alert>}
-      {(error || pending) && <div className="feedback">
-        {error && <Alert className="notice error" variant="destructive"><span>{error}</span><Button variant="outline" onClick={() => setError("")} aria-label="Dismiss error">×</Button></Alert>}
-        {pending && <Loading top>{pending}</Loading>}
+      {error && <div className="feedback">
+        <Alert className="notice error" variant="destructive"><span>{error}</span><Button variant="outline" onClick={() => setError("")} aria-label="Dismiss error">×</Button></Alert>
       </div>}
       {setup && selection === "" && route.from && !followup && <section><h1>Implementation unavailable</h1>
         <Button onClick={() => navigate("runs")}>Back to runs</Button></section>}
@@ -514,7 +527,7 @@ function App() {
       }} {...{ send, perform, busy }} /> :
         selection === "inbox" ? <Inbox runs={runs} act={send} open={navigate} busy={busy} /> :
         selection === "setup" ? <AgentSetup api={api} {...{ report, checking }} error={checkError} refresh={refreshAgents} saveModel={updateModel} onContinue={useAgent} /> :
-        !setup && !connectionError && <Loading top>Connecting to Pantheon Local…</Loading>}
+        null}
     </main>
     {current && <RunFooter run={current}/>}
     {settingsRun && <RunSettings key={settingsRun.id} run={settingsRun} {...{ send, busy, error, api }} briefOpen={route.brief === "open"} setBriefOpen={open => changeRoute({brief:open ? "open" : null})}

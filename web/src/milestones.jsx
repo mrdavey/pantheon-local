@@ -12,7 +12,7 @@ import { Label } from "./components/ui/label";
 import { Dialog } from "./dialog";
 import { Markdown } from "./markdown";
 import { MilestoneTime } from "./milestone-time";
-import { Status } from "./status";
+import { Status, pendingConversation, preparingMilestones } from "./status";
 import { canRetryMilestone, retryTokens, shortSummary } from "./run-summary";
 import { Proposal, RoutingEvidence } from "./conversation";
 import { AssignmentMap } from "./assignment-map";
@@ -201,14 +201,14 @@ function AddTask({ run, act, busy, onClose, openMilestone }) {
               busy ||
               sending ||
               !!waiting ||
-              run.conversation?.some((m) => ["running", "queued"].includes(m.state))
+              !!pendingConversation(run)
             }
           >
             Create milestone(s)
           </Button>
         )}
       </form>
-      {waiting && <p role="status">Coordinator is preparing milestones…</p>}
+      {(sending || waiting) && <p role="status">{preparingMilestones}</p>}
       {error && <p role="alert">{error}</p>}
       {message?.error && <p role="alert">{message.error}</p>}
       {reply && (

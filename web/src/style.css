@@ -55,7 +55,7 @@ button:disabled, button[aria-disabled="true"] { opacity: .64; cursor: default; }
 }
 .skip-link {
   position: fixed;
-  inset: .5rem auto auto .5rem;
+  inset: calc(.5rem + var(--loading-height, 0px)) auto auto .5rem;
   z-index: 10;
   padding: .65rem 1rem;
   background: var(--paper);
@@ -63,7 +63,7 @@ button:disabled, button[aria-disabled="true"] { opacity: .64; cursor: default; }
 }
 .skip-link:focus { transform: none; }
 
-.app { min-height: 100dvh; display: grid; grid-template-columns: 15rem minmax(0, 1fr); }
+.app { min-height: calc(100dvh - var(--loading-height, 0px)); display: grid; grid-template-columns: 15rem minmax(0, 1fr); }
 .sidebar {
   position: sticky;
   top: 0;

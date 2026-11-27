@@ -38,7 +38,7 @@ In **Milestones**, switch between **Table**, **Map**, and **Kanban**. Select any
 
 On the map, choose a colored worker filter to dim other workers’ assignments. Choose **All** to clear it. Select an assignment to trace its prerequisites and downstream work. Click the canvas to clear the chain. Selecting the card opens the same assignment sidebar as the table and board, including status, tokens, estimated cost, duration, and **Explain this**. Elapsed time starts at the first worker turn and includes waits between attempts. It updates each second during work and shows the final duration after completion. **Full screen** expands the map and Escape returns to the run.
 
-Choose **Add task**, describe the work, then select **Create milestone(s)**. Review the proposed owners, dependencies, and extra checks before choosing **Add to run**. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
+Choose **Add task**, describe the work, then select **Create milestone(s)**. The loading bar and Pantheon icon at the top of the workbench stay visible while the coordinator prepares the proposal. Review the proposed owners, dependencies, and extra checks before choosing **Add to run**. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
 
 Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s full-screen button opens the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer shows the coordinator’s agent, model, and thinking effort. In the tab, choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
 

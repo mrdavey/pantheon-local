@@ -101,6 +101,19 @@ fn preview() -> Result<()> {
     }
     Ok(())
 }
+fn wait_for_chat_gate() -> Result<()> {
+    let gate = env::var("SWARM_TEST_CHAT_GATE")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !Path::new(&gate).is_file() {
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "chat gate did not open"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let name = Path::new(&args[0])
@@ -202,7 +215,6 @@ fn main() -> Result<()> {
         }
         "observer" => observer::respond(prompt, &ctx)?,
         "chat" if prompt.ends_with("Stream this answer") => {
-            let gate = env::var("SWARM_TEST_CHAT_GATE")?;
             println!(
                 "{}",
                 json!({"event":{"type":"usage","model":"Fixture Chat","tokens":2,"cost_usd":0.002}})
@@ -213,14 +225,7 @@ fn main() -> Result<()> {
                 json!({"event":{"type":"agent_message_chunk","text":fragment}})
             );
             io::stdout().flush()?;
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-            while !Path::new(&gate).is_file() {
-                ensure!(
-                    std::time::Instant::now() < deadline,
-                    "browser did not receive the reply fragment"
-                );
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+            wait_for_chat_gate()?;
             println!(
                 "{}",
                 json!({"event":{"type":"agent_message_chunk","text":" is complete.\"}"}})
@@ -265,7 +270,13 @@ fn main() -> Result<()> {
             );
             json!({"reply":"The notes ask to measure receipt latency."})
         }
-        "chat" if prompt.ends_with("Add a timing milestone") => {
+        "chat"
+            if prompt.ends_with("Add a timing milestone")
+                || prompt.ends_with("Add a timing milestone after the gate") =>
+        {
+            if prompt.ends_with("after the gate") {
+                wait_for_chat_gate()?;
+            }
             json!({"reply":"We can record timings after the export is ready.",
             "tasks":[task("timing","Record export timing.","writer",json!({"depends":["export"],"class":"testing"}))],
             "checks":[check(&["timing.txt","measured"])?]})

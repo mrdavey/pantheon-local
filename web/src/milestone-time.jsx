@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Clock3 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { formatDuration } from "./duration";
+import { Loading } from "./status";
 
 export function MilestoneTime({ api, run, task }) {
   const [timing, setTiming] = useState(null);
@@ -33,6 +34,6 @@ export function MilestoneTime({ api, run, task }) {
     {error ? <><span>{error}</span><Button size="sm" variant="outline" onClick={() => setRetry(n => n + 1)}>Retry timing</Button></>
       : measured ? <time aria-label={label} dateTime={`PT${Math.max(0, Math.floor((end - timing.started) / 1000))}S`}
         title={`Started ${new Date(timing.started).toLocaleString()}`}>{formatDuration(end - timing.started)}</time>
-      : <span>{timing ? empty : "Loading…"}</span>}
+      : timing ? <span>{empty}</span> : <Loading>Loading timing…</Loading>}
   </div>;
 }

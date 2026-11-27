@@ -416,6 +416,7 @@ export function Metrics({ run, api }) {
             variant="outline"
             onClick={() => {
               setPaused(false);
+              setError("");
               setRetry((n) => n + 1);
             }}
           >
@@ -489,6 +490,7 @@ export function Metrics({ run, api }) {
           )}
           {summary.missingCost > 0 && (
             <div className="price-actions">
+              {fetching && <Loading top>Finding model prices…</Loading>}
               <Button
                 variant="outline"
                 disabled={fetching || pricingBusy}

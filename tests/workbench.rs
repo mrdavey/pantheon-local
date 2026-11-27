@@ -110,6 +110,10 @@ impl Harness {
     fn click(&self, name: &str) -> Result<()> {
         self.button(name).click()
     }
+    fn loading_bar(&self) -> Locator<'_> {
+        self.b
+            .xpath("//*[@class='loading-status window-status' and @data-loading='true']")
+    }
     fn preview(&self, link: Locator, filename: &str) -> Result<()> {
         let old = self.b.windows()?;
         link.click()?;
@@ -1167,6 +1171,7 @@ fn chat_history(h: &Harness) -> Result<()> {
     b.label("Message").fill("Stream this answer\u{e007}")?;
     history.contains("The live answer")?;
     b.text("Writing…").visible()?;
+    h.loading_bar().contains("Waiting for the coordinator…")?;
     ensure!(
         h.svc.get(&path)?["conversation"]
             .as_array()
@@ -1179,7 +1184,16 @@ fn chat_history(h: &Harness) -> Result<()> {
     h.run_button("Quote export").click()?;
     history.contains("The live answer")?;
     b.text("Writing…").visible()?;
+    h.click("Minimize chat")?;
+    h.click("Agent setup")?;
+    h.loading_bar().contains("Waiting for the coordinator…")?;
     fs::write(h.dir.path().join("chat-gate"), "")?;
+    h.loading_bar().absent()?;
+    h.run_button("Quote export").click()?;
+    h.button("Coordinator chat").visible()?;
+    if h.button("Coordinator chat").attr("aria-expanded")? == "false" {
+        h.click("Coordinator chat")?;
+    }
     history.contains("The live answer is complete.")?;
     b.text("Writing…").absent()?;
     let state = h.svc.get(&path)?;
@@ -1782,13 +1796,27 @@ fn run_metrics(h: &Harness) -> Result<()> {
     h.goto()?;
     h.run_button("Quote export").click()?;
     h.proxy.inject(Once::MetricsFailure);
+    b.eval(
+        r#"const held = new Promise(resolve => { window.releaseMetrics = resolve });
+           const fetch = window.fetch;
+           window.fetch = (...args) => {
+             if (!args[0].includes("/metrics?")) return fetch(...args);
+             window.fetch = fetch;
+             return held.then(() => fetch(...args));
+           };"#,
+        vec![],
+    )?;
     h.click("Metrics")?;
+    h.loading_bar().contains("Loading usage…")?;
+    b.eval("window.releaseMetrics()", vec![])?;
     h.button("Retry metrics").visible()?;
+    h.loading_bar().absent()?;
     h.click("Retry metrics")?;
     let tokens = b.xpath("//dt[.='Tokens used']/following-sibling::dd");
     let active_agents = b.xpath("//dt[.='Agents working']/following-sibling::dd");
     active_agents.contains("0")?;
     tokens.contains("5")?;
+    h.loading_bar().absent()?;
     b.role("combobox", "Chart view").select("pie")?;
     b.label("Usage share by agent and model").visible()?;
     b.xpath("//table[@aria-label='Usage by agent and model']//td[normalize-space()='writer']")
@@ -1931,10 +1959,62 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     h.click("Milestones")?;
     h.click("Add task")?;
     b.label("What do you want to add?")
-        .fill("Add a timing milestone")?;
-    h.click("Create milestone(s)")?;
+        .fill("Add a timing milestone after the gate")?;
+    b.cdp(
+        "Emulation.setEmulatedMedia",
+        json!({"features":[{"name":"prefers-reduced-motion","value":if h.mobile {"reduce"} else {"no-preference"}}]}),
+    )?;
+    let create = h.button("Create milestone(s)");
+    if h.mobile {
+        create.tap()?;
+    } else {
+        create.focus()?;
+        b.key("\u{e007}")?;
+    }
+    h.loading_bar()
+        .contains("Coordinator is preparing milestones…")?;
+    until(
+        "coordinator turn running after the milestone request",
+        || {
+            let run = h.svc.get(&path)?;
+            Ok(common::rows(&run["conversation"])
+                .iter()
+                .any(|message| message["intent"] == "add" && message["state"] == "running")
+                .then_some(()))
+        },
+    )?;
+    h.loading_bar()
+        .xpath(".//*[@role='progressbar' and @data-state='indeterminate']")
+        .visible()?;
+    ensure!(
+        b.eval(
+            r#"const strip = document.querySelector(".window-status[data-loading=true]");
+               const {top, width} = strip.getBoundingClientRect();
+               const mark = strip.querySelector(".loading-mark");
+               const bar = strip.querySelector("[data-slot=progress-indicator]");
+               return top === 0 && width === document.documentElement.clientWidth
+                 && getComputedStyle(mark).animationName === arguments[0]
+                 && getComputedStyle(bar).animationName === arguments[1]"#,
+            if h.mobile {
+                vec![json!("none"), json!("none")]
+            } else {
+                vec![json!("loading-pivot"), json!("loading-bar")]
+            },
+        )? == true,
+        "loading strip should span the top of the viewport and follow the motion preference"
+    );
+    h.no_overflow()?;
+    if let Some(dir) = std::env::var_os("SWARM_TEST_SCREENSHOTS") {
+        b.screenshot(&std::path::PathBuf::from(dir).join(if h.mobile {
+            "milestone-loading-mobile.png"
+        } else {
+            "milestone-loading-desktop.png"
+        }))?;
+    }
+    fs::write(h.dir.path().join("chat-gate"), "")?;
     b.role("dialog", "Add task")
         .contains("Record export timing.")?;
+    h.loading_bar().absent()?;
     h.click("Add to run")?;
     h.click("Kanban")?;
     b.xpath("//button[@data-slot='card' and @data-task='timing']")

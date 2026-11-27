@@ -152,6 +152,7 @@ export function ModelSettingsForm({ api, name, profile, save, onClose, agentOnly
             setStatus(null);
           }}>Use detected settings</Button>}
       </div>
+      {saving && <Loading>Saving model settings…</Loading>}
       {status && <p role={status.error ? "alert" : "status"}>{status.text}</p>}
     </form>;
 }

@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import { Label } from "./components/ui/label";
+import { Loading } from "./status";
 
 export function ModelPicker({ api, name, value, disabled, onChange }) {
   const id = useId(), input = useRef(null);
@@ -64,6 +65,6 @@ export function ModelPicker({ api, name, value, disabled, onChange }) {
         key={model} id={id + "-" + index} tabIndex={-1} aria-selected={active === index}
         onMouseDown={event => event.preventDefault()} onClick={() => choose(model)}>{model}</Button>)}
     </div>
-    {open && !options.length && <small role="status">{failed ? "Model list unavailable. Enter an ID." : !models ? "Loading models…" : "No matching models. You can enter an ID."}</small>}
+    {open && !options.length && <small role="status">{failed ? "Model list unavailable. Enter an ID." : !models ? <Loading>Loading models…</Loading> : "No matching models. You can enter an ID."}</small>}
   </div>;
 }

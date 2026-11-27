@@ -152,7 +152,8 @@ function Cases({ run, candidates, api }) {
     }
   };
   if (!withEvidence.length) return null;
-  if (!reports) return <Button variant="outline" disabled={loading} onClick={load}>{loading ? "Loading case results…" : "Compare case results"}</Button>;
+  const loadingStatus = loading && <Loading top>Loading case results…</Loading>;
+  if (!reports) return <>{loadingStatus}<Button variant="outline" disabled={loading} onClick={load}>{loading ? "Loading case results…" : "Compare case results"}</Button></>;
   const keys = [...new Set(reports.flatMap(([, report]) => (report.samples || []).map((s) => s.case)))];
   const rows = keys.map((name) => {
     const cells = reports.map(([, report]) => (report.samples || []).filter((s) => s.case === name));
@@ -167,6 +168,7 @@ function Cases({ run, candidates, api }) {
   const filtered = rows.filter(({ regressed, improved }) => filter === "All cases" || (filter === "Regressions" ? regressed : improved));
   return <Card asChild><section className="form-card">
     <h3>Case results</h3>
+    {loadingStatus}
     {failed > 0 && <div className="notice">
       <p role="status">Couldn’t load case results for {failed} {failed === 1 ? "implementation" : "implementations"}.</p>
       <Button variant="outline" disabled={loading} onClick={load}>Reload case results</Button>
@@ -369,7 +371,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     </Dialog>}
     {detail === "cases" && <Dialog title="Project eval cases" onClose={() => setDetail("")}>
       {casesError && <p role="alert" className="notice error">{casesError}</p>}
-      {!savedCases && (loadingCases ? <Loading>Loading cases…</Loading> : <Button variant="outline" onClick={() => loadCases()}>Reload cases</Button>)}
+      {loadingCases && <Loading>Loading cases…</Loading>}
+      {!savedCases && !loadingCases && <Button variant="outline" onClick={() => loadCases()}>Reload cases</Button>}
       {savedCases && !savedCases.length && <p>No saved cases for this project.</p>}
       {savedCases?.map((entry) => <article className="row" key={entry.cursor}><strong>{entry.scenario}</strong>
         <p>Expected · {entry.expected}</p><Markdown>{entry.why}</Markdown><small>{entry.active ? "Active in this suite" : entry.state} · Revision {entry.revision} · {entry.author}</small></article>)}
@@ -377,7 +380,8 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
     </Dialog>}
     {detail === "history" && <Dialog title="Project run history" onClose={() => setDetail("")}>
       {historyError && <p role="alert" className="notice error">{historyError}</p>}
-      {!history && (loadingHistory ? <Loading>Loading history…</Loading> : <Button variant="outline" onClick={() => loadHistory()}>Reload history</Button>)}
+      {loadingHistory && <Loading>Loading history…</Loading>}
+      {!history && !loadingHistory && <Button variant="outline" onClick={() => loadHistory()}>Reload history</Button>}
       <ul>{history?.map((entry) => <li key={entry.id}><Button variant="outline" disabled={entry.id === run.id}
         onClick={() => openRun(entry.id)}>{runTitle(entry)} · {entry.state}</Button></li>)}</ul>
       {history?.length >= 20 && history.length % 20 === 0 && <Button variant="outline" disabled={loadingHistory} onClick={() => loadHistory(history.at(-1).cursor)}>Load older runs</Button>}

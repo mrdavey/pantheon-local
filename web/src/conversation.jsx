@@ -10,7 +10,7 @@ import { Command } from "./evidence.jsx";
 import { Markdown } from "./markdown.jsx";
 import { shortSummary } from "./run-summary.js";
 import "./conversation.css";
-import { coordinatorStatus } from "./status.jsx";
+import { Loading, coordinatorStatus, pendingConversation, waitingForCoordinator } from "./status.jsx";
 
 // Keep unsent drafts and reading positions scoped to the run and this open page.
 const drafts = new Map();
@@ -111,7 +111,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   const lastReply = messages.filter(({ role }) => role === "coordinator").at(-1)?.id;
   const [seenReply, setSeenReply] = useState(lastReply);
   const unread = lastReply && lastReply !== seenReply;
-  const pending = messages.find(({ state }) => state === "queued" || state === "running");
+  const pending = pendingConversation(run);
   const waiting = !!pending;
   const activeTurn = pending && run.turns?.findLast((turn) => turn.role === "chat" && turn.task === pending.id && turn.state === "running");
   const liveReply = useLiveReply(api, run.id, activeTurn?.id, open);
@@ -213,6 +213,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
   }
 
   return <div className={expanded ? "conversation-page" : "coordinator-chat"}>
+    {sending && <Loading top>Sending message…</Loading>}
     <div id={panelId} hidden={!open}>{open && <section role={expanded ? "region" : "dialog"} aria-label="Coordinator chat" className="chat-panel"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }
@@ -239,7 +240,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, onExp
         {waiting && <article className="chat-message chat-live" aria-live="off">
           <strong className="chat-author">Coordinator</strong>
           {liveReply && <Markdown>{liveReply}</Markdown>}
-          <span className="chat-progress" role="status"><i aria-hidden="true" />{liveReply ? "Writing…" : "Waiting for the coordinator…"}</span>
+          <span className="chat-progress" role="status"><i aria-hidden="true" />{liveReply ? "Writing…" : waitingForCoordinator}</span>
         </article>}
       </div>
       {!atLatest && <Button variant="outline" className="chat-latest" type="button" onClick={() => {
