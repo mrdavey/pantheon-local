@@ -471,13 +471,24 @@ fn export(h: &Harness) -> Result<()> {
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
     b.role("heading", "Review acceptance checks").visible()?;
+    let completed = h.svc.get(&common::run_path(&saved)?)?;
+    ensure!(
+        common::rows(&completed["tasks"])
+            .iter()
+            .all(|task| task["state"] == "committed")
+            && common::rows(&completed["turns"])
+                .iter()
+                .all(|turn| turn["role"] != "eval"),
+        "work must finish before the workbench asks to run checks"
+    );
     let fixture = example("fixture-agent")?;
     let check = json!([fixture, "check", "export.txt", "open quotes"]);
     b.xpath(r#"//code[contains(., "export.txt 'open quotes'")]"#)
         .visible()?;
     b.text("View or edit JSON").click()?;
     b.label("Acceptance recipe").fill("")?;
-    h.click("Approve checks")?;
+    h.button("Approve checks").focus()?;
+    b.key("\u{e007}")?;
     b.role("alert", "").contains("Enter a valid JSON object")?;
     b.label("Acceptance recipe").value("")?;
     b.label("Acceptance recipe")

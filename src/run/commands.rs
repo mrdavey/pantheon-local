@@ -26,7 +26,7 @@ pub(super) fn resume_phase(r: &Value) -> &str {
             _ => {}
         }
     }
-    if matches!(s(r, "state"), "review" | "landed" | "evaluating") {
+    if matches!(s(r, "state"), "review" | "landed" | "evaluating" | "checks") {
         return s(r, "state");
     }
     if !s(r, "repair_id").is_empty() {
@@ -41,8 +41,6 @@ pub(super) fn resume_phase(r: &Value) -> &str {
     }
     if active(r).is_empty() {
         "planning"
-    } else if !yes(&r["recipe_approved"]) {
-        "checks"
     } else {
         "working"
     }
@@ -302,7 +300,8 @@ impl Engine {
                 && r["combination"].is_null(),
             "wait for the current run decision before adding milestones"
         );
-        let awaiting_checks = r["state"] == "checks";
+        let pending_recipe = r["state"] == "checks" || r["recipe_approved"] == false;
+        let checks_ready = r["state"] == "checks" && committed(r);
         if r["state"] == "landed" {
             let goal = a(&r["conversation"])
                 .iter()
@@ -332,9 +331,12 @@ impl Engine {
             task["round"] = r["round"].clone();
             push(&mut r["tasks"], task)
         }
-        if awaiting_checks {
+        if pending_recipe {
             for check in a(&msg["checks"]) {
                 push(&mut r["proposed_recipe"]["checks"], check.clone());
+            }
+            if checks_ready {
+                r["state"] = json!("working");
             }
             r["conversation"][i]["proposal_state"] = json!("added");
             return Ok(());
@@ -805,6 +807,7 @@ impl Engine {
         experiment::archive_selection(r);
         r["policy"] = json!(num(&r["policy"]) + 1);
         r["input"]["recipe"] = pinned;
+        r["recipe_approved"] = json!(true);
         r["suite_proposal"] = Value::Null;
         policy(r);
         if rebuild {

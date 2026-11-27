@@ -236,7 +236,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
     {run.state === "checks" && <Card asChild><section className="answer decision" aria-labelledby="review-checks-title">
       <h2 id="review-checks-title">Review acceptance checks</h2>
-      <p>Approve these checks to start work. Expand a check to see its command.</p>
+      <p>Approve these commands before Pantheon runs them.</p>
       <RecipeEditor recipe={run.proposed_recipe} busy={busy} label="Acceptance recipe" submitLabel="Approve checks"
         onApprove={(recipe) => act({ kind: "approve", recipe })} />
     </section></Card>}
@@ -264,6 +264,7 @@ const checkAgents = (signal) => api("/setup/status", undefined, signal);
 const saveModel = (input) => api("/setup/model", input);
 
 function decisionInputs(run, command) {
+  if (command.kind === "approve") return JSON.stringify([run.state, run.round, run.proposed_recipe]);
   if (["dismiss-issue", "restore-issue"].includes(command.kind)) {
     return JSON.stringify((command.text === "question" ? run.inbox : run.tasks)?.find(item => item.id === command.task));
   }
@@ -276,7 +277,7 @@ function decisionInputs(run, command) {
   return JSON.stringify([run.state, run.generation, run.round, run.policy, run.repo.Target, run.landing,
     run.held, run.combination, run.selection, candidates,
     (run.inbox || []).filter((q) => q.state === "open" && q.blocking),
-    command.kind === "update-suite" ? run.suite_proposal : null]);
+    command.kind === "update-suite" ? [run.suite_proposal, run.proposed_recipe] : null]);
 }
 
 function App() {
@@ -365,7 +366,7 @@ function App() {
   };
   const send = (run, body) => perform(async () => {
     const guarded = ["dismiss-issue", "restore-issue", "answer-inbox", "select", "keep-baseline", "combine", "new-round", "land", "hold", "unhold",
-      "hold-release", "resume-release", "cancel-release", "update-suite"].includes(body.kind);
+      "hold-release", "resume-release", "cancel-release", "approve", "update-suite"].includes(body.kind);
     const path = "/runs/" + run.id;
     const id = body.id || crypto.randomUUID();
     const original = guarded ? decisionInputs(run, body) : "";

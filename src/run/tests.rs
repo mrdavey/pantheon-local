@@ -890,6 +890,45 @@ fn chat_files_and_proposal_acceptance_replay_once() -> Result<()> {
 }
 
 #[test]
+fn added_work_runs_before_initial_check_approval() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    for (state, task_state) in [("working", "pending"), ("checks", "committed")] {
+        let mut run = json!({
+            "id":state,"state":state,"round":1,"policy":1,"recipe_approved":false,
+            "input":{"workers":["writer"],"recipe":{"checks":[]}},
+            "proposed_recipe":{"checks":[["original"]]},
+            "tasks":[{"id":"base","worker":"writer","state":task_state}],
+            "conversation":[{"id":"proposal","proposal_state":"pending","tasks":[
+                {"id":"extra","goal":"Add tests","worker":"writer","depends":["base"]}
+            ],"checks":[["extra"]]}]
+        });
+        engine.save(&mut run, "seed")?;
+        let accepted =
+            engine.command(state, json!({"kind":"accept-proposal","task":"proposal"}))?;
+        assert_eq!(accepted["state"], "working");
+        assert_eq!(accepted["tasks"][1]["state"], "pending");
+        assert_eq!(accepted["recipe_approved"], false);
+        assert_eq!(accepted["input"]["recipe"]["checks"], json!([]));
+        assert_eq!(
+            accepted["proposed_recipe"]["checks"],
+            json!([["original"], ["extra"]])
+        );
+        assert_eq!(accepted["policy"], 1);
+        let approved = engine.command(
+            state,
+            json!({"kind":"update-suite","recipe":accepted["proposed_recipe"]}),
+        )?;
+        assert_eq!(approved["state"], "working");
+        assert_eq!(approved["recipe_approved"], true);
+        assert_eq!(
+            approved["input"]["recipe"]["checks"],
+            accepted["proposed_recipe"]["checks"]
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn implementation_index_only_includes_qualifying_builds_and_historical_landings() {
     let run = json!({"selection":{"state":"landed","candidate":"new"},"past_selections":[{"state":"landed","candidate":"landed"},{"state":"selected","candidate":"ok"}],"candidates":[
         {"id":"ok","state":"passed","commit":"abc"},{"id":"landed","state":"superseded","commit":"def"},

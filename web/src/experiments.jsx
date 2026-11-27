@@ -363,7 +363,7 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
       <Button variant="outline" onClick={() => { setDetail("history"); }}>Project run history</Button>
     </div></Disclosure>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
-      <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe} label="Suite" submitLabel="Approve suite revision"
+      <RecipeEditor key={run.policy} recipe={run.suite_proposal || (run.recipe_approved === false ? run.proposed_recipe : run.input.recipe) || {}} label="Suite" submitLabel="Approve suite revision"
         busy={busy || !canUpdateSuite}
         onApprove={async (recipe) => { const ok = await act({ kind: "update-suite", recipe }); if (ok) setDetail(""); return ok; }} />
     </Dialog>}

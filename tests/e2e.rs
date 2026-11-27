@@ -65,17 +65,6 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
     assert_eq!(second["question"], "What should the export optimize?");
     svc.restart(false)?;
     svc.post(&url,&json!({"kind":"answer-inbox","task":rows(&second["inbox"]).last().context("inbox")?["id"],"text":"readability"}))?;
-    let plan = svc.wait_state(&url, "checks")?;
-    assert!(rows(&plan["turns"]).iter().all(|t| t["role"] != "worker"));
-    assert_eq!(
-        rows(&plan["tasks"])
-            .iter()
-            .map(|t| t["worker"].as_str().unwrap())
-            .collect::<HashSet<_>>()
-            .len(),
-        4
-    );
-    svc.post(&url, &json!({"kind":"approve"}))?;
     let question = until(TIMEOUT, || {
         let r = svc.get(&url)?;
         ensure!(
@@ -115,6 +104,27 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
         &url,
         &json!({"kind":"answer-inbox","task":question["id"],"text":"No quotes"}),
     )?;
+    let completed = svc.wait_state(&url, "checks")?;
+    assert_eq!(completed["recipe_approved"], false);
+    assert!(
+        rows(&completed["turns"])
+            .iter()
+            .all(|t| t["role"] != "eval")
+    );
+    assert!(
+        rows(&completed["tasks"])
+            .iter()
+            .all(|t| t["state"] == "committed")
+    );
+    assert_eq!(
+        rows(&completed["tasks"])
+            .iter()
+            .map(|t| t["worker"].as_str().unwrap())
+            .collect::<HashSet<_>>()
+            .len(),
+        4
+    );
+    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     let folder = Path::new(ready["worker_folder"].as_str().context("working folder")?);
     for task in rows(&ready["tasks"]) {
@@ -132,8 +142,6 @@ fn restart_recovers_workers_and_repairs_failed_candidate() -> Result<()> {
     let project = repo(&tmp.path().join("repo"))?;
     let mut svc = Service::new(tmp.path())?;
     let url = start(&svc, &project, "Build the fixture", json!({}))?;
-    svc.wait_state(&url, "checks")?;
-    svc.post(&url, &json!({"kind":"approve"}))?;
     until(TIMEOUT, || {
         let run = svc.get(&url)?;
         let turns = svc
@@ -156,6 +164,8 @@ fn restart_recovers_workers_and_repairs_failed_candidate() -> Result<()> {
             .then_some(()))
     })?;
     svc.restart(true)?;
+    svc.wait_state(&url, "checks")?;
+    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     assert_eq!(
         rows(&ready["turns"])
@@ -277,11 +287,11 @@ fn token_budget_pauses_before_workers_and_only_passing_alternative_lands() -> Re
         "Compare approaches",
         json!({"coordinator":"second","token_target":5}),
     )?;
-    svc.wait_state(&url, "checks")?;
-    svc.post(&url, &json!({"kind":"approve"}))?;
     let paused = svc.wait_state(&url, "budget")?;
     assert!(rows(&paused["turns"]).iter().all(|t| t["role"] != "worker"));
     svc.post(&url, &json!({"kind":"resume","tokens":0}))?;
+    svc.wait_state(&url, "checks")?;
+    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     assert_eq!(rows(&ready["candidates"]).len(), 2);
     for c in rows(&ready["candidates"]) {

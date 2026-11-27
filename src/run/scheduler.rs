@@ -424,6 +424,10 @@ impl Engine {
                 if control || chat {
                     return Ok(());
                 }
+                if !yes(&r["recipe_approved"]) {
+                    r["state"] = json!("checks");
+                    return self.save(r, "checks-ready");
+                }
                 self.candidates(r)
             }
             Phase::Planning | Phase::Working | Phase::Repairing if budget(r) => {
@@ -585,7 +589,6 @@ impl Engine {
                 if !yes(&r["recipe_approved"]) {
                     eval::validate(&out["recipe"])?;
                     r["proposed_recipe"] = out["recipe"].clone();
-                    r["state"] = json!("checks");
                 }
             }
             "repair" => {

@@ -28,8 +28,8 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         .trim_start();
     if id.starts_with("team-") {
         ensure!(
-            ctx["checks_approved"] == true && !rows(&ctx["checks"]).is_empty(),
-            "worker missing approved checks"
+            ctx["checks_approved"] == false && ctx["checks"].is_null(),
+            "worker received checks before approval"
         );
     }
     if matches!(id, "verify-export" | "verify-guide") {

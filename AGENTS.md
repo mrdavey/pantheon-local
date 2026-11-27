@@ -32,3 +32,5 @@ Worker checkouts for new runs live in a Git-ignored folder inside the selected p
 Keep the milestone table, map and Kanban board on the same assignment details component. Route Add task and chat proposals through the coordinator conversation and the same acceptance command. Fetch activity pages and milestone receipts on demand.
 
 Run-scoped worker settings belong in the run’s profile snapshot. Keep milestone clones isolated from the selected project checkout, and read implementation previews from the candidate commit.
+
+Start workers when planning completes. Keep coordinator-proposed recipe commands separate from the active suite until the developer approves them for candidate evaluation.
