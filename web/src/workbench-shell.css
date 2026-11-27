@@ -517,10 +517,16 @@ summary:focus-visible {
     border-color: var(--clay);
     border-radius: 6px;
   }
+  .run-body {
+    --chat-dock-width: clamp(15rem, 24vw, 22rem);
+  }
   .coordinator-chat .chat-panel {
-    width: clamp(15rem, 24vw, 22rem);
+    width: var(--chat-dock-width);
     height: min(32rem, 50dvh);
     border-radius: 8px 0 0 0;
+  }
+  .run-body:has(.coordinator-chat .chat-panel) .milestones-panel {
+    padding-right: var(--chat-dock-width);
   }
 }
 .map-world [data-slot="card"].map-node {

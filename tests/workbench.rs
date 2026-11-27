@@ -1767,9 +1767,33 @@ fn assignment_map(h: &Harness) -> Result<()> {
     h.run_button(goal).click()?;
     h.click("Milestones")?;
     let b = &h.b;
-    let bounds = b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?;
+    let workspace_bounds = || {
+        b.eval(
+            "return [document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]",
+            vec![],
+        )
+    };
+    let table_width = || -> Result<f64> {
+        b.eval(
+            "return document.querySelector('.milestone-table').offsetWidth",
+            vec![],
+        )?
+        .as_f64()
+        .context("milestone table width")
+    };
+    let dock = b.role("dialog", "Coordinator chat");
+    dock.visible()?;
+    let bounds = workspace_bounds()?;
+    let width_with_dock = table_width()?;
     h.click("Coordinator chat")?;
-    ensure!(bounds == b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?);
+    dock.absent()?;
+    ensure!(bounds == workspace_bounds()?);
+    let width_without_dock = table_width()?;
+    if h.mobile {
+        ensure!(width_without_dock == width_with_dock);
+    } else {
+        ensure!(width_without_dock > width_with_dock);
+    }
     for column in ["Owner", "Status", "Milestone", "Completed"] {
         let head = b.xpath(&format!(
             "//table[@aria-label='Milestones']//th[button[contains(.,'{column}')]]"
@@ -2331,6 +2355,12 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     h.click("Add to run")?;
     reply.contains("Milestones added")?;
     h.click("Milestones")?;
+    if !h.mobile {
+        b.cdp(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width":1280,"height":620,"deviceScaleFactor":1,"mobile":false}),
+        )?;
+    }
     h.click("Kanban")?;
     b.xpath("//button[@data-slot='card' and @data-task='timing']")
         .click()?;
@@ -2376,6 +2406,19 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     b.label("Search activity").fill("nonexistent search")?;
     b.text("No matching activity.").visible()?;
     h.click("Milestones")?;
+    if !h.mobile {
+        b.role("dialog", "Coordinator chat").visible()?;
+        ensure!(
+            b.eval(
+                r#"const button = document.querySelector('.add-task');
+                   button.scrollIntoView({block:'nearest'});
+                   const {x, y, width, height} = button.getBoundingClientRect();
+                   return button.contains(document.elementFromPoint(x + width / 2, y + height / 2));"#,
+                vec![],
+            )? == true,
+            "The open chat dock must leave Add task clickable"
+        );
+    }
     h.click("Add task")?;
     b.label("What do you want to add?")
         .fill("Try a proposal that fails")?;
