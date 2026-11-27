@@ -14,6 +14,8 @@ struct Database {
     scheduled: HashSet<String>,
 }
 
+const PRUNE_EVENTS: &str = "DELETE FROM events WHERE run_id=? AND number<>?";
+
 fn read_values(conn: &Connection, query: &str, args: impl Params) -> Result<Vec<Value>> {
     let mut stmt = conn.prepare(query)?;
     let rows = stmt.query_map(args, |r| r.get::<_, Vec<u8>>(0))?;
@@ -65,6 +67,7 @@ impl Store {
         let tx = conn.transaction()?;
         tx.execute_batch("CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, body BLOB NOT NULL);
         CREATE TABLE IF NOT EXISTS events (number INTEGER PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL, body BLOB NOT NULL);
+        CREATE INDEX IF NOT EXISTS events_by_run ON events(run_id);
         CREATE TABLE IF NOT EXISTS projects (git_dir TEXT PRIMARY KEY,id TEXT NOT NULL UNIQUE);
         CREATE INDEX IF NOT EXISTS runs_by_project ON runs(json_extract(body,'$.project'));
         CREATE TABLE IF NOT EXISTS cases (project TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,body BLOB NOT NULL,PRIMARY KEY(project,id,revision));
@@ -188,10 +191,7 @@ impl Store {
             "INSERT INTO events(run_id,kind,body) VALUES (?,'run-deleted',?)",
             params![id, serde_json::to_vec(&deleted)?],
         )?;
-        tx.execute(
-            "DELETE FROM events WHERE run_id=? AND number<>?",
-            params![id, tx.last_insert_rowid()],
-        )?;
+        tx.execute(PRUNE_EVENTS, params![id, tx.last_insert_rowid()])?;
         tx.execute("DELETE FROM runs WHERE id=?", [id])?;
         tx.commit()?;
         db.scheduled.remove(id);
@@ -240,10 +240,7 @@ impl Store {
             "INSERT INTO events(run_id,kind,body) VALUES (?,?,?)",
             params![id, kind, body],
         )?;
-        tx.execute(
-            "DELETE FROM events WHERE run_id=? AND number<>?",
-            params![id, tx.last_insert_rowid()],
-        )?;
+        tx.execute(PRUNE_EVENTS, params![id, tx.last_insert_rowid()])?;
         for entry in cases {
             let project = r["project"].as_str().context("missing project")?;
             let case = entry["id"].as_str().context("missing case ID")?;
@@ -397,6 +394,32 @@ mod tests {
 #[cfg(test)]
 mod upgrades {
     use super::*;
+    #[test]
+    fn opening_existing_history_indexes_event_cleanup_by_run() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let conn = Connection::open(dir.path().join("swarm.sqlite"))?;
+        conn.execute_batch(
+            "CREATE TABLE events(number INTEGER PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,body BLOB NOT NULL);
+             PRAGMA user_version=2;",
+        )?;
+        for run in ["first", "second", "third", "first"] {
+            conn.execute(
+                "INSERT INTO events(run_id,kind,body) VALUES (?,'saved',?)",
+                params![run, b"{}".as_slice()],
+            )?;
+        }
+        drop(conn);
+        let store = Store::open(dir.path())?;
+        let db = store.lock()?;
+        let mut cleanup = db.conn.prepare(PRUNE_EVENTS)?;
+        assert_eq!(cleanup.execute(params!["first", 4])?, 1);
+        assert_eq!(
+            cleanup.get_status(rusqlite::StatementStatus::FullscanStep),
+            0
+        );
+        Ok(())
+    }
+
     #[test]
     fn version_one_questions_survive_restart_without_changing_delivery_authority() -> Result<()> {
         let dir = tempfile::tempdir()?;

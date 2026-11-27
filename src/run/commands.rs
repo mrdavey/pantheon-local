@@ -68,6 +68,51 @@ fn supersede_candidates(r: &mut Value) {
     }
 }
 
+fn legacy_target_matches(run: &Value, action: &Value, previous: &str) -> Result<bool> {
+    let kind = s(action, "kind");
+    if !matches!(kind, "chat" | "propose-milestones" | "supersede-milestone")
+        || previous != crate::compat::legacy_command_digest(action)?
+    {
+        return Ok(false);
+    }
+    if kind == "supersede-milestone" {
+        return Ok(find(&run["tasks"], s(action, "task"))
+            .is_some_and(|i| run["tasks"][i]["superseded_by"] == action["replacement"]));
+    }
+    // The old digest already identifies milestone and implementation references.
+    if !s(action, "task").is_empty() || !s(action, "candidate").is_empty() {
+        return Ok(s(action, "turn").is_empty());
+    }
+    let messages = a(&run["conversation"]);
+    let matches_turn = |message: &Value| {
+        let context = &message["context"];
+        let turn = if context["kind"] == "activity" {
+            s(context, "id")
+        } else {
+            ""
+        };
+        turn == s(action, "turn")
+    };
+    if let Some(message) = messages.iter().find(|m| m["request_id"] == action["id"]) {
+        return Ok(matches_turn(message));
+    }
+    // Before messages stored request IDs, use their text only if every possible
+    // original message agrees on the activity.
+    let mut possible = messages
+        .iter()
+        .filter(|m| {
+            m["request_id"].is_null()
+                && m["role"] == "user"
+                && m["text"] == s(action, "text").trim()
+                && !matches!(
+                    m["context"]["kind"].as_str(),
+                    Some("milestone" | "implementation")
+                )
+        })
+        .peekable();
+    Ok(possible.peek().is_some() && possible.all(matches_turn))
+}
+
 fn chat_reference(run: &Value, action: &Value) -> Result<Value> {
     let task = s(action, "task");
     let candidate = s(action, "candidate");
@@ -380,7 +425,9 @@ impl Engine {
             let digest = crate::compat::command_digest(&action)?;
             if let Some(previous) = r["commands"][cmd_id].as_str() {
                 ensure!(
-                    previous == digest || previous == kind,
+                    previous == digest
+                        || previous == kind
+                        || legacy_target_matches(&r, &action, previous)?,
                     "command ID already used"
                 );
                 return Ok(r);

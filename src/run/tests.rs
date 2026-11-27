@@ -128,7 +128,60 @@ fn operator_can_resolve_a_blocked_review_with_a_committed_replacement() -> Resul
     assert_eq!(saved["tasks"][2]["depends"], json!(["replacement"]));
     assert!(a(&saved["observations"]).is_empty());
     assert_eq!(saved["observer_error"], "");
-    assert_eq!(saved, e.command("run", action)?);
+    let mut wrong = action.clone();
+    wrong["replacement"] = json!("downstream");
+    for legacy in [false, true] {
+        let mut saved = e.store.get("run")?;
+        if legacy {
+            // Receipt written before the digest included the replacement.
+            saved["commands"]["accept"] =
+                json!("3eb189fcdebb6e47246bca8daa844bd5a4d42cc214cce11aaa39f7dcbbb4110a");
+            e.save(&mut saved, "legacy-receipt")?;
+        }
+        assert_eq!(saved, e.command("run", action.clone())?);
+        assert!(e.command("run", wrong.clone()).is_err());
+    }
+    Ok(())
+}
+#[test]
+fn chat_retries_keep_the_original_activity_reference() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    let mut run =
+        json!({"id":"history","state":"working","turns":[{"id":"first"},{"id":"second"}]});
+    engine.save(&mut run, "seed")?;
+    let command = json!({"kind":"chat","id":"chat1","text":"Explain this","turn":"first"});
+    let mut saved = engine.command("history", command.clone())?;
+    for legacy in [false, true] {
+        if legacy {
+            saved["commands"]["chat1"] =
+                json!("9ce9b14e4e73fb8abd329330e451289059de210e13369cf178dc153844042080");
+            engine.save(&mut saved, "legacy-receipt")?;
+        }
+        assert_eq!(engine.command("history", command.clone())?, saved);
+        for turn in ["second", ""] {
+            let mut other = command.clone();
+            other["turn"] = json!(turn);
+            assert!(engine.command("history", other).is_err());
+        }
+        assert_eq!(engine.store.get("history")?, saved);
+    }
+    saved["conversation"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("request_id");
+    let mut milestone = saved["conversation"][0].clone();
+    milestone["id"] = json!("milestone-message");
+    milestone["context"] = json!({"kind":"milestone","id":"task"});
+    push(&mut saved["conversation"], milestone);
+    engine.save(&mut saved, "older-chat")?;
+    assert_eq!(engine.command("history", command.clone())?, saved);
+    let mut ambiguous = saved["conversation"][0].clone();
+    ambiguous["id"] = json!("another-message");
+    ambiguous["context"]["id"] = json!("second");
+    push(&mut saved["conversation"], ambiguous);
+    engine.save(&mut saved, "ambiguous-history")?;
+    assert!(engine.command("history", command).is_err());
+    assert_eq!(engine.store.get("history")?, saved);
     Ok(())
 }
 #[test]

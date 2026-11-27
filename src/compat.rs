@@ -98,8 +98,8 @@ fn digest(v: &Value) -> Result<String> {
         .replace('\u{2029}', "\\u2029");
     Ok(hex::encode(Sha256::digest(encoded.as_bytes())))
 }
-pub fn command_digest(v: &Value) -> Result<String> {
-    digest(&fields(
+fn command_fields(v: &Value) -> Value {
+    fields(
         v,
         &[
             "id",
@@ -113,7 +113,21 @@ pub fn command_digest(v: &Value) -> Result<String> {
             "tokens",
             "recipe",
         ],
-    ))
+    )
+}
+pub fn legacy_command_digest(v: &Value) -> Result<String> {
+    digest(&command_fields(v))
+}
+pub fn command_digest(v: &Value) -> Result<String> {
+    let mut body = command_fields(v);
+    let target = match v["kind"].as_str() {
+        Some("chat" | "propose-milestones") => "turn",
+        Some("supersede-milestone") => "replacement",
+        _ => return digest(&body),
+    };
+    // Include an empty target so an unscoped retry cannot match an old scoped digest.
+    body[target] = v[target].as_str().unwrap_or_default().into();
+    digest(&body)
 }
 pub fn inputs_digest(frozen: &Value, commit: &str, binaries: &Value) -> Result<String> {
     let arch = match std::env::consts::ARCH {

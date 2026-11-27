@@ -605,14 +605,18 @@ pub fn land(repo: &str, reference: &str, base: &str, candidate: &str) -> Result<
         "candidate cannot fast-forward target"
     );
     let worktrees = git(repo, &["worktree", "list", "--porcelain", "-z"])?;
-    let mut checkout = "";
-    for field in worktrees.split('\0') {
-        if let Some(path) = field.strip_prefix("worktree ") {
-            checkout = path;
-        }
-        if field.strip_prefix("branch ") != Some(reference) {
-            continue;
-        }
+    let mut checkouts = worktrees.split("\0\0").filter_map(|record| {
+        let mut fields = record.split('\0');
+        let path = fields.next()?.strip_prefix("worktree ")?;
+        fields
+            .any(|field| field.strip_prefix("branch ") == Some(reference))
+            .then_some(path)
+    });
+    if let Some(checkout) = checkouts.next() {
+        ensure!(
+            checkouts.next().is_none(),
+            "target branch is checked out in multiple worktrees; keep one checkout before landing"
+        );
         fs::metadata(checkout)?;
         for name in [
             "MERGE_HEAD",
@@ -659,6 +663,19 @@ pub fn land(repo: &str, reference: &str, base: &str, candidate: &str) -> Result<
         );
         return Ok(());
     }
+    // A rebase or bisect can reserve a branch while its worktree has detached HEAD.
+    // Ask Git to check those reservations before the expected-old-value ref update.
+    git(
+        repo,
+        &[
+            "fetch",
+            "--dry-run",
+            "--no-tags",
+            "--no-recurse-submodules",
+            ".",
+            &format!("{candidate}:{reference}"),
+        ],
+    )?;
     git(repo, &["update-ref", reference, candidate, base])?;
     Ok(())
 }
@@ -903,6 +920,62 @@ mod tests {
         assert!(land(&other.root, &other.target, "moved", "invalid").is_err());
         Ok(())
     }
+    #[test]
+    fn landing_waits_for_a_rebase_in_a_linked_worktree() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let dir = init(temp.path())?;
+        fs::write(temp.path().join("shared"), "base")?;
+        git(dir, &["add", "shared"])?;
+        git(dir, &["commit", "-m", "Base"])?;
+        let linked = tempfile::tempdir()?;
+        let worker = path_text(linked.path())?;
+        git(dir, &["worktree", "add", "-b", "feature", worker])?;
+        fs::write(linked.path().join("shared"), "feature")?;
+        git(worker, &["commit", "-am", "Feature"])?;
+        let base = head(worker)?;
+        git(dir, &["switch", "-c", "candidate", "feature"])?;
+        git(dir, &["commit", "--allow-empty", "-m", "Tested candidate"])?;
+        let candidate = head(dir)?;
+        git(dir, &["switch", "main"])?;
+        fs::write(temp.path().join("shared"), "main")?;
+        git(dir, &["commit", "-am", "Conflicting change"])?;
+        assert!(git(worker, &["rebase", "main"]).is_err());
+        let conflicts = status(worker)?;
+        assert!(!conflicts.is_empty());
+        let target = "refs/heads/feature";
+        assert!(land(dir, target, &base, &candidate).is_err());
+        assert_eq!(target_head(dir, target)?, base);
+        assert_eq!(status(worker)?, conflicts);
+        git(worker, &["rebase", "--abort"])?;
+        land(dir, target, &base, &candidate)?;
+        assert_eq!(head(worker)?, candidate);
+        Ok(())
+    }
+
+    #[test]
+    fn landing_waits_until_the_target_has_one_checkout() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let dir = init(temp.path())?;
+        let repo = open(dir, &[], true)?;
+        git(dir, &["switch", "-c", "candidate"])?;
+        fs::write(temp.path().join("result"), "tested")?;
+        git(dir, &["add", "result"])?;
+        git(dir, &["commit", "-m", "Candidate"])?;
+        let candidate = head(dir)?;
+        git(dir, &["switch", "main"])?;
+        let linked = tempfile::tempdir()?;
+        let other = path_text(linked.path())?;
+        git(dir, &["worktree", "add", "--force", other, "main"])?;
+        assert!(land(dir, &repo.target, &repo.head, &candidate).is_err());
+        assert_eq!(target_head(dir, &repo.target)?, repo.head);
+        assert!(status(dir)?.is_empty() && status(other)?.is_empty());
+        git(other, &["switch", "--detach"])?;
+        land(dir, &repo.target, &repo.head, &candidate)?;
+        assert_eq!(head(dir)?, candidate);
+        assert_eq!(head(other)?, repo.head);
+        Ok(())
+    }
+
     #[test]
     fn display_diff_caps_large_or_non_utf8_content() -> Result<()> {
         let home = tempfile::tempdir()?;

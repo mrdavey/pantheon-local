@@ -1652,11 +1652,13 @@ fn runs_navigation(h: &Harness) -> Result<()> {
     ensure!(
         tabs == json!([
             "Milestones",
+            "Agents",
             "Coordinator chat",
             "Activity Log",
             "Metrics",
             "Experiment"
-        ])
+        ]),
+        "Unexpected run tabs: {tabs}"
     );
     h.b.eval("history.back()", vec![])?;
     h.click("Remove search filter paper-TRAIL")?;
