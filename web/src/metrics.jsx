@@ -92,7 +92,7 @@ function summarize(turns, filters, start, end) {
         }
         if (sample.at < start || sample.at > end) continue;
         seen = true;
-        events.push({ at: sample.at, ...change });
+        events.push({ at: sample.at, series: key, agent: t.agent, model, ...change });
         for (const field of ["tokens", "usd"]) add(range, change[field], field);
       }
       if (
@@ -130,24 +130,84 @@ function summarize(turns, filters, start, end) {
   };
 }
 
+const usageColors = ["#5656bd", "#147c83", "#a85c27", "#a0447a", "#507b34", "#4575aa"];
+const binCount = 24;
+
+function usagePlot(events, field, mode, start, span) {
+  const totals = Array(binCount).fill(0);
+  const stacks = Array.from({ length: binCount }, () => new Map());
+  const series = new Map();
+  for (const event of events) {
+    const value = event[field];
+    if (value == null) continue;
+    const bin = Math.min(binCount - 1, Math.max(0, Math.floor((binCount * (event.at - start)) / span)));
+    totals[bin] += value;
+    if (mode === "interval") {
+      series.set(event.series, event);
+      const stack = stacks[bin];
+      stack.set(event.series, (stack.get(event.series) ?? 0) + value);
+    }
+  }
+  if (mode === "total") {
+    for (let bin = 1; bin < totals.length; bin++) totals[bin] += totals[bin - 1];
+    return { totals, segments: [], min: Math.min(0, ...totals), max: Math.max(...totals) };
+  }
+  const ordered = [...series.keys()].sort();
+  const segments = [];
+  let min = 0, max = 0;
+  stacks.forEach((stack, bin) => {
+    let positive = 0, negative = 0;
+    ordered.forEach((key, index) => {
+      const value = stack.get(key);
+      if (!value) return;
+      const from = value > 0 ? positive : negative;
+      const to = from + value;
+      if (value > 0) positive = to;
+      else negative = to;
+      const { agent, model } = series.get(key);
+      segments.push({ id: `${bin}:${key}`, bin, agent, model, value, from, to, color: usageColors[index % usageColors.length] });
+    });
+    min = Math.min(min, negative);
+    max = Math.max(max, positive);
+  });
+  return { totals, segments, min, max };
+}
+
 function UsageChart({ events, field, mode, start, end, selectRange }) {
   const [drag, setDrag] = useState(null);
+  const [inspection, setInspection] = useState(null);
+  const [tabStop, setTabStop] = useState(null);
+  const pressed = useRef(null);
+  function inspect(element, source) {
+    if (!element) {
+      setInspection(null);
+      return;
+    }
+    const plot = element.ownerSVGElement.parentElement.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
+    const below = rect.top < 80;
+    setInspection({
+      id: element.dataset.usageSegment,
+      source,
+      left: rect.left + rect.width / 2 - plot.left,
+      top: (below ? rect.bottom + 6 : rect.top - 6) - plot.top,
+      below,
+    });
+  }
   function fraction(event) {
     const svg = event.currentTarget;
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
     return Math.min(1, Math.max(0, (point.x - 49) / 438));
   }
-  const bins = Array(24).fill(0);
   const span = Math.max(1, end - start);
-  for (const event of events) {
-    const i = Math.min(23, Math.max(0, Math.floor((24 * (event.at - start)) / span)));
-    bins[i] += event[field] ?? 0;
-  }
-  if (mode === "total") for (let i = 1; i < bins.length; i++) bins[i] += bins[i - 1];
-  const min = Math.min(0, ...bins),
-    max = Math.max(...bins, field === "tokens" ? 1 : 0.000001);
+  const { totals: bins, segments, min, max: peak } = useMemo(
+    () => usagePlot(events, field, mode, start, span), [events, field, mode, start, span],
+  );
+  const max = Math.max(peak, field === "tokens" ? 1 : 0.000001);
   const y = (n) => 144 - (130 * (n - min)) / (max - min);
-  const x = (i) => 49 + (438 * i) / 24;
+  const x = (i) => 49 + (438 * i) / binCount;
+  const active = !drag && segments.find(segment => segment.id === inspection?.id);
+  const tabbable = segments.some(segment => segment.id === tabStop) ? tabStop : segments[0]?.id;
   const clock = new Intl.DateTimeFormat(
     undefined,
     span >= 86400000
@@ -155,69 +215,120 @@ function UsageChart({ events, field, mode, start, end, selectRange }) {
       : { hour: "2-digit", minute: "2-digit", ...(span < 60000 ? { second: "2-digit" } : {}) },
   );
   const line = bins.map((v, i) => "H " + x(i + 1) + " V " + y(v)).join(" ");
+  const segmentValue = segment => `${format(segment.value, field)}${field === "tokens" ? " tokens" : ""}`;
+  const intervalTime = bin => clock.format(start + (span * bin) / binCount);
   return (
     <figure className="usage-chart">
-      <svg
-        viewBox="0 0 500 153"
-        onPointerDown={(e) => {
-          if (e.button !== 0) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          const f = fraction(e);
-          setDrag([f, f]);
-        }}
-        onPointerMove={(e) => {
-          if (drag) setDrag([drag[0], fraction(e)]);
-        }}
-        onPointerCancel={() => setDrag(null)}
-        onPointerUp={(e) => {
-          if (!drag) return;
-          const bounds = [drag[0], fraction(e)].sort((a, b) => a - b);
-          if (bounds[1] - bounds[0] > 0.02) selectRange(bounds.map((n) => Math.round(start + n * span)));
-          setDrag(null);
-        }}
-        role="img"
-        aria-label={`${field === "usd" ? "Estimated cost" : "Token usage"} over time, ${mode === "total" ? "cumulative" : "per interval"}`}
-      >
-        {[max, (max + min) / 2, min].map((v, i) => (
-          <g key={i}>
-            <line x1="49" x2="487" y1={y(v)} y2={y(v)} className="usage-rule" />
-            <text x="43" y={y(v) + 3} textAnchor="end">
-              {field === "usd" ? Number(v.toPrecision(2)).toString() : compact.format(v)}
-            </text>
-          </g>
-        ))}
-        {mode === "total" ? (
-          <>
-            <path className="usage-fill" d={`M 49 ${y(0)} ${line} V ${y(0)} Z`} />
-            <path className="usage-line" d={`M 49 ${y(0)} ${line}`} />
-            <circle cx="487" cy={y(bins.at(-1))} r="3" />
-          </>
-        ) : (
-          bins.map((v, i) => (
+      <div className="usage-plot">
+        <svg
+          viewBox="0 0 500 153"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            pressed.current = e.target.closest("[data-usage-segment]");
+            setInspection(null);
+            e.currentTarget.setPointerCapture(e.pointerId);
+            const f = fraction(e);
+            setDrag([f, f]);
+          }}
+          onPointerMove={(e) => {
+            if (drag) setDrag([drag[0], fraction(e)]);
+          }}
+          onPointerCancel={() => {
+            pressed.current = null;
+            setDrag(null);
+          }}
+          onPointerUp={(e) => {
+            if (!drag) return;
+            const bounds = [drag[0], fraction(e)].sort((a, b) => a - b);
+            if (bounds[1] - bounds[0] > 0.02) {
+              selectRange(bounds.map((n) => Math.round(start + n * span)));
+            } else if (pressed.current) {
+              inspect(pressed.current, e.pointerType === "touch" ? "touch" : "hover");
+            }
+            pressed.current = null;
+            setDrag(null);
+          }}
+          onKeyDown={(e) => {
+            if (!e.target.matches("[data-usage-segment]")) return;
+            if (e.key === "Escape") {
+              setInspection(null);
+            } else if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              inspect(e.target, "focus");
+            } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+              e.preventDefault();
+              const marks = Array.from(e.currentTarget.querySelectorAll("[data-usage-segment]"));
+              const direction = ["ArrowLeft", "ArrowDown"].includes(e.key) ? -1 : 1;
+              const next = e.key === "Home" ? 0 : e.key === "End" ? marks.length - 1 : marks.indexOf(e.target) + direction;
+              marks[next]?.focus();
+            }
+          }}
+          role={mode === "interval" ? "group" : "img"}
+          aria-label={`${field === "usd" ? "Estimated cost" : "Token usage"} over time, ${mode === "total" ? "cumulative" : "per interval"}`}
+        >
+          {[max, mode === "interval" && min < 0 ? 0 : (max + min) / 2, min].map((v, i) => (
+            <g key={i}>
+              <line x1="49" x2="487" y1={y(v)} y2={y(v)} className="usage-rule" />
+              <text x="43" y={y(v) + 3} textAnchor="end">
+                {field === "usd" ? Number(v.toPrecision(2)).toString() : compact.format(v)}
+              </text>
+            </g>
+          ))}
+          {mode === "total" ? (
+            <>
+              <path className="usage-fill" d={`M 49 ${y(0)} ${line} V ${y(0)} Z`} />
+              <path className="usage-line" d={`M 49 ${y(0)} ${line}`} />
+              <circle cx="487" cy={y(bins.at(-1))} r="3" />
+            </>
+          ) : (
+            segments.map(segment => (
+              <rect
+                key={segment.id}
+                className="usage-segment"
+                data-usage-segment={segment.id}
+                data-active={active?.id === segment.id || undefined}
+                role="img"
+                aria-label={`${segment.agent} · ${segment.model}, ${segmentValue(segment)}, ${intervalTime(segment.bin)}`}
+                tabIndex={segment.id === tabbable ? 0 : -1}
+                fill={segment.color}
+                x={x(segment.bin) + 2}
+                y={y(Math.max(segment.from, segment.to))}
+                width="14"
+                height={Math.abs(y(segment.to) - y(segment.from))}
+                onPointerEnter={(e) => {
+                  if (e.pointerType !== "touch" && !drag) inspect(e.currentTarget, "hover");
+                }}
+                onPointerLeave={() => setInspection(current => current?.source === "hover" ? null : current)}
+                onFocus={(e) => {
+                  setTabStop(segment.id);
+                  inspect(e.currentTarget, "focus");
+                }}
+                onBlur={() => setInspection(current => current?.source === "focus" ? null : current)}
+              />
+            ))
+          )}
+          {drag && (
             <rect
-              key={i}
-              x={x(i) + 2}
-              y={Math.min(y(v), y(0))}
-              width="14"
-              height={Math.abs(y(v) - y(0))}
-              rx="2"
-            >
-              <title>
-                {clock.format(start + (span * i) / 24)} · {format(v, field)}
-              </title>
-            </rect>
-          ))
+              className="chart-selection"
+              x={49 + 438 * Math.min(...drag)}
+              y="0"
+              width={438 * Math.abs(drag[1] - drag[0])}
+              height="144"
+            />
+          )}
+        </svg>
+        {active && (
+          <div
+            className="usage-segment-tooltip"
+            role="tooltip"
+            data-below={inspection.below || undefined}
+            style={{ "--segment-x": `${inspection.left}px`, top: inspection.top }}
+          >
+            <strong>{active.agent} · {active.model}</strong>
+            <span>{segmentValue(active)} · {intervalTime(active.bin)}</span>
+          </div>
         )}
-        {drag && (
-          <rect
-            className="chart-selection"
-            x={49 + 438 * Math.min(...drag)}
-            y="0"
-            width={438 * Math.abs(drag[1] - drag[0])}
-            height="144"
-          />
-        )}
-      </svg>
+      </div>
       <figcaption>
         <time>{clock.format(start)}</time>
         <time>{clock.format(end)}</time>
@@ -227,15 +338,26 @@ function UsageChart({ events, field, mode, start, end, selectRange }) {
           <TableHeader>
             <TableRow>
               <TableHead>Through</TableHead>
+              {mode === "interval" && <TableHead className="usage-data-series">Agent and model</TableHead>}
               <TableHead>{field === "usd" ? "USD" : "Tokens"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {bins.map((v, i) => (
-              <TableRow key={i}>
-                <TableCell>{clock.format(start + (span * (i + 1)) / 24)}</TableCell>
-                <TableCell>{format(v, field)}</TableCell>
-              </TableRow>
+              <React.Fragment key={i}>
+                <TableRow>
+                  <TableCell>{intervalTime(i + 1)}</TableCell>
+                  {mode === "interval" && <TableCell className="usage-data-series">Total</TableCell>}
+                  <TableCell>{format(v, field)}</TableCell>
+                </TableRow>
+                {mode === "interval" && segments.filter(segment => segment.bin === i).map(segment => (
+                  <TableRow key={segment.id}>
+                    <TableCell>{intervalTime(i + 1)}</TableCell>
+                    <TableCell className="usage-data-series">{segment.agent} · {segment.model}</TableCell>
+                    <TableCell>{format(segment.value, field)}</TableCell>
+                  </TableRow>
+                ))}
+              </React.Fragment>
             ))}
           </TableBody>
         </Table>
@@ -244,7 +366,6 @@ function UsageChart({ events, field, mode, start, end, selectRange }) {
   );
 }
 
-const shares = ["#5656bd", "#147c83", "#a85c27", "#a0447a", "#507b34", "#4575aa"];
 function ShareChart({ groups, field }) {
   const rows = groups.filter((g) => g[field] > 0);
   const total = rows.reduce((sum, g) => sum + g[field], 0);
@@ -252,7 +373,7 @@ function ShareChart({ groups, field }) {
   const slices = rows.map((g, i) => {
     const from = arc;
     arc += (100 * g[field]) / total;
-    return shares[i % shares.length] + " " + from + "% " + arc + "%";
+    return usageColors[i % usageColors.length] + " " + from + "% " + arc + "%";
   });
   if (!total) return <p className="usage-empty">No positive usage in this selection.</p>;
   return (
@@ -266,7 +387,7 @@ function ShareChart({ groups, field }) {
       <figcaption>
         {rows.map((g, i) => (
           <div key={JSON.stringify([g.agent, g.model])}>
-            <i style={{ background: shares[i % shares.length] }} />
+            <i style={{ background: usageColors[i % usageColors.length] }} />
             <span>
               {g.agent} · {g.model}
             </span>
@@ -536,7 +657,7 @@ export function Metrics({ run, api }) {
                 set={chart => changeRoute({chart})}
                 options={[
                   ["total", "Line · cumulative"],
-                  ["interval", "Bars · per interval"],
+                  ["interval", "Stacked bars"],
                   ["pie", "Pie · share by agent and model"],
                 ]}
               />

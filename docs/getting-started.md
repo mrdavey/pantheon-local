@@ -42,7 +42,7 @@ Choose **Add task**, describe the work, then select **Create milestone(s)**. The
 
 Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s full-screen button opens the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer shows the coordinator’s agent, model, and thinking effort. In the tab, choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
 
-In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
+In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. The bars stack usage by agent and model. Hover or tap a segment to see its usage, or focus a segment and move between segments with the arrow keys. Open **Chart data** for exact values. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
 
 ## Continue working on a project
 
