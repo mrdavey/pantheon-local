@@ -4,7 +4,7 @@
 
 New runs start with one coordinator and three workers. In **Team**, choose **Add agent**, pick a harness, set the model ID and thinking effort, and select **Add to pool**. You can add several workers using the same harness. To change one, open its **Settings** and choose **Apply to this agent**. The coordinator has its own model settings. Each worker in the pool owns work in the plan. Dependencies still determine which milestones can run concurrently. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
 
-The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Workers can start independent milestones in parallel once planning is complete. Pantheon asks you to approve the proposed checks before it runs them on the integrated work.
+The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Workers can start independent milestones in parallel once planning is complete. Pantheon runs the coordinator’s checks automatically on the integrated work.
 
 A worker can ask the coordinator or send a finding to a peer. If your brief requires consultation before implementation, the worker gets a separate turn to ask. The coordinator’s answer stays in the milestone notes. Only questions needing your decision appear in **Needs you**. Unrelated work continues.
 
@@ -18,7 +18,7 @@ Open **Milestones → Map** to see assignments by worker. Lines connect prerequi
 
 ## Talk to the coordinator
 
-**Coordinator chat** opens with the current run status. Use it to ask about a decision or request more work. **Explain this** in milestone or implementation details asks about that item and its available changes. Replies appear as the coordinator writes. Enter sends your message. Shift+Enter starts a new line. **Add to run** accepts a proposal and its extra checks. **Milestones → Add task** uses the same coordinator and approval. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass all approved checks. Accepting a proposal after landing starts a new round from the current target.
+**Coordinator chat** opens with the current run status. Use it to ask about a decision or request more work. **Explain this** in milestone or implementation details asks about that item and its available changes. Replies appear as the coordinator writes. Enter sends your message. Shift+Enter starts a new line. **Add to run** accepts a proposal and its extra checks. **Milestones → Add task** uses the same coordinator and acceptance action. Auto-land waits for the conversation and proposal to be resolved. The updated candidate must pass the active suite. Accepting a proposal after landing starts a new round from the current target.
 
 From the CLI, use `swarm chat --text 'Why was this worker chosen?' <run-id>`, then `swarm status <run-id>`. Accept a proposal with `swarm accept-proposal --task <proposal-id> <run-id>`.
 

@@ -343,6 +343,13 @@ impl Engine {
             t["state"] = json!("pending");
         }
     }
+    fn activate_initial_recipe(&self, r: &mut Value, recipe: Value) -> Result<()> {
+        r["input"]["recipe"] = self.pin_recipe(r, recipe)?;
+        r["recipe_approved"] = json!(true);
+        r["proposed_recipe"] = Value::Null;
+        policy(r);
+        Ok(())
+    }
     fn pin_recipe(&self, r: &Value, mut recipe: Value) -> Result<Value> {
         eval::validate(&recipe)?;
         if r["input"]["verification_of"].is_object() {
@@ -471,7 +478,7 @@ impl Engine {
             "id": uid(), "input": input, "profiles": profiles,
             "state": "planning", "generation": 1, "round": 1, "policy": 1,
             "tasks": [], "turns": [], "candidates": [], "tokens": 0, "unknown_turns": 0,
-            "recipe_approved": approved, "proposed_recipe": {},
+            "recipe_approved": approved,
             "started": now(), "round_started": now()
         });
         // Verify and pin delivery authority before touching the project or its index.
@@ -517,8 +524,7 @@ impl Engine {
             .rand_bytes(0)
             .tempdir_in(runs)?;
         if approved {
-            r["input"]["recipe"] = self.pin_recipe(&r, input["recipe"].clone())?;
-            policy(&mut r)
+            self.activate_initial_recipe(&mut r, input["recipe"].clone())?;
         }
         let integ = self.integration(&r);
         project::clone_repo(&repo.root, &integ, &repo.head, "swarm-integration")?;

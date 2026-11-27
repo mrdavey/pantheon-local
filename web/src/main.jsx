@@ -31,7 +31,7 @@ import { AgentSetup } from "./setup.jsx";
 import { Brief } from "./brief.jsx";
 import { Experiment, Inbox, ReleaseList } from "./experiments.jsx";
 import { Conversation } from "./conversation.jsx";
-import { RecipeEditor, branchName } from "./review.jsx";
+import { branchName } from "./review.jsx";
 
 import "./workspace.css";
 import "./workbench-shell.css";
@@ -129,7 +129,7 @@ function Candidate({ route, run, candidate, act, busy, name, landed, explain, op
   const [target, setTarget] = useState("");
   const needsSelection = !!run.input.recipe.rubric && run.selection?.candidate !== candidate.id;
   const canLand = !candidate.baseline && candidate.eligible !== false && (candidate.policy || 0) === (run.policy || 0) &&
-    (candidate.round || 0) === (run.round || 0) && candidate.state === "passed" && run.state === "review";
+    (candidate.round || 0) === (run.round || 0) && candidate.state === "passed" && run.state === "review" && !run.suite_proposal;
   const tasks = (candidate.tasks || []).map(id => run.tasks?.find(t => t.id === id)).filter(Boolean);
   const terminalTasks = tasks.filter(t => !tasks.some(next => next.depends?.includes(t.id)));
   const finalTask = tasks.find(t => t.commit === candidate.commit) ||
@@ -237,12 +237,6 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
-    {run.state === "checks" && <Card asChild><section className="answer decision" aria-labelledby="review-checks-title">
-      <h2 id="review-checks-title">Review acceptance checks</h2>
-      <p>Approve these commands before Pantheon runs them.</p>
-      <RecipeEditor recipe={run.proposed_recipe} busy={busy} label="Acceptance recipe" submitLabel="Approve checks"
-        onApprove={(recipe) => act({ kind: "approve", recipe })} />
-    </section></Card>}
     {questions.length > 0 && <div className="notice">
       <span>{questions.length === 1 ? shortSummary(questions[0].text) : `${questions.length} open questions for this run.`}</span>{" "}
       <Button variant="outline" className="text-button" onClick={openInbox}>Open Needs you</Button>
@@ -267,7 +261,6 @@ const checkAgents = (signal) => api("/setup/status", undefined, signal);
 const saveModel = (input) => api("/setup/model", input);
 
 function decisionInputs(run, command) {
-  if (command.kind === "approve") return JSON.stringify([run.state, run.round, run.proposed_recipe]);
   if (["dismiss-issue", "restore-issue"].includes(command.kind)) {
     return JSON.stringify((command.text === "question" ? run.inbox : run.tasks)?.find(item => item.id === command.task));
   }
@@ -280,7 +273,7 @@ function decisionInputs(run, command) {
   return JSON.stringify([run.state, run.generation, run.round, run.policy, run.repo.Target, run.landing,
     run.held, run.combination, run.selection, candidates,
     (run.inbox || []).filter((q) => q.state === "open" && q.blocking),
-    command.kind === "update-suite" ? [run.suite_proposal, run.proposed_recipe] : null]);
+    command.kind === "update-suite" ? run.suite_proposal : null]);
 }
 
 function App() {
@@ -369,7 +362,7 @@ function App() {
   };
   const send = (run, body) => perform(async () => {
     const guarded = ["dismiss-issue", "restore-issue", "answer-inbox", "select", "keep-baseline", "combine", "new-round", "land", "hold", "unhold",
-      "hold-release", "resume-release", "cancel-release", "approve", "update-suite"].includes(body.kind);
+      "hold-release", "resume-release", "cancel-release", "update-suite"].includes(body.kind);
     const path = "/runs/" + run.id;
     const id = body.id || crypto.randomUUID();
     const original = guarded ? decisionInputs(run, body) : "";

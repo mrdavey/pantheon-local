@@ -474,30 +474,15 @@ fn export(h: &Harness) -> Result<()> {
     h.click("Coordinator chat")?;
     b.label("Who can view quotes?").fill("private")?;
     h.click("Send answer")?;
-    b.role("heading", "Review acceptance checks").visible()?;
-    let completed = h.svc.get(&common::run_path(&saved)?)?;
+    let completed = h.svc.wait_state(&common::run_path(&saved)?, "review")?;
     ensure!(
-        common::rows(&completed["tasks"])
-            .iter()
-            .all(|task| task["state"] == "committed")
+        completed["recipe_approved"] == true
             && common::rows(&completed["turns"])
                 .iter()
-                .all(|turn| turn["role"] != "eval"),
-        "work must finish before the workbench asks to run checks"
+                .any(|turn| turn["role"] == "eval"),
+        "the daemon must check the implementation without a workbench approval"
     );
-    let fixture = example("fixture-agent")?;
-    let check = json!([fixture, "check", "export.txt", "open quotes"]);
-    b.xpath(r#"//code[contains(., "export.txt 'open quotes'")]"#)
-        .visible()?;
-    b.text("View or edit JSON").click()?;
-    b.label("Acceptance recipe").fill("")?;
-    h.button("Approve checks").focus()?;
-    b.key("\u{e007}")?;
-    b.role("alert", "").contains("Enter a valid JSON object")?;
-    b.label("Acceptance recipe").value("")?;
-    b.label("Acceptance recipe")
-        .fill(&json!({"checks":[check],"preview":[fixture,"serve-preview"]}).to_string())?;
-    h.click("Approve checks")?;
+    b.role("heading", "Review acceptance checks").absent()?;
     h.click("Map")?;
     h.click("Zoom in")?;
     h.b.label("Map zoom").contains("125%")?;
@@ -660,8 +645,6 @@ fn export(h: &Harness) -> Result<()> {
             && verify["profiles"] == run[0]["profiles"]
     );
     let path = common::run_path(&verify)?;
-    h.svc.wait_state(&path, "checks")?;
-    h.svc.post(&path, &json!({"kind":"approve"}))?;
     let checked = h.svc.wait_state(&path, "review")?;
     ensure!(checked["candidates"][0]["state"] == "passed");
     ensure!((checked["candidates"][0]["commit"] == verification_base) == h.mobile);
@@ -1231,11 +1214,6 @@ fn explain_context(h: &Harness) -> Result<()> {
     h.svc.wait_state(&path, "question")?;
     h.svc
         .post(&path, &json!({"kind":"answer","text":"private"}))?;
-    let checks = h.svc.wait_state(&path, "checks")?;
-    h.svc.post(
-        &path,
-        &json!({"kind":"approve","recipe":checks["proposed_recipe"]}),
-    )?;
     h.svc.wait_state(&path, "review")?;
     h.goto()?;
     h.run_button("Quote export").click()?;
@@ -1667,18 +1645,14 @@ fn assignment_map(h: &Harness) -> Result<()> {
     let goal = "Inspect the assignment map";
     let run = h.svc.post("/runs", &json!({"path":h.repo("map")?,"prompt":goal,"coordinator":"first","workers":["writer","writer-two"],"delivery":"review"}))?;
     let path = common::run_path(&run)?;
-    h.svc.wait_state(&path, "checks")?;
+    h.svc.wait_state(&path, "review")?;
     h.goto()?;
     h.run_button(goal).click()?;
+    h.click("Milestones")?;
     let b = &h.b;
-    b.text("Waiting for check approval").visible()?;
     let bounds = b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?;
     h.click("Coordinator chat")?;
     ensure!(bounds == b.eval("return [document.querySelector('.milestone-table').offsetWidth,document.querySelector('.run-workspace').getBoundingClientRect().x, document.querySelector('.app').clientHeight]", vec![])?);
-    b.text("Install locked dependencies").click()?;
-    b.xpath("//*[@data-slot='collapsible'][@data-state='open']//code[contains(., 'PATH=/fixture/bin') and contains(., 'npm ci')]")
-        .visible()?;
-    b.text("Install locked dependencies").click()?;
     for column in ["Owner", "Status", "Milestone", "Completed"] {
         let head = b.xpath(&format!(
             "//table[@aria-label='Milestones']//th[button[contains(.,'{column}')]]"
@@ -1772,7 +1746,7 @@ fn assignment_map(h: &Harness) -> Result<()> {
     }
     b.label("Recent run activity").absent()?;
     h.click("Coordinator chat")?;
-    h.click("View coordinator activity: Waiting for check approval")?;
+    h.click("View coordinator activity: Ready for your review")?;
     b.label("Activity type").value("coordinator")?;
     b.label("View log for Create the run plan").focus()?;
     b.key("\u{e007}")?;
@@ -1895,11 +1869,6 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     h.svc.wait_state(&path, "question")?;
     h.svc
         .post(&path, &json!({"kind":"answer","text":"private"}))?;
-    let checks = h.svc.wait_state(&path, "checks")?;
-    h.svc.post(
-        &path,
-        &json!({"kind":"approve","recipe":checks["proposed_recipe"]}),
-    )?;
     let review = h.svc.wait_state(&path, "review")?;
     h.svc.post(
         &path,

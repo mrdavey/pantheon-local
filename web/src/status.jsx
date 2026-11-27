@@ -6,7 +6,7 @@ import { Progress } from "./components/ui/progress";
 import { blockedTasks } from "./run-summary.js";
 
 const labels = {
-  planning: "Planning", question: "Needs an answer", checks: "Review checks", working: "In progress",
+  planning: "Planning", question: "Needs an answer", checks: "Preparing checks", working: "In progress",
   evaluating: "Checking candidates", repairing: "Routing a repair", review: "Ready to review", landed: "Landed",
   budget: "Token target reached", blocked: "Blocked", stopped: "Stopped", pending: "Queued",
   running: "Working", committed: "Committed", interrupted: "Interrupted", passed: "Passed",
@@ -99,7 +99,7 @@ export function coordinatorStatus(run) {
   if (run.observer_error) return "Coordinator review needs attention";
   const workers = run.tasks?.filter(t => t.state === "running").length || 0;
   if (run.state === "working" && workers) return `Following ${workers} active milestone${workers === 1 ? "" : "s"}`;
-  return ({ planning: "Preparing the plan", working: "Checking milestone dependencies", checks: "Waiting for check approval",
+  return ({ planning: "Preparing the plan", working: "Checking milestone dependencies", checks: "Preparing checks",
     question: "Waiting for your answer", stopped: "Run paused", evaluating: "Checking the implementation",
     review: "Ready for your review", landed: "Implementation landed" })[run.state] || labels[run.state] || run.state;
 }

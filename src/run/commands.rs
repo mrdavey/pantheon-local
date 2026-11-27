@@ -46,6 +46,13 @@ pub(super) fn resume_phase(r: &Value) -> &str {
     }
 }
 
+pub(super) fn suite_in_use(r: &Value) -> bool {
+    a(&r["turns"]).iter().any(|turn| {
+        turn["state"] == "running"
+            && (turn["role"] == "eval" || (turn["role"] == "worker" && r["state"] == "evaluating"))
+    })
+}
+
 fn supersede_candidates(r: &mut Value) {
     let round = r["round"].clone();
     let policy = r["policy"].clone();
@@ -342,7 +349,10 @@ impl Engine {
             return Ok(());
         }
         for check in a(&msg["checks"]) {
-            push(&mut r["input"]["recipe"]["checks"], check.clone())
+            push(&mut r["input"]["recipe"]["checks"], check.clone());
+            if !r["suite_proposal"].is_null() {
+                push(&mut r["suite_proposal"]["checks"], check.clone());
+            }
         }
         supersede_candidates(r);
         if !a(&msg["checks"]).is_empty() {
@@ -430,7 +440,10 @@ impl Engine {
         } else if kind == "new-round" {
             self.new_round(&mut r, text)?
         } else if kind == "update-suite" {
-            self.update_suite(&mut r, &action)?
+            self.update_suite(
+                &mut r,
+                action.get("recipe").filter(|v| !v.is_null()).cloned(),
+            )?
         } else if !experiment::command(&mut r, &action)? {
             ensure!(
                 r["state"] != "landed"
@@ -512,11 +525,10 @@ impl Engine {
                     let recipe = action
                         .get("recipe")
                         .filter(|v| !v.is_null())
-                        .unwrap_or(&r["proposed_recipe"]);
-                    r["input"]["recipe"] = self.pin_recipe(&r, recipe.clone())?;
-                    r["recipe_approved"] = json!(true);
+                        .cloned()
+                        .unwrap_or_else(|| r["proposed_recipe"].clone());
+                    self.activate_initial_recipe(&mut r, recipe)?;
                     r["state"] = json!("working");
-                    policy(&mut r)
                 }
                 "answer" => {
                     ensure!(!text.trim().is_empty(), "answer is required");
@@ -775,7 +787,7 @@ impl Engine {
         }
         Ok(r)
     }
-    fn update_suite(&self, r: &mut Value, action: &Value) -> Result<()> {
+    pub(super) fn update_suite(&self, r: &mut Value, recipe: Option<Value>) -> Result<()> {
         let paused = r["state"] == "stopped";
         let phase = if paused {
             resume_phase(r)
@@ -791,24 +803,20 @@ impl Engine {
             "the eval suite cannot change during this stage"
         );
         ensure!(
-            !a(&r["turns"]).iter().any(|t| {
-                t["state"] == "running"
-                    && (t["role"] == "eval"
-                        || (t["role"] == "worker" && r["state"] == "evaluating"))
-            }),
+            !suite_in_use(r),
             "wait for the current evaluation to finish"
         );
-        let recipe = action
-            .get("recipe")
-            .filter(|v| !v.is_null())
-            .unwrap_or(&r["suite_proposal"]);
-        ensure!(!recipe.is_null(), "supply a suite to approve");
-        let pinned = self.pin_recipe(r, recipe.clone())?;
+        let recipe = recipe.unwrap_or_else(|| r["suite_proposal"].clone());
+        ensure!(!recipe.is_null(), "supply an eval suite");
+        let pinned = self.pin_recipe(r, recipe)?;
+        r["suite_proposal"] = Value::Null;
+        if pinned == r["input"]["recipe"] {
+            return Ok(());
+        }
         experiment::archive_selection(r);
         r["policy"] = json!(num(&r["policy"]) + 1);
         r["input"]["recipe"] = pinned;
         r["recipe_approved"] = json!(true);
-        r["suite_proposal"] = Value::Null;
         policy(r);
         if rebuild {
             if paused {

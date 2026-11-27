@@ -346,6 +346,44 @@ impl Engine {
                 }
             }
         }
+        if r["state"] == "checks"
+            || (r["state"] == "working"
+                && r["recipe_approved"] == false
+                && r["proposed_recipe"]
+                    .as_object()
+                    .is_some_and(|recipe| !recipe.is_empty()))
+        {
+            let recipe = r["proposed_recipe"].clone();
+            self.activate_initial_recipe(r, recipe)?;
+            r["state"] = json!("working");
+            return self.save(r, "initial-suite-activated");
+        }
+        let can_apply_suite = matches!(
+            s(r, "state"),
+            "working" | "evaluating" | "review" | "blocked"
+        ) && s(r, "landing").is_empty()
+            && r["combination"].is_null()
+            && !(r["state"] == "evaluating"
+                && a(&r["candidates"]).iter().any(|c| {
+                    c["round"] == r["round"]
+                        && c["policy"] == r["policy"]
+                        && c["state"] == "conflict"
+                }));
+        if !control
+            && can_apply_suite
+            && !r["suite_proposal"].is_null()
+            && !commands::suite_in_use(r)
+        {
+            let mut next = r.clone();
+            if let Err(error) = self.update_suite(&mut next, None) {
+                r["suite_proposal"] = Value::Null;
+                r["state"] = json!("blocked");
+                r["detail"] = json!(format!("Could not activate the revised suite: {error:#}"));
+                return self.save(r, "suite-revision-failed");
+            }
+            *r = next;
+            return self.save(r, "coordinator-suite-activated");
+        }
         if !chat
             && !control
             && !matches!(s(r, "state"), "stopped" | "planning" | "repairing")
@@ -424,11 +462,12 @@ impl Engine {
                 if control || chat {
                     return Ok(());
                 }
-                if !yes(&r["recipe_approved"]) {
-                    r["state"] = json!("checks");
-                    return self.save(r, "checks-ready");
-                }
-                self.candidates(r)
+                ensure!(
+                    r["recipe_approved"] != false,
+                    "the run has no active eval suite"
+                );
+                self.candidates(r)?;
+                self.save(r, "candidates-queued")
             }
             Phase::Planning | Phase::Working | Phase::Repairing if budget(r) => {
                 r["state"] = json!("budget");
@@ -587,8 +626,7 @@ impl Engine {
                 r["tasks"] = json!(prev);
                 r["state"] = json!("working");
                 if !yes(&r["recipe_approved"]) {
-                    eval::validate(&out["recipe"])?;
-                    r["proposed_recipe"] = out["recipe"].clone();
+                    self.activate_initial_recipe(r, out["recipe"].clone())?;
                 }
             }
             "repair" => {
@@ -635,6 +673,7 @@ impl Engine {
             || yes(&r["held"])
             || waiting(r)
             || !r["combination"].is_null()
+            || !r["suite_proposal"].is_null()
             || !s(r, "observer_error").is_empty()
             || pending_observations
             || a(&r["conversation"]).iter().any(|m| {

@@ -104,12 +104,12 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
         &url,
         &json!({"kind":"answer-inbox","task":question["id"],"text":"No quotes"}),
     )?;
-    let completed = svc.wait_state(&url, "checks")?;
-    assert_eq!(completed["recipe_approved"], false);
+    let completed = svc.wait_state(&url, "review")?;
+    assert_eq!(completed["recipe_approved"], true);
     assert!(
         rows(&completed["turns"])
             .iter()
-            .all(|t| t["role"] != "eval")
+            .any(|t| t["role"] == "eval")
     );
     assert!(
         rows(&completed["tasks"])
@@ -124,8 +124,7 @@ fn team_coordinates_product_decisions_and_peer_handoffs() -> Result<()> {
             .len(),
         4
     );
-    svc.post(&url, &json!({"kind":"approve"}))?;
-    let ready = svc.wait_state(&url, "review")?;
+    let ready = completed;
     let folder = Path::new(ready["worker_folder"].as_str().context("working folder")?);
     for task in rows(&ready["tasks"]) {
         let checkout = Path::new(task["workspace"].as_str().context("milestone workspace")?);
@@ -164,8 +163,6 @@ fn restart_recovers_workers_and_repairs_failed_candidate() -> Result<()> {
             .then_some(()))
     })?;
     svc.restart(true)?;
-    svc.wait_state(&url, "checks")?;
-    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     assert_eq!(
         rows(&ready["turns"])
@@ -211,8 +208,6 @@ fn preserves_dirty_index_then_rebuilds_when_branch_moves() -> Result<()> {
     svc.wait_state(&url, "question")?;
     svc.post(&url, &json!({"kind":"coordinator","text":"second"}))?;
     svc.post(&url, &json!({"kind":"answer","text":"private"}))?;
-    svc.wait_state(&url, "checks")?;
-    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     assert_eq!(ready["input"]["coordinator"], "second");
     let candidate = passing(&ready)?;
@@ -290,8 +285,6 @@ fn token_budget_pauses_before_workers_and_only_passing_alternative_lands() -> Re
     let paused = svc.wait_state(&url, "budget")?;
     assert!(rows(&paused["turns"]).iter().all(|t| t["role"] != "worker"));
     svc.post(&url, &json!({"kind":"resume","tokens":0}))?;
-    svc.wait_state(&url, "checks")?;
-    svc.post(&url, &json!({"kind":"approve"}))?;
     let ready = svc.wait_state(&url, "review")?;
     assert_eq!(rows(&ready["candidates"]).len(), 2);
     for c in rows(&ready["candidates"]) {
@@ -312,6 +305,50 @@ fn token_budget_pauses_before_workers_and_only_passing_alternative_lands() -> Re
 }
 
 #[test]
+fn coordinator_revises_checks_and_rechecks_before_auto_landing() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let project = repo(&tmp.path().join("revision"))?;
+    let svc = Service::new(tmp.path())?;
+    let url = start(
+        &svc,
+        &project,
+        "Strengthen the acceptance checks",
+        json!({"workers":["writer"],"delivery":"auto","recipe":{"checks":[["true"]]}}),
+    )?;
+    svc.wait_state(&url, "question")?;
+    svc.post(&url, &json!({"kind":"answer","text":"private"}))?;
+    let landed = svc.wait_state(&url, "landed")?;
+    assert_eq!(landed["policy"], 2);
+    assert_eq!(landed["selection"]["policy"], 2);
+    let case = &landed["input"]["recipe"]["cases"][0];
+    assert_eq!(case["revision"], 1);
+    assert_eq!(case["expected"], "Export contains open quotes.");
+    assert!(case["digest"].is_string());
+    assert_eq!(landed["input"]["recipe"]["checks"][0], json!(["true"]));
+    assert_eq!(
+        landed["input"]["recipe"]["checks"][1],
+        json!([
+            example("fixture-agent")?,
+            "check",
+            "export.txt",
+            "open quotes"
+        ])
+    );
+    assert_eq!(
+        rows(&landed["turns"])
+            .iter()
+            .filter(|t| t["role"] == "eval")
+            .count(),
+        2
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("export.txt"))?,
+        "open quotes"
+    );
+    Ok(())
+}
+
+#[test]
 fn coordinator_recovers_blocked_workers_without_operator_input() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let project = repo(&tmp.path().join("recovery"))?;
@@ -321,11 +358,6 @@ fn coordinator_recovers_blocked_workers_without_operator_input() -> Result<()> {
         &project,
         "Recover two failed milestones automatically",
         json!({"delivery":"review"}),
-    )?;
-    let run = svc.wait_state(&url, "checks")?;
-    svc.post(
-        &url,
-        &json!({"kind":"approve","recipe":run["proposed_recipe"]}),
     )?;
     let run = svc.wait_state(&url, "review")?;
     let task = |id: &str| item(&run["tasks"], "id", &json!(id));

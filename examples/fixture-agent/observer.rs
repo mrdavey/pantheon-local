@@ -23,6 +23,22 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
                 actions.extend([json!({"id":"answer-format","kind":"reply_to_worker","ref":"team-format","text":answer}),
                     json!({"id":"tell-verifier","kind":"message_worker","ref":"team-check","text":format!("Verify the {answer} field.")})]);
             }
+            "comparison-ready" if prompt.contains("Strengthen the acceptance checks") => {
+                let mut checks = rows(&state["ActiveSuite"]["checks"]).to_vec();
+                let extra = check(&["export.txt","open quotes"])?;
+                if !checks.contains(&extra) {
+                    checks.push(extra);
+                    actions.extend([
+                        json!({"id":"record-export-case","kind":"save_case_revision","ref":id,
+                            "case":{"id":"export-contract","revision":1,"scenario":"Export the quotes.",
+                            "expected":"Export contains open quotes.","why":"Verify the file contract.","state":"draft"}}),
+                        json!({"id":"check-export","kind":"propose_suite","recipe":{"checks":checks,"cases":[{
+                            "id":"export-contract","revision":1,"required":true,"interpreter":"/bin/sh",
+                            "program":"test \"$(cat export.txt)\" = 'open quotes' && printf '%s\\n' '{\"pass\":true,\"observed\":\"open quotes\"}'"
+                        }]}})
+                    ]);
+                }
+            }
             "developer-feedback"=>{
                 let revision=rows(&state["Cases"]).iter().filter(|c|c["id"]=="saved-case").filter_map(|c|c["revision"].as_u64()).max().unwrap_or(0)+1;
                 actions.extend([json!({"id":format!("case-{id}"),"kind":"save_case_revision","ref":id,"case":{"id":"saved-case","revision":revision,"scenario":event["text"],"expected":"Preserve user-facing behavior.","why":"Record an observed edge case.","state":"draft"}}),

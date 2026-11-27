@@ -35,4 +35,4 @@ Keep the milestone table, map and Kanban board on the same assignment details co
 
 Run-scoped worker settings belong in the run’s profile snapshot. Keep milestone clones isolated from the selected project checkout, and read implementation previews from the candidate commit.
 
-Start workers when planning completes. Keep coordinator-proposed recipe commands separate from the active suite until the developer approves them for candidate evaluation.
+Start workers when planning completes. Validate and activate coordinator-proposed acceptance checks automatically. Apply suite revisions between evaluations and require passing evidence from the active suite before landing.

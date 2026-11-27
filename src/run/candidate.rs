@@ -133,7 +133,7 @@ impl Engine {
             push(&mut r["candidates"], row)
         }
         r["state"] = json!("evaluating");
-        self.save(r, "candidates-queued")
+        Ok(())
     }
     pub(super) fn eval_result(&self, r: &mut Value, turn: &Value, result: &Value) -> Result<()> {
         let i = index(&r["candidates"], s(turn, "task"))?;
@@ -405,6 +405,10 @@ impl Engine {
             return Ok(());
         }
         ensure!(
+            r["suite_proposal"].is_null(),
+            "wait for the latest checks before landing"
+        );
+        ensure!(
             matches!(s(&r["input"], "delivery"), "" | "review")
                 || s(r, "observer_error").is_empty(),
             "retry the coordinator or switch to manual review"
@@ -446,7 +450,8 @@ impl Engine {
             if let Some((cmd_id, digest)) = receipt {
                 r["commands"][cmd_id] = json!(digest);
             }
-            return self.candidates(r);
+            self.candidates(r)?;
+            return self.save(r, "candidates-queued");
         }
         if r["selection"]["candidate"] != id {
             let mut sel = comparison::recommend(r);

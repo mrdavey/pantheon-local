@@ -17,10 +17,10 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - {"kind":"update_question","ref":"question ID","question":{"text":"updated focused question","choices":[],"blocking":true}} or {"kind":"close_question","ref":"question ID"}.
 - {"kind":"reply_to_worker","ref":"task ID","text":"answer from the known decisions"}.
 - {"kind":"message_worker","ref":"task ID","text":"specific handoff for this worker's next turn"}. Use this to pass an interface decision or dependency finding to another active milestone. It does not resolve a question.
-- {"kind":"propose_suite","recipe":{"checks":[["command"]],"cases":[]}} for developer review. Include "rule" only when defining measured metrics and an objective. A case can use a known absolute driver or a self-contained interpreted program. Give its observable expectation and why it matters. Do not propose an empty policy.
+- {"kind":"propose_suite","recipe":{"checks":[["command"]],"cases":[]}} to revise the active suite automatically. Preserve the brief's requirements and retain existing checks unless correcting a broken check. Explain what the change verifies. Include "rule" only when defining measured metrics and an objective. A case can use a known absolute driver or a self-contained interpreted program. Give its observable expectation and why it matters. Do not propose an empty policy.
 - {"kind":"delegate","ref":"parent task ID","tasks":[{"id":"new-slug","goal":"scoped deliverable","worker":"profile","depends":[],"paths":[]}]}. Only a pending, running or questioning parent can receive children. During the working phase, omit ref to assign additional work. When a handoff identifies a defect within the approved brief, assign a new scoped milestone depending on the relevant commits. Children inherit their parent's allowed paths, variant and prerequisites. A child can narrow its paths and must be able to run before its parent finishes.
 - On worker-blocked, diagnose the failure. Use {"kind":"retry_milestone","ref":"blocked task ID","text":"concrete corrective instructions"} when the checkout can be repaired. For a bad base, assign a fresh top-level replacement with delegate, then {"kind":"supersede_milestone","ref":"blocked task ID","replacement":"replacement task ID","text":"why it covers the original goal"}. Reuse a suitable existing replacement. Preserve prerequisites and acceptance criteria. Use class testing for verification. After two automatic retries, choose a replacement or ask for help. After two consecutive blocked replacements, use an already verified replacement or ask for help. Ask only when a decision, permission or external intervention is needed.
-- For a blocked run, {"kind":"retry_run","ref":"run ID","text":"diagnosis and how the next attempt should recover"} resumes an interrupted planning, repair or work phase. Use it for a transient scheduler or integration failure after its cause has changed. For failed candidate checks, use {"kind":"repair_candidate","ref":"failed candidate ID","text":"specific correction and checks"} in a blocked run. These actions preserve check approval.
+- For a blocked run, {"kind":"retry_run","ref":"run ID","text":"diagnosis and how the next attempt should recover"} resumes an interrupted planning, repair or work phase. Use it for a transient scheduler or integration failure after its cause has changed. For failed candidate checks, use {"kind":"repair_candidate","ref":"failed candidate ID","text":"specific correction and checks"} in a blocked run. These actions preserve the active checks.
 - For each failure, inspect its evidence, identify the likely cause and decide whether a safe correction is possible. Record the diagnosis and next step using {"kind":"assess_failure","ref":"observation ID","text":"cause, evidence, and action or reason for waiting"}. This note accompanies any repair action. If an otherwise successful observation reveals a new issue, use assess_failure with that observation ID and describe the issue, then assign the corrective work. Prefer an already verified replacement if it covers the original goal. Ask for help if a repeated attempt would have the same inputs and outcome.
 - Evaluate run, candidate, conversation and release failures. Address recoverable work with available actions or ask a focused question describing the intervention required. Respect approvals, token targets and deployment decisions.
 - Resolve a complementary merge conflict with {"kind":"repair_conflict","ref":"candidate ID","tasks":[{"id":"new-slug","worker":"profile","goal":"merge requirements"}]}.
@@ -28,7 +28,7 @@ const OBSERVER: &str = r#"You are the Pantheon Local coordinator. Decide which o
 - {"kind":"revise_milestone","ref":"pending task ID","tasks":[{"id":"same task ID","goal":"revised deliverable","worker":"profile","paths":[],"depends":[]}]}. Replace the assignment of an unstarted top-level milestone. Preserve prerequisites and variant where applicable. Send guidance to a worker already in progress.
 Reassess the remaining graph against the original objective on each review. Add missing deliverables or revise unstarted work to close gaps. Use each profile's model and thinking effort in the team context. Respect minimum_workers when assigning work across the run. Release independent work in parallel. List eligible_workers when only some model and effort combinations suit a new or revised milestone. Respect delegation.allowed. With a finite limit, request scoped child milestones through Pantheon.
 When delegation is allowed, look proactively for independent child milestones that shorten delivery or improve verification. Use as many as the work benefits from within the run's limit. Give concurrent writers separate file scopes and each child a checkable result. Weigh handoff, review and integration effort before splitting tightly coupled work. The parent integrates and verifies the combined result.
-Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval or relax an approved check. Routine progress needs no action. "#;
+Triage each waiting worker. Answer directly when the brief, human decisions, approved checks or another milestone's findings settle the question. Give the answer and the reason; send any affected peer the specific detail it needs. Delegate a smaller task if that will unblock the parent. For a genuine product trade-off, ask the human one focused question with the affected task IDs and practical options. Leave unrelated workers running. Never infer human approval for a product decision or relax a check to pass a candidate. Routine progress needs no action. "#;
 pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
     let batch = &a(&r["observations"])[..a(&r["observations"]).len().min(30)];
     let summary = |v: &Value, keys: &[&str]| {
@@ -116,7 +116,11 @@ pub fn observer_prompt(r: &Value, cases: &[Value], root: &Path) -> String {
             summary
         })
         .collect::<Vec<_>>();
-    let state = json!({"Failures":failures, "Phase":r["state"],"Observations":batch,"Cases":cases,"Tasks":tasks,"Candidates":candidates,"Questions":r["inbox"],"Combination":r["combination"],"Evidence":evidence,"LastReviewError":r["review_feedback"],"RunFailure":r["detail"]});
+    let mut suite = r["input"]["recipe"].clone();
+    if let Some(cases) = suite.get_mut("cases").and_then(Value::as_array_mut) {
+        cases.retain(|case| case["holdback"] != true);
+    }
+    let state = json!({"Failures":failures, "Phase":r["state"],"Observations":batch,"Cases":cases,"Tasks":tasks,"Candidates":candidates,"Questions":r["inbox"],"Combination":r["combination"],"Evidence":evidence,"LastReviewError":r["review_feedback"],"RunFailure":r["detail"],"ActiveSuite":suite});
     format!(
         "{OBSERVER}Available profiles: {}.\nBrief: {}\nState: {}",
         r["input"]["workers"],
@@ -623,8 +627,25 @@ pub fn finish_observation(run: &mut Value, turn: &Value, result: &Value) -> Resu
                 r["automatic_run_retries"] = json!(num(&r["automatic_run_retries"]) + 1);
             }
             "propose_suite" => {
-                eval::validate(&action["recipe"])?;
-                r["suite_proposal"] = action["recipe"].clone();
+                let current = &r["input"]["recipe"];
+                let mut recipe = current.as_object().cloned().unwrap_or_default();
+                let revision = action["recipe"]
+                    .as_object()
+                    .context("expected a suite revision")?;
+                recipe.extend(revision.clone());
+                let mut recipe = Value::Object(recipe);
+                for held_back in a(&current["cases"])
+                    .iter()
+                    .filter(|case| case["holdback"] == true)
+                {
+                    if let Some(i) = find(&recipe["cases"], s(held_back, "id")) {
+                        recipe["cases"][i] = held_back.clone();
+                    } else {
+                        push(&mut recipe["cases"], held_back.clone());
+                    }
+                }
+                eval::validate(&recipe)?;
+                r["suite_proposal"] = recipe;
             }
             "retry_milestone" | "supersede_milestone" => {
                 super::recovery::recover(&mut r, action, batch)?
@@ -1070,6 +1091,32 @@ mod delegation_tests {
             }
         }
     }
+    #[test]
+    fn coordinator_suite_revision_preserves_hidden_cases() -> Result<()> {
+        let holdback = json!({"id":"hidden","driver":"/private-check","holdback":true});
+        let mut run = json!({
+            "id":"r","state":"review","generation":1,"round":1,"policy":1,
+            "input":{"recipe":{"checks":[["true"]],"cases":[holdback]}},
+            "observations":[{"id":"ready","kind":"comparison-ready"}]
+        });
+        assert!(!observer_prompt(&run, &[], Path::new(".")).contains("/private-check"));
+        let result = json!({"text":json!({"actions":[{
+            "id":"add-check","kind":"propose_suite","recipe":{"checks":[["true"],["echo","extra"]],
+                "cases":[{"id":"hidden","driver":"/replacement","holdback":false}]}
+        }]}).to_string()});
+        finish_observation(
+            &mut run,
+            &json!({"task":"ready","generation":1,"round":1,"policy":1}),
+            &result,
+        )?;
+        assert_eq!(run["suite_proposal"]["cases"], json!([holdback]));
+        assert_eq!(
+            run["suite_proposal"]["checks"],
+            json!([["true"], ["echo", "extra"]])
+        );
+        Ok(())
+    }
+
     #[test]
     fn parent_edges_cannot_form_cycles() {
         let existing = vec![json!({"id":"a"}), json!({"id":"sibling","parent":"a"})];

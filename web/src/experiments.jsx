@@ -360,14 +360,14 @@ export function Experiment({ active, run, act, perform, api, busy, openRun, expl
           <Button variant="outline" key={value} disabled={busy} onClick={() => act({ kind: "vote", task: p.id, text: value })}>{label}</Button>)}</div></>}
     </article>)}
     <Disclosure className="experiment-library" title="Evaluation tools"><div className="actions">
-      <Button variant="outline" onClick={() => setDetail("suite")}>Eval suite{run.suite_proposal ? " · proposal ready" : ""}</Button>
+      <Button variant="outline" onClick={() => setDetail("suite")}>Eval suite</Button>
       <Button variant="outline" onClick={() => { setDetail("cases"); }}>Project eval cases</Button>
       <Button variant="outline" onClick={() => { setDetail("history"); }}>Project run history</Button>
     </div></Disclosure>
     {detail === "suite" && <Dialog title="Eval suite" onClose={() => setDetail("")}>
-      <RecipeEditor key={run.policy} recipe={run.suite_proposal || (run.recipe_approved === false ? run.proposed_recipe : run.input.recipe) || {}} label="Suite" submitLabel="Approve suite revision"
+      <RecipeEditor key={run.policy} recipe={run.suite_proposal || run.input.recipe || {}} label="Suite" submitLabel="Save suite"
         busy={busy || !canUpdateSuite}
-        onApprove={async (recipe) => { const ok = await act({ kind: "update-suite", recipe }); if (ok) setDetail(""); return ok; }} />
+        onSave={async (recipe) => { const ok = await act({ kind: "update-suite", recipe }); if (ok) setDetail(""); return ok; }} />
     </Dialog>}
     {detail === "cases" && <Dialog title="Project eval cases" onClose={() => setDetail("")}>
       {casesError && <p role="alert" className="notice error">{casesError}</p>}

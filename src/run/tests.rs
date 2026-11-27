@@ -929,6 +929,27 @@ fn added_work_runs_before_initial_check_approval() -> Result<()> {
 }
 
 #[test]
+fn saved_initial_checks_activate_after_upgrade() -> Result<()> {
+    let (_dir, engine) = fixture()?;
+    for phase in ["checks", "working"] {
+        let mut run = json!({
+            "id":phase,"state":phase,"round":1,"policy":1,"recipe_approved":false,
+            "input":{"recipe":{"checks":[]}},"proposed_recipe":{"checks":[["true"]]},
+            "tasks":[{"id":"done","state":"committed"}]
+        });
+        engine.save(&mut run, "seed")?;
+        engine.tick()?;
+        let active = engine.store.get(phase)?;
+        assert_eq!(active["state"], "working");
+        assert_eq!(active["recipe_approved"], true);
+        assert!(active["proposed_recipe"].is_null());
+        assert_eq!(active["input"]["recipe"]["checks"], json!([["true"]]));
+        assert_eq!(active["policies"][0]["checks"], json!([["true"]]));
+    }
+    Ok(())
+}
+
+#[test]
 fn implementation_index_only_includes_qualifying_builds_and_historical_landings() {
     let run = json!({"selection":{"state":"landed","candidate":"new"},"past_selections":[{"state":"landed","candidate":"landed"},{"state":"selected","candidate":"ok"}],"candidates":[
         {"id":"ok","state":"passed","commit":"abc"},{"id":"landed","state":"superseded","commit":"def"},

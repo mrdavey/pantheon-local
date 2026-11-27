@@ -44,7 +44,7 @@ function CheckSummary({ argv, preview = false }) {
   return <Disclosure className="check-command" title={summary}><Command argv={argv} /></Disclosure>;
 }
 
-export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
+export function RecipeEditor({ recipe, busy, label, submitLabel, onSave }) {
   const [draft, setDraft] = useState(null);
   const [invalid, setInvalid] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -61,9 +61,8 @@ export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
         return;
       }
     }
-    if (await onApprove(value)) setDraft(null);
+    if (await onSave(value)) setDraft(null);
   }}>
-    {draft !== null && <p>The edited JSON will be used when you approve.</p>}
     {draft === null && recipe.checks?.length > 0 && <ul className="check-list">
       {recipe.checks.map((command, index) => <li key={index}><CheckSummary argv={command} /></li>)}
     </ul>}
@@ -83,7 +82,7 @@ export function RecipeEditor({ recipe, busy, label, submitLabel, onApprove }) {
           setDraft(event.target.value);
           setInvalid(false);
         }} /></Label>
-      {invalid && <p role="alert">Enter a valid JSON object to approve these checks.</p>}
+      {invalid && <p role="alert">Enter a valid JSON object.</p>}
     </Disclosure>
     <Button variant="outline" type="submit" className="primary" disabled={busy}>{submitLabel}</Button>
   </form>;
