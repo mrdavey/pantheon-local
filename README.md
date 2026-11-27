@@ -40,29 +40,41 @@ These screenshots follow a sample quote-export project from brief to landed comm
 
 ### 1. Start with a brief
 
-Choose the Git project that should receive the change. Open **Team** to pick the coordinator and workers, then select **Start run**.
+Describe the change and choose the Git project that should receive it.
 
 ![New run form with a quote-export brief, the project folder, and a team of four agents](docs/screenshots/new-run.png)
 
-### 2. Follow the work in Milestones → Map
+### 2. Configure the worker pool
+
+Open **Team** and choose a coordinator. Use **Add agent** to pick each worker’s harness, model, and thinking effort. In this example, the two Codex workers use different models. Select **Settings** beside a worker to change just that agent. Choose **Done**, then **Start run**.
+
+![Team dialog with Hermes coordinating two Codex workers, each with its own model, thinking effort, and Settings button](docs/screenshots/worker-pool.png)
+
+### 3. Talk to the coordinator during a run
+
+Open **Coordinator chat** and type a question or request. Here, asking “Add a timing milestone” produces a proposal to measure the export after it’s ready. Review the owner, dependency, and check, then select **Add to run** to accept it.
+
+![Coordinator chat showing the timing request, the proposed milestone assigned to the writer, its dependency on the quote export, and the Add to run button](docs/screenshots/coordinator-chat.png)
+
+### 4. Follow the work in Milestones → Map
 
 Two workers can write the export and its documentation in parallel. The line from **Write the open quotes export** to **Record export timing** shows which task must finish first. Select a milestone to inspect its activity or a worker name to highlight their assignments.
 
 ![Milestone map with an independent documentation task and a timing task connected to the export it depends on](docs/screenshots/milestone-map.png)
 
-### 3. See where the tokens went
+### 5. See where the tokens went
 
 In **Metrics**, the steps in the chart show cumulative token use over the run. Filter by agent, model, role, or time range to investigate a jump. If a turn has no price, **Fetch token prices** requests the rates needed to estimate its cost.
 
 ![Metrics showing the token chart for the quote-export run, agent and model filters, and the option to fetch missing prices](docs/screenshots/run-metrics.png)
 
-### 4. Review the landed implementation
+### 6. Review the landed implementation
 
 Under **Implementations**, the **Passed** and **Landed** badges show that the build passed its checks and reached the target branch. Open **View diff** to inspect the change, **View checks** to see what ran, or **View details** to browse the committed files.
 
 ![Quote export with three milestones combined into a landed implementation, alongside actions to inspect it or start a follow-up run](docs/screenshots/landed-implementation.png)
 
-### 5. Compare competing implementations
+### 7. Compare competing implementations
 
 In this **Experiment**, the candidate with the most relevant hits exceeds the 5 ms latency limit. The balanced candidate improves on the baseline and stays within the limit. Open **View decision details** to see why it landed.
 
