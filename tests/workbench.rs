@@ -1860,9 +1860,21 @@ fn assignment_map(h: &Harness) -> Result<()> {
         }))?;
     }
     b.label("Recent run activity").absent()?;
+    h.click("Activity Log")?;
+    b.label("Activity type").select("coordinator")?;
+    b.label("Search activity").fill("nonexistent search")?;
+    b.text("No matching activity.").visible()?;
     h.click("Coordinator chat")?;
-    h.click("View coordinator activity: Ready for your review")?;
-    b.label("Activity type").value("coordinator")?;
+    let status = h.button("View activity log: Ready for your review");
+    if h.mobile {
+        status.tap()?;
+    } else {
+        status.focus()?;
+        b.key("\u{e007}")?;
+    }
+    b.label("Activity type").value("")?;
+    b.label("Search activity").value("")?;
+    b.label("Run activity").contains("Worker")?;
     b.label("View log for Create the run plan").focus()?;
     b.key("\u{e007}")?;
     b.role("dialog", "Create the run plan").visible()?;

@@ -84,7 +84,7 @@ function useLiveReply(api, runId, turnId, open) {
   return turnId && preview?.turnId === turnId ? preview.text : "";
 }
 
-export function Conversation({ run, act, busy, api, chatRequest, expanded, replyId, inspectAgents, onExpand, onDock, openMilestone, onCoordinatorActivity }) {
+export function Conversation({ run, act, busy, api, chatRequest, expanded, replyId, inspectAgents, onExpand, onDock, openMilestone, onOpenActivity }) {
   const coordinator = run.input.coordinator;
   const profile = run.profiles?.[coordinator];
   const { model, effort } = runModel(profile);
@@ -236,7 +236,7 @@ export function Conversation({ run, act, busy, api, chatRequest, expanded, reply
           <Button variant="ghost" size="icon" type="button" title="Minimize chat" aria-label="Minimize chat" onClick={close}><Minus /></Button>
         </div>
       </header>}
-      <Button variant="ghost" className="coordinator-status" aria-label={"View coordinator activity: " + coordinatorStatus(run)} onClick={() => {setOpen(false); onCoordinatorActivity();}}>{coordinatorStatus(run)} <ChevronRight aria-hidden="true"/></Button>
+      <Button variant="ghost" className="coordinator-status" aria-label={"View activity log: " + coordinatorStatus(run)} onClick={() => {setOpen(false); onOpenActivity();}}>{coordinatorStatus(run)} <ChevronRight aria-hidden="true"/></Button>
       <div ref={history} className="chat-history" role="log" aria-label="Coordinator conversation" tabIndex={0}
         onScroll={trackPosition}>
         {messages.length === 0 && <p className="chat-empty">Ask about this run or request another milestone.</p>}
