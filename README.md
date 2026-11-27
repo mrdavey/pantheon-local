@@ -38,47 +38,35 @@ In an interactive terminal, `swarm` and `swarm open` open the browser and show a
 
 These screenshots follow a sample quote-export project from brief to landed commit. The final example shows a separate search experiment.
 
-<details>
-<summary><strong>1. Start with a brief</strong></summary>
+### 1. Start with a brief
 
 Choose the Git project that should receive the change. Open **Team** to pick the coordinator and workers, then select **Start run**.
 
 ![New run form with a quote-export brief, the project folder, and a team of four agents](docs/screenshots/new-run.png)
 
-</details>
-
-**2. Follow the work in Milestones → Map**
+### 2. Follow the work in Milestones → Map
 
 Two workers can write the export and its documentation in parallel. The line from **Write the open quotes export** to **Record export timing** shows which task must finish first. Select a milestone to inspect its activity or a worker name to highlight their assignments.
 
 ![Milestone map with an independent documentation task and a timing task connected to the export it depends on](docs/screenshots/milestone-map.png)
 
-<details>
-<summary><strong>3. See where the tokens went</strong></summary>
+### 3. See where the tokens went
 
 In **Metrics**, the steps in the chart show cumulative token use over the run. Filter by agent, model, role, or time range to investigate a jump. If a turn has no price, **Fetch token prices** requests the rates needed to estimate its cost.
 
 ![Metrics showing the token chart for the quote-export run, agent and model filters, and the option to fetch missing prices](docs/screenshots/run-metrics.png)
 
-</details>
-
-<details>
-<summary><strong>4. Review the landed implementation</strong></summary>
+### 4. Review the landed implementation
 
 Under **Implementations**, the **Passed** and **Landed** badges show that the build passed its checks and reached the target branch. Open **View diff** to inspect the change, **View checks** to see what ran, or **View details** to browse the committed files.
 
 ![Quote export with three milestones combined into a landed implementation, alongside actions to inspect it or start a follow-up run](docs/screenshots/landed-implementation.png)
 
-</details>
-
-<details>
-<summary><strong>5. Compare competing implementations</strong></summary>
+### 5. Compare competing implementations
 
 In this **Experiment**, the candidate with the most relevant hits exceeds the 5 ms latency limit. The balanced candidate improves on the baseline and stays within the limit. Open **View decision details** to see why it landed.
 
 ![Search experiment plotting relevance against latency, with the 5 ms limit marked and the balanced implementation shown as landed](docs/screenshots/experiment.png)
-
-</details>
 
 ## What runs where
 
