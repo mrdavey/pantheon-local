@@ -38,7 +38,7 @@ In **Milestones**, switch between **Table**, **Map**, and **Kanban**. Select any
 
 On the map, choose a colored worker filter to dim other workers’ assignments. Choose **All** to clear it. Select an assignment to trace its prerequisites and downstream work. Click the canvas to clear the chain. Selecting the card opens the same assignment sidebar as the table and board, including status, tokens, estimated cost, duration, and **Explain this**. Elapsed time starts at the first worker turn and includes waits between attempts. It updates each second during work and shows the final duration after completion. **Full screen** expands the map and Escape returns to the run.
 
-Choose **Add task**, describe the work, then select **Create milestone(s)**. The loading bar and Pantheon icon at the top of the workbench stay visible while the coordinator prepares the proposal. Review the proposed milestones, then choose **Add to run**. Any extra checks join the run’s suite. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
+Choose **Add task**, describe the work, then select **Create milestone(s)**. The loading bar stays visible while the coordinator prepares a reply. The workbench then opens that reply in **Coordinator chat**. Review the proposed milestones and choose **Add to run**. Any extra checks join the run’s suite. You can also request milestones in coordinator chat. Adding work after landing starts a new round.
 
 Open **Agents** to see the coordinator, workers, and their delegated assignments. Select an agent or assignment to open its latest output. Use **Turn** to inspect earlier attempts. **Output** shows messages, commands, errors and any reasoning the harness publishes. **Raw log** shows the captured log records. A reasoning-token count appears when the harness reports one.
 
@@ -46,7 +46,7 @@ Native subagents appear under the turn that started them when the harness identi
 
 Use **Coordinator chat** at the bottom to show or hide the dock. The dock’s full-screen button opens the **Coordinator chat** tab. Your conversation and current draft follow you between the two views. The composer shows the coordinator’s agent, model, and thinking effort. In the tab, choose **+ → Attach files** to send up to 16 files totaling 16 MiB with a message.
 
-In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
+In **Metrics**, choose an agent, model, role or time range. Time ranges end at the last activity for an idle run. Drag across a line or bar chart to zoom, or use the sliders under **Zoom time range**. The bars stack usage by agent and model. Hover or tap a segment to see its usage, or focus a segment and move between segments with the arrow keys. Open **Chart data** for exact values. Choose the pie view to compare shares. **Fetch token prices** asks the coordinator to look up published rates for missing estimates. See **How cost is calculated** for sources.
 
 ## Continue working on a project
 

@@ -1977,6 +1977,156 @@ fn run_metrics(h: &Harness) -> Result<()> {
 }
 scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);
 
+fn stacked_metrics(h: &Harness) -> Result<()> {
+    let run = h.svc.post(
+        "/runs",
+        &json!({
+            "path":h.repo("stacked-metrics")?,"prompt":"Add quote export","coordinator":"first",
+            "workers":["writer"],"delivery":"review"
+        }),
+    )?;
+    let path = common::run_path(&run)?;
+    h.svc.wait_state(&path, "question")?;
+    h.svc
+        .post(&path, &json!({"kind":"answer","text":"private"}))?;
+    let run = h.svc.wait_state(&path, "review")?;
+    let at = chrono::DateTime::parse_from_rfc3339(run["started"].as_str().context("run start")?)?
+        .timestamp_millis();
+    let folder = h
+        .svc
+        .state
+        .join("runs")
+        .join(run["id"].as_str().unwrap())
+        .join("turns");
+    let sample = |tokens, usd| json!({"tokens":tokens,"usd":usd});
+    for (role, models, next) in [
+        (
+            "plan",
+            json!({"Fixture shared":sample(20,0.01),"Fixture alternate":sample(30,0.03)}),
+            json!({"Fixture shared":sample(15,0.008),"Fixture alternate":sample(30,0.03)}),
+        ),
+        (
+            "worker",
+            json!({"Fixture shared":sample(40,0.04)}),
+            json!({"Fixture shared":sample(45,0.044)}),
+        ),
+    ] {
+        let turn = common::item(&run["turns"], "role", &json!(role))?;
+        fs::write(
+            folder.join(turn["id"].as_str().unwrap()).join("usage.json"),
+            serde_json::to_vec(
+                &json!([{"at":at + 1000,"models":models},{"at":at + 30000,"models":next}]),
+            )?,
+        )?;
+    }
+    h.goto()?;
+    h.run_button("Quote export").click()?;
+    let b = &h.b;
+    if b.eval(
+        "return !!document.querySelector('[aria-label=\"Minimize chat\"]')",
+        vec![],
+    )? == true
+    {
+        h.click("Minimize chat")?;
+    }
+    h.click("Metrics")?;
+    b.role("combobox", "Chart view").select("interval")?;
+    let chart = b.label("Token usage over time, per interval");
+    let first = chart.xpath(".//*[@data-usage-segment and starts-with(@aria-label,'first · Fixture shared, 20 tokens')]");
+    let alternate = chart.xpath(".//*[@data-usage-segment and starts-with(@aria-label,'first · Fixture alternate, 30 tokens')]");
+    let worker = chart.xpath(".//*[@data-usage-segment and starts-with(@aria-label,'writer · Fixture shared, 40 tokens')]");
+    for bar in [&first, &alternate, &worker] {
+        bar.visible()?;
+        ensure!(
+            bar.attr("x")? == first.attr("x")?,
+            "same interval must share a bar"
+        );
+    }
+    ensure!(first.attr("fill")? != worker.attr("fill")?);
+    ensure!(first.attr("y")? != worker.attr("y")? && first.attr("y")? != alternate.attr("y")?);
+    let correction = chart.xpath(".//*[@data-usage-segment and starts-with(@aria-label,'first · Fixture shared, -5 tokens')]");
+    let increase = chart.xpath(".//*[@data-usage-segment and starts-with(@aria-label,'writer · Fixture shared, 5 tokens')]");
+    correction.visible()?;
+    ensure!(correction.attr("x")? == increase.attr("x")?);
+    let correction_y: f64 = correction
+        .attr("y")?
+        .as_str()
+        .context("correction position")?
+        .parse()?;
+    let increase_y: f64 = increase
+        .attr("y")?
+        .as_str()
+        .context("increase position")?
+        .parse()?;
+    ensure!(
+        correction_y > increase_y,
+        "negative adjustments stack below zero"
+    );
+    let tip = b.role("tooltip", "");
+    b.eval(
+        "document.querySelector('.usage-plot').scrollIntoView({block:'center'})",
+        vec![],
+    )?;
+    if h.mobile {
+        worker.tap()?;
+        tip.contains("writer · Fixture shared")?;
+        tip.contains("40 tokens")?;
+        alternate.tap()?;
+        tip.contains("first · Fixture alternate")?;
+    } else {
+        worker.hover()?;
+        tip.contains("writer · Fixture shared")?;
+        tip.contains("40 tokens")?;
+        alternate.focus()?;
+        tip.contains("first · Fixture alternate")?;
+        b.key("\u{e014}")?;
+        tip.contains("first · Fixture shared")?;
+        b.key("\u{e00c}")?;
+        tip.absent()?;
+    }
+    if !h.mobile {
+        let points = b.eval(
+            "const matrix = document.querySelector('.usage-plot svg').getScreenCTM(); return [65, 400].map(x => { const p = new DOMPoint(x, 58).matrixTransform(matrix); return [p.x, p.y]; });",
+            vec![],
+        )?;
+        for (kind, point, buttons) in [
+            ("mousePressed", 0, 1),
+            ("mouseMoved", 1, 1),
+            ("mouseReleased", 1, 0),
+        ] {
+            b.cdp(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type":kind, "x":points[point][0], "y":points[point][1], "button":"left",
+                    "buttons":buttons, "clickCount":1
+                }),
+            )?;
+        }
+        b.role("combobox", "Time range").value("selection")?;
+        h.click("Reset zoom")?;
+    }
+    b.text("Chart data").click()?;
+    b.xpath("//table[.//th[.='Through']]//tr[td[.='writer · Fixture shared'] and td[.='40']]")
+        .visible()?;
+    b.text("Chart data").click()?;
+    b.role("combobox", "Metric").select("usd")?;
+    let cost = b.label("Estimated cost over time, per interval");
+    cost.visible()?;
+    b.role("combobox", "Model").select("Fixture shared")?;
+    cost.xpath(".//*[@data-usage-segment and contains(@aria-label,'Fixture alternate')]")
+        .absent()?;
+    cost.xpath(
+        ".//*[@data-usage-segment and starts-with(@aria-label,'writer · Fixture shared, $0.04')]",
+    )
+    .visible()?;
+    h.no_overflow()
+}
+scenario!(
+    desktop_stacked_metrics,
+    mobile_stacked_metrics,
+    stacked_metrics
+);
+
 fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     let b = &h.b;
     let run = h.svc.post("/runs", &json!({"path":h.repo("proposal")?,"prompt":"Add quote export","coordinator":"first","workers":["writer"],"delivery":"review"}))?;
@@ -2095,11 +2245,51 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
             "milestone-loading-desktop.png"
         }))?;
     }
+    let chat_tab = h.button("Coordinator chat tab");
+    until("pending milestone request in the URL", || {
+        let url = b.url()?;
+        Ok((url.contains("tab=milestones") && url.contains("proposalRequest=")).then_some(()))
+    })?;
+    b.reload()?;
+    b.label("What do you want to add?")
+        .value("Add a timing milestone after the gate")?;
+    h.loading_bar()
+        .contains("Coordinator is preparing milestones…")?;
+    create.enabled(false)?;
     fs::write(h.dir.path().join("chat-gate"), "")?;
-    b.role("dialog", "Add task")
-        .contains("Record export timing.")?;
+    let chat = b.role("region", "Coordinator chat");
+    let reply = chat.xpath(".//article[@tabindex='-1']");
+    reply.contains("We can record timings after the export is ready.")?;
+    reply.contains("Record export timing.")?;
+    reply.focused()?;
+    ensure!(chat_tab.attr("aria-pressed")? == "true");
+    b.role("dialog", "Add task").absent()?;
     h.loading_bar().absent()?;
+    let destination = b.url()?;
+    ensure!(destination.contains("tab=chat") && destination.contains("reply="));
+    b.eval("history.back()", vec![])?;
+    h.button("Add task").visible()?;
+    b.role("dialog", "Add task").absent()?;
+    b.eval("history.forward()", vec![])?;
+    reply.focused()?;
+    ensure!(b.url()? == destination);
+    b.reload()?;
+    reply.focused()?;
+    let snapshot = h.svc.get(&path)?;
+    ensure!(
+        common::rows(&snapshot["conversation"])
+            .iter()
+            .filter(|m| m["intent"] == "add")
+            .count()
+            == 1
+            && common::rows(&snapshot["tasks"])
+                .iter()
+                .all(|t| t["id"] != "timing"),
+        "opening the reply should leave one request pending developer acceptance"
+    );
     h.click("Add to run")?;
+    reply.contains("Milestones added")?;
+    h.click("Milestones")?;
     h.click("Kanban")?;
     b.xpath("//button[@data-slot='card' and @data-task='timing']")
         .click()?;
@@ -2144,6 +2334,21 @@ fn full_chat_and_task_proposal(h: &Harness) -> Result<()> {
     ensure!(b.url()? == filtered);
     b.label("Search activity").fill("nonexistent search")?;
     b.text("No matching activity.").visible()?;
+    h.click("Milestones")?;
+    h.click("Add task")?;
+    b.label("What do you want to add?")
+        .fill("Try a proposal that fails")?;
+    h.click("Create milestone(s)")?;
+    let dialog = b.role("dialog", "Add task");
+    dialog.contains("The fixture coordinator is unavailable.")?;
+    h.loading_bar().absent()?;
+    ensure!(b.url()?.contains("tab=milestones"));
+    let text = b.label("What do you want to add?");
+    text.value("Try a proposal that fails")?;
+    text.fill("What would you need to plan another milestone?")?;
+    h.click("Create milestone(s)")?;
+    reply.contains("The export milestone owns the generated CSV.")?;
+    reply.xpath(".//button[.='Add to run']").absent()?;
     h.no_overflow()
 }
 scenario!(

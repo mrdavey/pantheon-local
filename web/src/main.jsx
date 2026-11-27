@@ -197,7 +197,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     if (!Object.hasOwn(tabs, route.tab)) changeRoute({tab: defaultTab(run)}, {replace:true});
   }, [run.id, route.tab, implementations.length]);
   const view = Object.hasOwn(tabs, route.tab) ? tabs[route.tab] : fallback;
-  const setTab = (next, extra = {}) => changeRoute({...destination(run.id), tab: next === "work" ? "milestones" : next, ...extra}, {reset:true});
+  const setTab = (next, extra = {}, options) => changeRoute({...destination(run.id), tab: next === "work" ? "milestones" : next, ...extra}, {reset:true, ...options});
   const [experimentOpened, setExperimentOpened] = useState(view === "experiment");
   const lastView = useRef(null);
   const selectedTask = view === "work" ? route.milestone : null;
@@ -205,6 +205,10 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
   const openMilestone = milestone => setTab("work", {milestone});
   const openActivity = (role = "") => setTab("activity", {role});
   const expandChat = () => { if (view !== "chat") lastView.current = route; setTab("chat"); };
+  const openProposalReply = reply => {
+    lastView.current = {...route, add:null, proposalRequest:null};
+    setTab("chat", {reply}, {replace:true});
+  };
   const [chatRequest, setChatRequest] = useState(null);
   const explain = (kind, id) => {
     setChatRequest({kind, id, key: crypto.randomUUID()});
@@ -235,7 +239,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
       <Button variant="outline" aria-pressed={view === "metrics"} onClick={() => setTab("metrics")}><ChartNoAxesCombined/>Metrics</Button>
       <Button variant="outline" aria-pressed={view === "experiment"} onClick={showExperiment}><FlaskConical/>Experiment</Button>
     </nav>
-    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} inspectAgents={view === "agents"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
+    <Conversation {...{ run, act, busy, api, chatRequest, openMilestone }} onCoordinatorActivity={() => openActivity("coordinator")} expanded={view === "chat"} replyId={route.reply} inspectAgents={view === "agents"} onExpand={expandChat} onDock={() => lastView.current ? changeRoute(lastView.current, {reset:true}) : setTab("work")} />
     <div hidden={view !== "work"}>
     {run.detail && !landed && <div className="notice" role="status"><Markdown>{run.detail}</Markdown></div>}
     {run.question && run.state === "question" && <Question key={run.question} text={run.question} busy={busy} onAnswer={(text) => act({ kind: "answer", text })} />}
@@ -254,7 +258,7 @@ function RunView({ run, send, perform, busy, openRun, openInbox, settings, route
     {["experiment","work"].includes(view) && <ReleaseList {...{ run, act, busy }} />}
     {(experimentOpened || view === "experiment") && <div hidden={view !== "experiment"}><Experiment active={view === "experiment"} {...{ run, act, perform, api, busy, openRun, explain }} /></div>}
     <div hidden={view !== "work"} className="work-view">
-      <Milestones route={route} selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
+      <Milestones route={route} selected={selectedTask} setSelected={setSelectedTask} {...{run,api,act,busy,explain,openProposalReply}} question={task => <Question text={task.question} busy={busy} onAnswer={text => act({kind:"answer",text,task:task.id})} />}/>
     </div>
     </div>
   </section>;

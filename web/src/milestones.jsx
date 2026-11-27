@@ -14,7 +14,7 @@ import { Markdown } from "./markdown";
 import { MilestoneTime } from "./milestone-time";
 import { Status, pendingConversation, preparingMilestones } from "./status";
 import { canRetryMilestone, retryTokens, shortSummary } from "./run-summary";
-import { Proposal, RoutingEvidence } from "./conversation";
+import { RoutingEvidence } from "./conversation";
 import { AssignmentMap } from "./assignment-map";
 
 export function MilestoneDetails({ run, task, api, act, busy, explain, openMilestone, onClose, route }) {
@@ -164,24 +164,37 @@ function AssignmentFacts({ run, task, api, act, busy, openMilestone }) {
   );
 }
 
-function AddTask({ run, act, busy, onClose, openMilestone }) {
+function AddTask({ run, act, busy, request, onClose, onReply }) {
   const [error, setError] = useState("");
-  const [text, setText] = useState(""),
-    [request, setRequest] = useState(null),
-    [sending, setSending] = useState(false);
-  const message = run.conversation?.find((m) => m.request_id === request && request);
-  const reply = message && run.conversation.find((m) => m.reply_to === message.id);
-  const waiting = request && (!message || ["running", "queued"].includes(message.state));
-  async function create(e) {
-    e.preventDefault();
-    if (!text.trim() || sending) return;
+  const [draft, setDraft] = useState(null);
+  const [sending, setSending] = useState(false);
+  const message = request && run.conversation?.find(m => m.request_id === request);
+  const reply = message && run.conversation.find(m => m.reply_to === message.id);
+  const replyId = reply?.id;
+  const waiting = message?.state === "running" || message?.state === "queued";
+  const text = draft ?? message?.text ?? "";
+  const canSubmit = text.trim() && !busy && !sending && !waiting && !reply && !pendingConversation(run);
+  const problem = error || (!sending && message?.error);
+
+  useEffect(() => {
+    if (replyId) onReply(replyId);
+  }, [replyId, onReply]);
+
+  async function create(event) {
+    event.preventDefault();
+    if (!canSubmit) return;
     const id = crypto.randomUUID();
+    const origin = location.search;
     setSending(true);
     setError("");
-    if (await act({ kind: "propose-milestones", id, text })) setRequest(id);
-    else setError("Couldn’t request milestones. Check the run status and try again.");
+    const ok = await act({ kind: "propose-milestones", id, text });
     setSending(false);
+    // The request can finish after the user has dismissed the dialog.
+    if (location.search !== origin) return;
+    if (ok) changeRoute({proposalRequest: id}, {replace:true});
+    else setError("Couldn’t request milestones. Check the run status and try again.");
   }
+
   return (
     <Dialog title="Add task" onClose={onClose}>
       <form onSubmit={create} className="task-request">
@@ -190,44 +203,13 @@ function AddTask({ run, act, busy, onClose, openMilestone }) {
           id="task-request"
           rows={4}
           value={text}
-          readOnly={!!waiting}
-          onChange={(e) => setText(e.target.value)}
+          readOnly={sending || waiting}
+          onChange={(e) => setDraft(e.target.value)}
         />
-        {!reply?.tasks?.length && (
-          <Button
-            type="submit"
-            disabled={
-              !text.trim() ||
-              busy ||
-              sending ||
-              !!waiting ||
-              !!pendingConversation(run)
-            }
-          >
-            Create milestone(s)
-          </Button>
-        )}
+        <Button type="submit" disabled={!canSubmit}>Create milestone(s)</Button>
       </form>
       {(sending || waiting) && <p role="status">{preparingMilestones}</p>}
-      {error && <p role="alert">{error}</p>}
-      {message?.error && <p role="alert">{message.error}</p>}
-      {reply && (
-        <>
-          <Markdown>{reply.text}</Markdown>
-          {reply.error && <p role="alert">{reply.error}</p>}
-          {reply.tasks?.length > 0 && (
-            <Proposal
-              message={reply}
-              {...{ run, act, busy }}
-              onDecision={onClose}
-              openMilestone={(id) => {
-                onClose();
-                openMilestone(id);
-              }}
-            />
-          )}
-        </>
-      )}
+      {problem && <p role="alert">{problem}</p>}
     </Dialog>
   );
 }
@@ -243,11 +225,11 @@ const lanes = [
   ["Needs attention", ["blocked", "question", "interrupted"]],
   ["Done", ["committed", "abandoned", "superseded"]],
 ];
-export function Milestones({ route, run, api, act, busy, explain, question, selected, setSelected }) {
+export function Milestones({ route, run, api, act, busy, explain, question, selected, setSelected, openProposalReply }) {
   const view = views.some(([id]) => id === route.layout) ? route.layout : "table";
   const setView = layout => changeRoute({tab:"milestones", layout, milestone:null});
   const adding = route.tab === "milestones" && route.add === "task";
-  const setAdding = open => changeRoute({tab:"milestones", add:open ? "task" : null});
+  const setAdding = open => changeRoute({tab:"milestones", add:open ? "task" : null, proposalRequest:null});
   const earlier = route.earlier === "yes";
   const setEarlier = open => changeRoute({tab:"milestones", earlier:open ? "yes" : null});
   const all = run.tasks || [],
@@ -353,7 +335,7 @@ export function Milestones({ route, run, api, act, busy, explain, question, sele
       )}
       {view !== "map" && details()}
       {adding && (
-        <AddTask {...{ run, act, busy }} openMilestone={setSelected} onClose={() => setAdding(false)} />
+        <AddTask {...{ run, act, busy }} request={route.proposalRequest} onReply={openProposalReply} onClose={() => setAdding(false)} />
       )}
     </section>
   );
