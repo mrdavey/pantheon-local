@@ -100,6 +100,21 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
             &["export.txt", "ready"],
         );
     }
+    if prompt.contains("Count concurrent agents") {
+        return build(
+            vec![
+                milestone("parallel-first", "Write the first file.", Value::Null),
+                milestone("parallel-second", "Write the second file.", Value::Null),
+                task(
+                    "parallel-third",
+                    "Write the third file.",
+                    "writer-two",
+                    Value::Null,
+                ),
+            ],
+            &[],
+        );
+    }
     if prompt.contains("Delegate the report") {
         return build(
             vec![milestone(

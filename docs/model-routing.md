@@ -2,7 +2,7 @@
 
 ## Run a team
 
-New runs start with one coordinator and three workers. In **Team**, choose **Add agent**, pick a harness, set the model ID and thinking effort, and select **Add to pool**. You can add several workers using the same harness. To change one, open its **Settings** and choose **Apply to this agent**. The coordinator has its own model settings. Each worker in the pool owns work in the plan. Dependencies still determine which milestones can run concurrently. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
+New runs start with one coordinator and three workers. In **Team**, choose **Add agent**, pick a harness, set the model ID and thinking effort, and select **Add to pool**. You can add the same profile more than once and give each worker its own model and thinking effort. To change one, open its **Settings** and choose **Apply to this agent**. The coordinator has its own model settings. Each worker in the pool owns work in the plan. Dependencies still determine which milestones can run concurrently. Describe the outcome, how you’ll test it, and what you want to improve. For example, “Make quote search faster on our existing queries. Exact title matches must still rank first.”
 
 The coordinator asks before assigning work if a missing decision would change the implementation or its checks. Planning answers survive a restart or coordinator change. Workers can start independent milestones in parallel once planning is complete. Pantheon runs the coordinator’s checks automatically on the integrated work.
 
@@ -48,7 +48,7 @@ Supported classes are `implementation`, `debugging`, `testing`, `automation`, `d
 
 ## Monitor run usage
 
-Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. **Agents working** counts distinct agents with an active turn across the run, including coordinator turns. Usage can be filtered by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
+Open **Metrics** in a run to see token counts, estimated USD cost, and turns by agent and model. **Agents working** counts each active agent turn across the run, including coordinator turns and concurrent workers that share a profile. Usage can be filtered by time range, agent, model, or role. Switch between cumulative usage and usage per interval, or open **Chart data** for exact values. Pause live updates to inspect a point in time. The view refreshes every 2.5 seconds while a turn is active and the tab is open. An agent may report usage during a turn or only when it finishes.
 
 Costs use harness receipts where available. For supported Codex models, Pantheon estimates standard short-context API cost from input, cached input, and output tokens at published rates dated November 25, 2026. Subscription charges, tool fees, cache-write premiums, and service-tier adjustments are outside this estimate. Unreported costs and tokens are shown as unavailable. Older runs use saved turn receipts and their timestamps. [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)
 

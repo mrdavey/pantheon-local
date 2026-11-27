@@ -88,7 +88,7 @@ mod tests {
         let mut profiles = json!({"codex":{"kind":"codex","model":"original"},"codex-2":{"kind":"custom","executable":"test"},"ag":{"kind":"antigravity"}});
         let mut input = json!({"coordinator":"codex","min_workers":1,"coordinator_settings":{"model":"coordinator-only"},"worker_pool":[
             {"profile":"codex","model":"alpha","effort":"high"},{"profile":"codex","model":"beta","effort":"low"},
-            {"profile":"ag","model":"first"},{"profile":"ag","model":"second"}]});
+            {"profile":"ag","model":"first","effort":"medium"},{"profile":"ag","model":"second","effort":"high"}]});
         configure(&mut input, &mut profiles)?;
         assert_eq!(
             input["workers"],
@@ -99,7 +99,9 @@ mod tests {
         assert_eq!(profiles["codex-3"]["effort"], "high");
         assert_eq!(profiles["codex-4"]["model"], "beta");
         assert_eq!(profiles["ag"]["model"], "first");
+        assert_eq!(profiles["ag"]["effort"], "medium");
         assert_eq!(profiles["ag-2"]["model"], "second");
+        assert_eq!(profiles["ag-2"]["effort"], "high");
         assert!(
             configure(
                 &mut json!({"worker_pool":[{"profile":"missing"}]}),

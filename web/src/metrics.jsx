@@ -452,7 +452,7 @@ export function Metrics({ run, api }) {
     };
   }, [api, run.id, paused, terminal, retry, turnCount, working, run.state, run.pricing_revision]);
   const turns = data?.turns || [];
-  const workingAgents = new Set(turns.filter(turn => turn.state === "running").map(turn => turn.agent));
+  const workingAgents = turns.filter(turn => turn.state === "running").length;
   const team = [...new Set([run.input.coordinator, ...run.input.workers])].filter(Boolean);
   const roster = team
     .filter((id) => !turns.some((t) => t.agent === id))
@@ -583,10 +583,10 @@ export function Metrics({ run, api }) {
               ["Tokens used", format(summary.total.tokens ?? legacyTotal, "tokens")],
               ["Estimated cost (USD)", format(summary.total.usd, "usd")],
               ["Agent turns", summary.turns],
-              ["Agents working", workingAgents.size],
+              ["Agents working", workingAgents],
               ["Elapsed time", formatDuration(window.elapsed)],
             ].map(([label, value]) => (
-              <div key={label} title={label === "Agents working" ? "Agents with an active turn across this run" : undefined}>
+              <div key={label} title={label === "Agents working" ? "Active agent instances across this run" : undefined}>
                 <dt>{label}</dt>
                 <dd>{value}</dd>
               </div>

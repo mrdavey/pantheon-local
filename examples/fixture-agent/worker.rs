@@ -12,6 +12,19 @@ fn git(args: &[&str]) -> Result<String> {
 fn ask(message: &str) -> Value {
     json!({"status":"question","message":message})
 }
+fn wait_for_milestone_gate() -> Result<()> {
+    if let Some(gate) = env::var_os("SWARM_TEST_MILESTONE_GATE") {
+        let start = std::time::Instant::now();
+        while !Path::new(&gate).is_file() {
+            ensure!(
+                start.elapsed().as_secs() < 30,
+                "milestone timing gate timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    Ok(())
+}
 pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
     let id = prompt
         .lines()
@@ -62,16 +75,7 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         return Ok(json!({"status":"blocked","message":"cache missing"}));
     }
     if id == "recover-export" {
-        if let Some(gate) = env::var_os("SWARM_TEST_MILESTONE_GATE") {
-            let start = std::time::Instant::now();
-            while !Path::new(&gate).is_file() {
-                ensure!(
-                    start.elapsed().as_secs() < 30,
-                    "milestone timing gate timed out"
-                );
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-        }
+        wait_for_milestone_gate()?;
         fs::write("export.txt", "ready")?;
         return Ok(json!({"status":"blocked","message":"Cannot write Git metadata."}));
     }
@@ -139,6 +143,10 @@ pub(super) fn respond(prompt: &str, ctx: &Value) -> Result<Value> {
         _ if id.starts_with("section-") => {
             fs::create_dir_all("docs")?;
             (format!("docs/{id}.txt"), id.into())
+        }
+        _ if id.starts_with("parallel-") => {
+            wait_for_milestone_gate()?;
+            (format!("{id}.txt"), id.into())
         }
         _ => {
             let pair = match id {

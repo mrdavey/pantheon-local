@@ -1989,6 +1989,33 @@ fn run_metrics(h: &Harness) -> Result<()> {
 }
 scenario!(desktop_run_metrics, mobile_run_metrics, run_metrics);
 
+fn concurrent_agent_count(h: &Harness) -> Result<()> {
+    let goal = "Count concurrent agents";
+    let run = h.svc.post(
+        "/runs",
+        &json!({"path":h.repo("concurrent-agents")?,"prompt":goal,"coordinator":"first",
+            "workers":["writer","writer-two"],"delivery":"review"}),
+    )?;
+    let path = common::run_path(&run)?;
+    h.goto()?;
+    h.run_button(goal).click()?;
+    h.click("Metrics")?;
+    let count = "//dt[.='Agents working']/following-sibling::dd";
+    let three = h.b.xpath(&format!("{count}[.='3']"));
+    three.visible()?;
+    h.b.role("combobox", "Agent").select("writer-two")?;
+    three.visible()?;
+    fs::write(h.dir.path().join("milestone-gate"), "")?;
+    h.svc.wait_state(&path, "review")?;
+    h.b.xpath(&format!("{count}[.='0']")).visible()?;
+    h.no_overflow()
+}
+scenario!(
+    desktop_concurrent_agent_count,
+    mobile_concurrent_agent_count,
+    concurrent_agent_count
+);
+
 fn stacked_metrics(h: &Harness) -> Result<()> {
     let run = h.svc.post(
         "/runs",
